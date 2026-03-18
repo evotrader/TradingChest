@@ -27,9 +27,12 @@ import { Datafeed, SymbolInfo, Period, DatafeedSubscribeCallback, ChartProOption
 
 import './index.less'
 
+import tradeVisualization from './indicator/trade/tradeVisualization'
+
 overlays.forEach(o => { registerOverlay(o) })
 customIndicators.forEach(i => { registerIndicator(i) })
 chartTypes.forEach(ct => { registerIndicator(ct) })
+registerIndicator(tradeVisualization)
 
 // 新模块导出
 import { themePresets, getThemeByName } from './theme'

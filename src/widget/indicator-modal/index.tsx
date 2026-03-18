@@ -12,11 +12,13 @@
  * limitations under the License.
  */
 
-import { Component, createMemo } from 'solid-js'
+import { Component, createSignal, createMemo, For, Show } from 'solid-js'
 
-import { Modal, List, Checkbox } from '../../component'
+import { Modal, List, Checkbox, Input } from '../../component'
 
 import i18n from '../../i18n'
+
+import { indicatorCategories } from '../../indicator'
 
 type OnIndicatorChange = (
   params: {
@@ -35,54 +37,140 @@ export interface IndicatorModalProps {
   onClose: () => void
 }
 
+// 主图指标（叠加在蜡烛图上）
+const MAIN_INDICATORS = [
+  'MA', 'EMA', 'SMA', 'BOLL', 'SAR', 'BBI',
+  'DEMA', 'TEMA', 'WMA', 'HMA', 'KAMA', 'VWMA',
+  'ZLEMA', 'McGinley', 'Envelopes', 'T3',
+  'Ichimoku', 'Alligator', 'LinReg',
+  'KC', 'DC', 'PivotPoints'
+]
+
+// 副图指标（独立面板）
+const SUB_INDICATORS = [
+  'MA', 'EMA', 'VOL', 'MACD', 'BOLL', 'KDJ',
+  'RSI', 'BIAS', 'BRAR', 'CCI', 'DMI',
+  'CR', 'PSY', 'DMA', 'TRIX', 'OBV',
+  'VR', 'WR', 'MTM', 'EMV', 'SAR',
+  'SMA', 'ROC', 'PVT', 'BBI', 'AO',
+  // 新增指标
+  'ATR', 'SuperTrend',
+  'HV', 'STDDEV', 'CV', 'MI', 'UI', 'BBW',
+  'VWAP', 'MFI', 'CMF', 'AD', 'VROC', 'KVO', 'FI', 'ElderRay',
+  'StochRSI', 'ADX', 'Aroon', 'UltOsc', 'Fisher',
+  'Coppock', 'PPO', 'DPO', 'KST', 'TwiggsMF',
+  'ZigZag'
+]
+
+// 分类 Tab 列表
+const CATEGORY_KEYS = ['all', 'trend', 'volatility', 'volume', 'momentum', 'other'] as const
+
 const IndicatorModal: Component<IndicatorModalProps> = props => {
+  const [searchText, setSearchText] = createSignal('')
+  const [activeCategory, setActiveCategory] = createSignal<string>('all')
+
+  // 根据分类和搜索筛选指标
+  const filteredMainIndicators = createMemo(() => {
+    const search = searchText().toLowerCase()
+    const cat = activeCategory()
+    return MAIN_INDICATORS.filter(name => {
+      if (search && !name.toLowerCase().includes(search) && !i18n(name.toLowerCase(), props.locale).toLowerCase().includes(search)) {
+        return false
+      }
+      if (cat === 'all') return true
+      const category = indicatorCategories[cat]
+      return category?.names.includes(name) ?? false
+    })
+  })
+
+  const filteredSubIndicators = createMemo(() => {
+    const search = searchText().toLowerCase()
+    const cat = activeCategory()
+    return SUB_INDICATORS.filter(name => {
+      if (search && !name.toLowerCase().includes(search) && !i18n(name.toLowerCase(), props.locale).toLowerCase().includes(search)) {
+        return false
+      }
+      if (cat === 'all') return true
+      const category = indicatorCategories[cat]
+      return category?.names.includes(name) ?? false
+    })
+  })
+
+  const getCategoryLabel = (key: string): string => {
+    if (key === 'all') {
+      return props.locale === 'zh-CN' ? '全部' : 'All'
+    }
+    const cat = indicatorCategories[key]
+    return props.locale === 'zh-CN' ? cat?.label_zh ?? key : cat?.label_en ?? key
+  }
 
   return (
     <Modal
       title={i18n('indicator', props.locale)}
-      width={400}
+      width={480}
       onClose={props.onClose}>
+      {/* 搜索栏 */}
+      <div class="klinecharts-pro-indicator-modal-search">
+        <Input
+          placeholder={i18n('indicator_search', props.locale)}
+          value={searchText()}
+          onChange={setSearchText}
+        />
+      </div>
+      {/* 分类 Tab */}
+      <div class="klinecharts-pro-indicator-modal-tabs">
+        <For each={[...CATEGORY_KEYS]}>
+          {(key) => (
+            <span
+              class={`klinecharts-pro-indicator-modal-tab${activeCategory() === key ? ' active' : ''}`}
+              onClick={() => setActiveCategory(key)}>
+              {getCategoryLabel(key)}
+            </span>
+          )}
+        </For>
+      </div>
       <List
         class="klinecharts-pro-indicator-modal-list">
-        <li class="title">{i18n('main_indicator', props.locale)}</li>
-        {
-          [
-            'MA', 'EMA', 'SMA', 'BOLL', 'SAR', 'BBI'
-          ].map(name => {
-            const checked = props.mainIndicators.includes(name)
+        <Show when={filteredMainIndicators().length > 0}>
+          <li class="title">{i18n('main_indicator', props.locale)}</li>
+        </Show>
+        <For each={filteredMainIndicators()}>
+          {(name) => {
+            const checked = () => props.mainIndicators.includes(name)
             return (
               <li
                 class="row"
-                onClick={_ => {
-                  props.onMainIndicatorChange({ name, paneId: 'candle_pane', added: !checked })
+                onClick={() => {
+                  props.onMainIndicatorChange({ name, paneId: 'candle_pane', added: !checked() })
                 }}>
-                <Checkbox checked={checked} label={i18n(name.toLowerCase(), props.locale)}/>
+                <Checkbox checked={checked()} label={i18n(name.toLowerCase(), props.locale) || name}/>
               </li>
             )
-          })
-        }
-        <li class="title">{i18n('sub_indicator', props.locale)}</li>
-        {
-          [
-            'MA', 'EMA', 'VOL', 'MACD', 'BOLL', 'KDJ',
-            'RSI', 'BIAS', 'BRAR', 'CCI', 'DMI',
-            'CR', 'PSY', 'DMA', 'TRIX', 'OBV',
-            'VR', 'WR', 'MTM', 'EMV', 'SAR',
-            'SMA', 'ROC', 'PVT', 'BBI', 'AO'
-          ].map(name => {
-            const checked = name in props.subIndicators
+          }}
+        </For>
+        <Show when={filteredSubIndicators().length > 0}>
+          <li class="title">{i18n('sub_indicator', props.locale)}</li>
+        </Show>
+        <For each={filteredSubIndicators()}>
+          {(name) => {
+            const checked = () => name in props.subIndicators
             return (
               <li
                 class="row"
-                onClick={_ => {
+                onClick={() => {
                   // @ts-expect-error
-                  props.onSubIndicatorChange({ name, paneId: props.subIndicators[name] ?? '', added: !checked });
+                  props.onSubIndicatorChange({ name, paneId: props.subIndicators[name] ?? '', added: !checked() })
                 }}>
-                <Checkbox checked={checked} label={i18n(name.toLowerCase(), props.locale)}/>
+                <Checkbox checked={checked()} label={i18n(name.toLowerCase(), props.locale) || name}/>
               </li>
             )
-          })
-        }
+          }}
+        </For>
+        <Show when={filteredMainIndicators().length === 0 && filteredSubIndicators().length === 0}>
+          <li class="klinecharts-pro-indicator-modal-empty">
+            {i18n('no_indicators_found', props.locale)}
+          </li>
+        </Show>
       </List>
     </Modal>
   )

@@ -20,6 +20,9 @@ import ChartProComponent from './ChartProComponent'
 
 import { SymbolInfo, Period, ChartPro, ChartProOptions } from './types'
 
+import KeyboardShortcutManager from './shortcut'
+import { exportToCSV, exportAllToCSV, exportScreenshot } from './export'
+
 const Logo = (
   <svg class="logo" viewBox="0 0 80 92">
     <path d="M28.148808359375,51.7280513671875L22.963588359375,51.7280513671875C21.572648359375002,51.7280513671875,20.445068359375,52.6220613671875,20.445068359375,53.7248813671875L20.445068359375,72.3979013671875C20.445068359375,73.5007013671875,21.572648359375002,74.39470136718751,22.963588359375,74.39470136718751L33.926568359375,74.39470136718751C35.317468359375,74.39470136718751,36.445068359375,73.5007013671875,36.445068359375,72.3979013671875L36.445068359375,53.7248813671875C36.445068359375,52.6220613671875,35.317468359375,51.7280513671875,33.926568359375,51.7280513671875L28.741398359374998,51.7280513671875L28.741398359374998,46.2963223671875C28.741398359374998,46.1665793671875,28.608748359375,46.0614013671875,28.445108359375,46.0614013671875C28.281468359375,46.0614013671875,28.148808359375,46.1665793671875,28.148808359375,46.2963223671875L28.148808359375,51.7280513671875ZM28.741398359374998,74.3948013671875L28.741398359374998,79.82650136718749C28.741398359374998,79.9563013671875,28.608748359375,80.0614013671875,28.445108359375,80.0614013671875C28.281468359375,80.0614013671875,28.148808359375,79.9563013671875,28.148808359375,79.82650136718749L28.148808359375,74.3948013671875L28.741398359374998,74.3948013671875Z" />
@@ -73,11 +76,36 @@ export default class KLineChartPro implements ChartPro {
       ),
       this._container
     )
+
+    // 初始化快捷键管理器
+    this._shortcutManager = new KeyboardShortcutManager()
+    this._shortcutManager.registerActions({
+      'nav:scrollToEnd': () => { this.getChart()?.scrollToRealTime() },
+      'nav:zoomIn': () => {
+        const chart = this.getChart()
+        if (chart) {
+          const size = chart.getSize()
+          chart.zoomAtCoordinate(1.2, { x: size?.width ? size.width / 2 : 400, y: 0 })
+        }
+      },
+      'nav:zoomOut': () => {
+        const chart = this.getChart()
+        if (chart) {
+          const size = chart.getSize()
+          chart.zoomAtCoordinate(0.8, { x: size?.width ? size.width / 2 : 400, y: 0 })
+        }
+      },
+      'chart:screenshot': () => { this.exportScreenshot() },
+      'chart:cancelDraw': () => { this.getChart()?.removeOverlay() },
+    })
+    this._shortcutManager.bindTo(this._container!)
   }
 
   private _container: Nullable<HTMLElement>
 
   private _chartApi: Nullable<ChartPro> = null
+
+  private _shortcutManager: KeyboardShortcutManager
 
 
   setTheme (theme: string): void {
@@ -131,5 +159,21 @@ export default class KLineChartPro implements ChartPro {
 
   getChart () {
     return this._chartApi!.getChart()
+  }
+
+  exportCSV (filename?: string): void {
+    exportToCSV(this.getChart(), filename)
+  }
+
+  exportAllCSV (filename?: string): void {
+    exportAllToCSV(this.getChart(), filename)
+  }
+
+  exportScreenshot (options?: { format?: 'png' | 'jpeg', backgroundColor?: string, filename?: string }): void {
+    exportScreenshot(this.getChart(), options)
+  }
+
+  getShortcutManager (): KeyboardShortcutManager {
+    return this._shortcutManager
   }
 }

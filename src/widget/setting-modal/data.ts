@@ -26,7 +26,9 @@ export function getOptions (locale: string) {
         { key: 'candle_up_stroke', text: i18n('candle_up_stroke', locale) },
         { key: 'candle_down_stroke', text: i18n('candle_down_stroke', locale) },
         { key: 'ohlc', text: i18n('ohlc', locale) },
-        { key: 'area', text: i18n('area', locale) }
+        { key: 'area', text: i18n('area', locale) },
+        { key: 'heikin_ashi', text: i18n('heikin_ashi', locale) },
+        { key: 'baseline', text: i18n('baseline', locale) }
       ]
     },
     {

@@ -12,9 +12,11 @@
  * limitations under the License.
  */
 
-import { registerOverlay } from 'klinecharts'
+import { registerOverlay, registerIndicator } from 'klinecharts'
 
 import overlays from './extension'
+import customIndicators from './indicator'
+import chartTypes from './chartType'
 
 import DefaultDatafeed from './DefaultDatafeed'
 import KLineChartPro from './KLineChartPro'
@@ -26,13 +28,42 @@ import { Datafeed, SymbolInfo, Period, DatafeedSubscribeCallback, ChartProOption
 import './index.less'
 
 overlays.forEach(o => { registerOverlay(o) })
+customIndicators.forEach(i => { registerIndicator(i) })
+chartTypes.forEach(ct => { registerIndicator(ct) })
+
+// 新模块导出
+import { themePresets, getThemeByName } from './theme'
+import { exportToCSV, exportAllToCSV, exportScreenshot } from './export'
+import { saveLayout, loadLayout, deleteLayout, listLayouts } from './persistence'
+import KeyboardShortcutManager from './shortcut'
+import { indicatorCategories } from './indicator'
 
 export {
   DefaultDatafeed,
   KLineChartPro,
-  load as loadLocales
+  load as loadLocales,
+  // 主题
+  themePresets,
+  getThemeByName,
+  // 数据导出
+  exportToCSV,
+  exportAllToCSV,
+  exportScreenshot,
+  // 布局持久化
+  saveLayout,
+  loadLayout,
+  deleteLayout,
+  listLayouts,
+  // 快捷键
+  KeyboardShortcutManager,
+  // 指标分类
+  indicatorCategories
 }
 
 export type {
   Datafeed, SymbolInfo, Period, DatafeedSubscribeCallback, ChartProOptions, ChartPro
 }
+
+export type { ThemePreset } from './theme'
+export type { ChartLayout } from './persistence'
+export type { ShortcutBinding } from './shortcut'

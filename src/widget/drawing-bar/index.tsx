@@ -20,6 +20,7 @@ import { List } from '../../component'
 import {
   createSingleLineOptions, createMoreLineOptions,
   createPolygonOptions, createFibonacciOptions, createWaveOptions,
+  createMeasurementOptions, createChannelOptions, createAnnotationOptions, createPositionOptions,
   createMagnetOptions,
   Icon
 } from './icons'
@@ -41,6 +42,10 @@ const DrawingBar: Component<DrawingBarProps> = props => {
   const [polygonIcon, setPolygonIcon] = createSignal('circle')
   const [fibonacciIcon, setFibonacciIcon] = createSignal('fibonacciLine')
   const [waveIcon, setWaveIcon] = createSignal('xabcd')
+  const [measurementIcon, setMeasurementIcon] = createSignal('dateAndPriceRange')
+  const [channelIcon, setChannelIcon] = createSignal('pitchfork')
+  const [annotationIcon, setAnnotationIcon] = createSignal('textAnnotation')
+  const [positionIcon, setPositionIcon] = createSignal('longPosition')
 
   const [modeIcon, setModeIcon] = createSignal('weak_magnet')
   const [mode, setMode] = createSignal('normal')
@@ -57,7 +62,11 @@ const DrawingBar: Component<DrawingBarProps> = props => {
       { key: 'moreLine', icon: moreLineIcon(), list: createMoreLineOptions(props.locale), setter: setMoreLineIcon },
       { key: 'polygon', icon: polygonIcon(), list: createPolygonOptions(props.locale), setter: setPolygonIcon },
       { key: 'fibonacci', icon: fibonacciIcon(), list: createFibonacciOptions(props.locale), setter: setFibonacciIcon },
-      { key: 'wave', icon: waveIcon(), list: createWaveOptions(props.locale), setter: setWaveIcon }
+      { key: 'wave', icon: waveIcon(), list: createWaveOptions(props.locale), setter: setWaveIcon },
+      { key: 'measurement', icon: measurementIcon(), list: createMeasurementOptions(props.locale), setter: setMeasurementIcon },
+      { key: 'channel', icon: channelIcon(), list: createChannelOptions(props.locale), setter: setChannelIcon },
+      { key: 'annotation', icon: annotationIcon(), list: createAnnotationOptions(props.locale), setter: setAnnotationIcon },
+      { key: 'position', icon: positionIcon(), list: createPositionOptions(props.locale), setter: setPositionIcon }
     ]
   })
 

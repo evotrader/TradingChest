@@ -13,6 +13,7 @@
  */
 
 import { KLineData, Styles, DeepPartial } from 'klinecharts'
+import type KeyboardShortcutManager from './shortcut'
 
 export interface SymbolInfo {
   ticker: string
@@ -73,4 +74,12 @@ export interface ChartPro {
   getPeriod(): Period
   /** 获取内部 klinecharts Chart 实例，用于自定义 overlay 操作 */
   getChart(): import('klinecharts').Nullable<import('klinecharts').Chart>
+  /** 导出可见区间数据为 CSV */
+  exportCSV(filename?: string): void
+  /** 导出全部数据为 CSV */
+  exportAllCSV(filename?: string): void
+  /** 导出截图 */
+  exportScreenshot(options?: { format?: 'png' | 'jpeg', backgroundColor?: string, filename?: string }): void
+  /** 获取快捷键管理器 */
+  getShortcutManager(): KeyboardShortcutManager | null
 }

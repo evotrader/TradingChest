@@ -44,6 +44,19 @@ import eightWaves from './eightWaves'
 import anyWaves from './anyWaves'
 import abcd from './abcd'
 import xabcd from './xabcd'
+import pitchfork from './pitchfork'
+import schiffPitchfork from './schiffPitchfork'
+import regressionTrend from './regressionTrend'
+import regressionChannel from './regressionChannel'
+import priceRange from './priceRange'
+import dateRange from './dateRange'
+import dateAndPriceRange from './dateAndPriceRange'
+import textAnnotation from './textAnnotation'
+import callout from './callout'
+import brush from './brush'
+import longPosition from './longPosition'
+import shortPosition from './shortPosition'
+import note from './note'
 
 import weakMagnet from './weakMagnet'
 import strongMagnet from './strongMagnet'
@@ -91,6 +104,19 @@ export const mapping = {
   anyWaves,
   abcd,
   xabcd,
+  pitchfork,
+  schiffPitchfork,
+  regressionTrend,
+  regressionChannel,
+  priceRange,
+  dateRange,
+  dateAndPriceRange,
+  textAnnotation,
+  callout,
+  brush,
+  longPosition,
+  shortPosition,
+  note,
   weak_magnet: weakMagnet,
   strong_magnet: strongMagnet,
   lock,
@@ -152,6 +178,39 @@ export function createWaveOptions (locale: string): SelectDataSourceItem[] {
     { key: 'fiveWaves', text: i18n('five_waves', locale) },
     { key: 'eightWaves', text: i18n('eight_waves', locale) },
     { key: 'anyWaves', text: i18n('any_waves', locale) },
+  ]
+}
+
+export function createMeasurementOptions (locale: string): SelectDataSourceItem[] {
+  return [
+    { key: 'priceRange', text: i18n('price_range', locale) },
+    { key: 'dateRange', text: i18n('date_range', locale) },
+    { key: 'dateAndPriceRange', text: i18n('date_and_price_range', locale) }
+  ]
+}
+
+export function createChannelOptions (locale: string): SelectDataSourceItem[] {
+  return [
+    { key: 'pitchfork', text: i18n('pitchfork', locale) },
+    { key: 'schiffPitchfork', text: i18n('schiff_pitchfork', locale) },
+    { key: 'regressionTrend', text: i18n('regression_trend', locale) },
+    { key: 'regressionChannel', text: i18n('regression_channel', locale) }
+  ]
+}
+
+export function createAnnotationOptions (locale: string): SelectDataSourceItem[] {
+  return [
+    { key: 'textAnnotation', text: i18n('text_annotation', locale) },
+    { key: 'callout', text: i18n('callout', locale) },
+    { key: 'note', text: i18n('note', locale) },
+    { key: 'brush', text: i18n('brush', locale) }
+  ]
+}
+
+export function createPositionOptions (locale: string): SelectDataSourceItem[] {
+  return [
+    { key: 'longPosition', text: i18n('long_position', locale) },
+    { key: 'shortPosition', text: i18n('short_position', locale) }
   ]
 }
 

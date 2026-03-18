@@ -114,7 +114,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     getSymbol: () => symbol(),
     setPeriod,
     getPeriod: () => period(),
-    getChart: () => widget
+    getChart: () => widget,
+    exportCSV: () => {},
+    exportAllCSV: () => {},
+    exportScreenshot: () => {},
+    getShortcutManager: () => null
   })
 
   const documentResize = () => {

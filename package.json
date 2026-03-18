@@ -1,5 +1,5 @@
 {
-  "name": "@evotrader/trading-chest",
+  "name": "trading-chest",
   "version": "0.3.0",
   "description": "Professional trading chart for EvoTrader, based on KLineChart.",
   "type": "module",

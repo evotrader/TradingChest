@@ -29,6 +29,7 @@ import brush from './brush'
 import longPosition from './longPosition'
 import shortPosition from './shortPosition'
 import note from './note'
+import positionRange from './positionRange'
 
 const overlays = [
   arrow,
@@ -38,7 +39,8 @@ const overlays = [
   threeWaves, fiveWaves, eightWaves, anyWaves, abcd, xabcd,
   priceRange, dateRange, dateAndPriceRange,
   pitchfork, schiffPitchfork, regressionTrend, regressionChannel,
-  textAnnotation, callout, brush, longPosition, shortPosition, note
+  textAnnotation, callout, brush, longPosition, shortPosition, note,
+  positionRange
 ]
 
 export default overlays

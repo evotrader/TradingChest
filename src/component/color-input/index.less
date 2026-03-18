@@ -1,0 +1,26 @@
+@import (reference) '../../base.less';
+
+.@{prefix-cls}-color-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+
+  input[type="color"] {
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--klinecharts-pro-border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 2px;
+    background: transparent;
+
+    &::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+    &::-webkit-color-swatch {
+      border: none;
+      border-radius: 2px;
+    }
+  }
+}

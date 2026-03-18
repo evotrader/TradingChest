@@ -12,18 +12,24 @@
  * limitations under the License.
  */
 
-import Button from './button'
-import Checkbox from './checkbox'
-import ColorInput from './color-input'
-import List from './list'
-import Modal from './modal'
-import Select, { SelectDataSourceItem } from './select'
-import Input from './input'
-import Loading from './loading'
-import Switch from './switch'
+import { Component } from 'solid-js'
 
-export {
-  Button, Checkbox, ColorInput, List, Modal, Select, Input, Loading, Switch
+export interface ColorInputProps {
+  value: string
+  onChange: (color: string) => void
 }
 
-export type { SelectDataSourceItem }
+const ColorInput: Component<ColorInputProps> = props => {
+  return (
+    <div class="klinecharts-pro-color-input">
+      <input
+        type="color"
+        value={props.value}
+        onInput={(e) => props.onChange((e.target as HTMLInputElement).value)}
+      />
+      <span class="klinecharts-pro-color-input-preview" style={{ 'background-color': props.value }} />
+    </div>
+  )
+}
+
+export default ColorInput

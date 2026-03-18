@@ -122,6 +122,12 @@
   "tooltip_rect": "Rect",
   "restore_default": "Restore Defaults",
 
+  "group_candle": "Candle",
+  "group_axis": "Axis",
+  "group_grid_crosshair": "Grid & Crosshair",
+  "candle_up_color": "Up Color",
+  "candle_down_color": "Down Color",
+
   "atr": "ATR(Average True Range)",
   "supertrend": "SuperTrend",
   "ichimoku": "Ichimoku Cloud",

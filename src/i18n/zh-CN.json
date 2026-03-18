@@ -129,6 +129,12 @@
   "tooltip_rect": "矩形",
   "restore_default": "恢复默认",
 
+  "group_candle": "蜡烛图",
+  "group_axis": "坐标轴",
+  "group_grid_crosshair": "网格与光标",
+  "candle_up_color": "涨色",
+  "candle_down_color": "跌色",
+
   "atr": "ATR(平均真实波幅)",
   "supertrend": "SuperTrend(超级趋势)",
   "ichimoku": "Ichimoku(一目均衡图)",

@@ -71,4 +71,6 @@ export interface ChartPro {
   getSymbol(): SymbolInfo
   setPeriod(period: Period): void
   getPeriod(): Period
+  /** 获取内部 klinecharts Chart 实例，用于自定义 overlay 操作 */
+  getChart(): import('klinecharts').Nullable<import('klinecharts').Chart>
 }

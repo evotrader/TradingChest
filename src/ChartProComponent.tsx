@@ -26,7 +26,7 @@ import { SelectDataSourceItem, Loading } from './component'
 
 import {
   PeriodBar, DrawingBar, IndicatorModal, TimezoneModal, SettingModal,
-  ScreenshotModal, IndicatorSettingModal, SymbolSearchModal
+  ScreenshotModal, IndicatorSettingModal, SymbolSearchModal, OverlayPropertyBar
 } from './widget'
 
 import { translateTimezone } from './widget/timezone-modal/data'
@@ -100,6 +100,12 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const [indicatorSettingModalParams, setIndicatorSettingModalParams] = createSignal({
     visible: false, indicatorName: '', paneId: '', calcParams: [] as Array<any>
   })
+
+  // 绘图 overlay 选中状态（浮动属性工具栏）
+  const [selectedOverlay, setSelectedOverlay] = createSignal<{
+    id: string, x: number, y: number,
+    color: string, lineWidth: number, lineStyle: string, locked: boolean
+  } | null>(null)
 
   props.ref({
     setTheme,
@@ -294,6 +300,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           }
         }
       }
+    })
+    // 点击蜡烛区域时清除 overlay 选中状态
+    widget?.subscribeAction(ActionType.OnCandleBarClick, () => {
+      setSelectedOverlay(null)
     })
   })
 
@@ -564,7 +574,44 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         <Show when={drawingBarVisible()}>
           <DrawingBar
             locale={props.locale}
-            onDrawingItemClick={overlay => { widget?.createOverlay(overlay) }}
+            onDrawingItemClick={overlay => {
+              const id = widget?.createOverlay({
+                ...overlay,
+                onSelected: (event) => {
+                  // overlay 被选中时显示浮动属性工具栏
+                  const { overlay: ov } = event
+                  if (ov.id) {
+                    const el = widgetRef
+                    const rect = el?.getBoundingClientRect()
+                    // 使用第一个锚点的坐标定位工具栏
+                    const points = ov.points ?? []
+                    let x = 0, y = 0
+                    if (points.length > 0 && widget) {
+                      const pixel = widget.convertToPixel(
+                        { timestamp: points[0].timestamp, value: points[0].value },
+                        { paneId: 'candle_pane' }
+                      ) as any
+                      x = (pixel?.x ?? 200) + 52 // offset for drawing bar width
+                      y = (pixel?.y ?? 100) - 50 // above the point
+                    }
+                    setSelectedOverlay({
+                      id: ov.id,
+                      x: Math.max(100, x),
+                      y: Math.max(10, y),
+                      color: '#1677ff',
+                      lineWidth: 1,
+                      lineStyle: 'solid',
+                      locked: ov.lock ?? false
+                    })
+                  }
+                  return true
+                },
+                onDeselected: () => {
+                  setSelectedOverlay(null)
+                  return true
+                }
+              })
+            }}
             onModeChange={mode => { widget?.overrideOverlay({ mode: mode as OverlayMode }) }}
             onLockChange={lock => { widget?.overrideOverlay({ lock }) }}
             onVisibleChange={visible => { widget?.overrideOverlay({ visible }) }}
@@ -574,6 +621,53 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           ref={widgetRef}
           class='klinecharts-pro-widget'
           data-drawing-bar-visible={drawingBarVisible()}/>
+        {/* 绘图 overlay 浮动属性工具栏 */}
+        <OverlayPropertyBar
+          locale={props.locale}
+          visible={selectedOverlay() !== null}
+          position={{ x: selectedOverlay()?.x ?? 0, y: selectedOverlay()?.y ?? 0 }}
+          overlayId={selectedOverlay()?.id ?? ''}
+          currentColor={selectedOverlay()?.color ?? '#1677ff'}
+          currentLineWidth={selectedOverlay()?.lineWidth ?? 1}
+          currentLineStyle={selectedOverlay()?.lineStyle ?? 'solid'}
+          locked={selectedOverlay()?.locked ?? false}
+          onColorChange={(color) => {
+            const info = selectedOverlay()
+            if (info && widget) {
+              widget.overrideOverlay({ id: info.id, styles: { line: { color }, point: { color } } })
+              setSelectedOverlay({ ...info, color })
+            }
+          }}
+          onLineWidthChange={(width) => {
+            const info = selectedOverlay()
+            if (info && widget) {
+              widget.overrideOverlay({ id: info.id, styles: { line: { size: width } } })
+              setSelectedOverlay({ ...info, lineWidth: width })
+            }
+          }}
+          onLineStyleChange={(style) => {
+            const info = selectedOverlay()
+            if (info && widget) {
+              widget.overrideOverlay({ id: info.id, styles: { line: { style: style as any } } })
+              setSelectedOverlay({ ...info, lineStyle: style })
+            }
+          }}
+          onLockChange={(locked) => {
+            const info = selectedOverlay()
+            if (info && widget) {
+              widget.overrideOverlay({ id: info.id, lock: locked })
+              setSelectedOverlay({ ...info, locked })
+            }
+          }}
+          onDelete={() => {
+            const info = selectedOverlay()
+            if (info && widget) {
+              widget.removeOverlay({ id: info.id })
+              setSelectedOverlay(null)
+            }
+          }}
+          onClose={() => setSelectedOverlay(null)}
+        />
       </div>
     </>
   )

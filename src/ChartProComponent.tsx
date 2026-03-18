@@ -301,23 +301,25 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         }
       }
     })
-    // 点击蜡烛区域：清除 overlay 选中状态 + 检测指标图形点击
-    widget?.subscribeAction(ActionType.OnCandleBarClick, (data) => {
+    // 点击蜡烛区域时清除 overlay 选中状态
+    widget?.subscribeAction(ActionType.OnCandleBarClick, () => {
       setSelectedOverlay(null)
+    })
 
-      // 检测指标图形点击（通过 draw 回调暴露的 __tradeVisHitTargets）
-      // OnCandleBarClick data 包含 {x, y, ...} 或 {dataIndex, ...}
-      // 先用 console.log 确认结构
-      console.log('[ChartPro] OnCandleBarClick data keys:', data ? Object.keys(data) : 'null')
-      if (props.onIndicatorClick && data) {
-        const clickX = data.x ?? data.coordinate?.x
-        const clickY = data.y ?? data.coordinate?.y
-        if (clickX == null || clickY == null) return
+    // 指标图形点击检测：直接在 widget DOM 上注册原生 click（不依赖 OnCandleBarClick）
+    // OnCandleBarClick 只在点击蜡烛时触发，标签在蜡烛上方所以接收不到
+    if (widgetRef) {
+      const indicatorClickHandler = (e: MouseEvent) => {
+        if (!props.onIndicatorClick) return
+        const rect = widgetRef!.getBoundingClientRect()
+        const clickX = e.clientX - rect.left
+        const clickY = e.clientY - rect.top
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const hitTargets: Array<{ x: number; y: number; trade: any; type: string }> =
           (globalThis as any).__tradeVisHitTargets ?? []
 
-        const HIT_RADIUS = 50
+        const HIT_RADIUS = 40
         let closest: { x: number; y: number; trade: any; type: string } | null = null
         let minDist = Infinity
 
@@ -340,7 +342,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           })
         }
       }
-    })
+      widgetRef.addEventListener('click', indicatorClickHandler, true)
+    }
   })
 
   onCleanup(() => {

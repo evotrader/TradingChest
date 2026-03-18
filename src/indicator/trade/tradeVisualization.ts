@@ -148,14 +148,18 @@ const tradeVisualization: IndicatorTemplate = {
 }
 
 function drawLabel(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, color: string) {
-  // 小三角
-  ctx.fillStyle = color
+  // 标签在数据点上方，偏移足够大避免遮挡 K 线
+  const offset = 35 // 标签底部距数据点的像素距离
+
+  // 连接线（数据点到标签）
+  ctx.strokeStyle = color
+  ctx.lineWidth = 1
+  ctx.setLineDash([2, 2])
   ctx.beginPath()
   ctx.moveTo(x, y)
-  ctx.lineTo(x - 4, y - 7)
-  ctx.lineTo(x + 4, y - 7)
-  ctx.closePath()
-  ctx.fill()
+  ctx.lineTo(x, y - offset + 5)
+  ctx.stroke()
+  ctx.setLineDash([])
 
   // 标签
   ctx.font = '11px sans-serif'
@@ -163,7 +167,7 @@ function drawLabel(ctx: CanvasRenderingContext2D, x: number, y: number, text: st
   const w = tw + 10
   const h = 18
   const lx = x - w / 2
-  const ly = y - 7 - h - 2
+  const ly = y - offset - h
   const r = 3
 
   ctx.fillStyle = color

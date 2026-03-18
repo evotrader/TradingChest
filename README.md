@@ -4,7 +4,7 @@
 
 <div align="center">
 
-[![Version](https://badgen.net/badge/version/0.3.0/blue)](package.json)
+[![Version](https://badgen.net/npm/v/trading-chest)](https://www.npmjs.com/package/trading-chest)
 [![Typescript](https://badgen.net/badge/types/TypeScript/blue)](dist/index.d.ts)
 [![LICENSE](https://badgen.net/badge/license/Apache-2.0/green)](LICENSE)
 
@@ -39,6 +39,11 @@
 
 - 所有工具支持 hover tooltip 提示
 - 文字类工具支持输入文字 + 右键编辑
+- **选中绘图后弹出浮动属性工具栏**（对标 TradingView）：
+  - TradingView 风格 9×8 调色板（72 色）
+  - 线宽选择器（1-4px 可视化预览）
+  - 线型选择器（实线/虚线/点线）
+  - 锁定/删除快捷按钮
 
 ### 图表类型（8 种）
 蜡烛实心、蜡烛空心、涨空心、跌空心、OHLC、面积图、**Heikin Ashi**、**Baseline**
@@ -63,7 +68,7 @@
 ## 安装 / Install
 
 ```bash
-npm install @evotrader/trading-chest
+npm install trading-chest
 ```
 
 **Peer Dependency:**
@@ -74,8 +79,8 @@ npm install klinecharts
 ## 使用 / Usage
 
 ```typescript
-import { KLineChartPro } from '@evotrader/trading-chest'
-import '@evotrader/trading-chest/dist/trading-chest.css'
+import { KLineChartPro } from 'trading-chest'
+import 'trading-chest/dist/trading-chest.css'
 
 const chart = new KLineChartPro({
   container: document.getElementById('chart'),
@@ -165,7 +170,7 @@ import {
 
   // 指标分类
   indicatorCategories,
-} from '@evotrader/trading-chest'
+} from 'trading-chest'
 ```
 
 ## 技术栈 / Tech Stack
@@ -189,9 +194,9 @@ npm run build
 ```
 
 构建产物:
-- `dist/trading-chest.js` — ES Module (~310KB)
-- `dist/trading-chest.umd.js` — UMD (~240KB)
-- `dist/trading-chest.css` — 样式 (~39KB)
+- `dist/trading-chest.js` — ES Module (~325KB)
+- `dist/trading-chest.umd.js` — UMD (~249KB)
+- `dist/trading-chest.css` — 样式 (~42KB)
 - `dist/index.d.ts` — TypeScript 声明
 
 ## 源自 / Based On
@@ -199,6 +204,7 @@ npm run build
 Fork 自 [KLineChart Pro](https://github.com/klinecharts/pro)，在此基础上大幅扩展：
 - 新增 45+ 自定义技术指标
 - 新增 13+ 绘图工具（测量、标注、交易持仓可视化）
+- 新增绘图选中后浮动属性工具栏（调色板、线宽、线型、锁定、删除）
 - 新增键盘快捷键系统、主题预设、数据导出、布局持久化
 - 指标面板分类搜索、设置面板分组 + 颜色选择器
 - 暴露 `getChart()` API 用于自定义 overlay 操作

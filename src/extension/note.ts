@@ -1,8 +1,7 @@
 /**
  * 便签覆盖工具
- * 单击放置一个便签风格的矩形文本框
- * 黄色背景、黑色文字，模拟实体便签效果
- * 文字内容通过 overlay.extendData 传入，默认显示 'Note'
+ * 单击放置一个黄色便签风格的文字标签
+ * 绘制完成后弹出输入框让用户编辑文字内容
  */
 
 import { OverlayTemplate } from 'klinecharts'
@@ -15,7 +14,6 @@ const note: OverlayTemplate = {
   needDefaultYAxisFigure: true,
   createPointFigures: ({ coordinates, overlay }) => {
     if (coordinates.length > 0) {
-      // 从 extendData 获取文字内容，默认 'Note'
       const text = (overlay.extendData as string) || 'Note'
       return [
         {
@@ -44,6 +42,20 @@ const note: OverlayTemplate = {
       ]
     }
     return []
+  },
+  onDrawEnd: ({ overlay }) => {
+    const input = window.prompt('输入便签内容 / Enter note:', (overlay.extendData as string) || 'Note')
+    if (input !== null && input.trim() !== '') {
+      overlay.extendData = input.trim()
+    }
+    return true
+  },
+  onRightClick: ({ overlay }) => {
+    const input = window.prompt('编辑便签内容 / Edit note:', (overlay.extendData as string) || '')
+    if (input !== null && input.trim() !== '') {
+      overlay.extendData = input.trim()
+    }
+    return true
   }
 }
 

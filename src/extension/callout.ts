@@ -1,8 +1,7 @@
 /**
  * 标注气泡覆盖工具
- * 两次点击：第一次确定锚点，第二次确定文字位置
- * 绘制一条从锚点到文字位置的连线，并在文字位置显示带背景的文本框
- * 文字内容通过 overlay.extendData 传入，默认显示 'Note'
+ * 两次点击：锚点 + 文字位置
+ * 绘制完成后弹出输入框让用户编辑文字内容
  */
 
 import { OverlayTemplate } from 'klinecharts'
@@ -15,17 +14,14 @@ const callout: OverlayTemplate = {
   needDefaultYAxisFigure: true,
   createPointFigures: ({ coordinates, overlay }) => {
     if (coordinates.length > 1) {
-      // 从 extendData 获取文字内容，默认 'Note'
       const text = (overlay.extendData as string) || 'Note'
       return [
-        // 锚点到文字位置的连线
         {
           type: 'line',
           attrs: {
             coordinates: [coordinates[0], coordinates[1]]
           }
         },
-        // 锚点处的小圆点
         {
           type: 'circle',
           ignoreEvent: true,
@@ -39,7 +35,6 @@ const callout: OverlayTemplate = {
             color: '#1677FF'
           }
         },
-        // 文字位置的文本框
         {
           type: 'rectText',
           attrs: {
@@ -66,6 +61,20 @@ const callout: OverlayTemplate = {
       ]
     }
     return []
+  },
+  onDrawEnd: ({ overlay }) => {
+    const input = window.prompt('输入标注文字 / Enter text:', (overlay.extendData as string) || 'Note')
+    if (input !== null && input.trim() !== '') {
+      overlay.extendData = input.trim()
+    }
+    return true
+  },
+  onRightClick: ({ overlay }) => {
+    const input = window.prompt('编辑标注文字 / Edit text:', (overlay.extendData as string) || '')
+    if (input !== null && input.trim() !== '') {
+      overlay.extendData = input.trim()
+    }
+    return true
   }
 }
 

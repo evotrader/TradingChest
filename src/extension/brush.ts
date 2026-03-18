@@ -1,15 +1,15 @@
 /**
  * 自由画笔覆盖工具
- * 多点连线模式：用户连续点击添加点，双击或 Escape 结束绘制
- * totalStep 设为极大值，依赖用户主动结束绘制
- * 将所有坐标点依次连线，形成自由绘制效果
+ * 使用多点线段模式：用户连续点击添加点
+ * klinecharts overlay 不支持真正的拖拽绘制模式，
+ * 因此使用多点线段实现近似效果
  */
 
 import { OverlayTemplate } from 'klinecharts'
 
 const brush: OverlayTemplate = {
   name: 'brush',
-  totalStep: 1000,
+  totalStep: 100,  // 最多100个点，实际通过右键结束
   needDefaultPointFigure: false,
   needDefaultXAxisFigure: false,
   needDefaultYAxisFigure: false,
@@ -17,17 +17,18 @@ const brush: OverlayTemplate = {
     if (coordinates.length < 2) {
       return []
     }
-    // 将相邻坐标点两两配对，生成线段数组
-    const lineSegments = []
-    for (let i = 0; i < coordinates.length - 1; i++) {
-      lineSegments.push({
-        coordinates: [coordinates[i], coordinates[i + 1]]
-      })
-    }
+    // 将所有点连成一条连续线
     return [
       {
         type: 'line',
-        attrs: lineSegments
+        attrs: {
+          coordinates: coordinates
+        },
+        styles: {
+          style: 'solid',
+          size: 2,
+          color: '#FF6D00'
+        }
       }
     ]
   }

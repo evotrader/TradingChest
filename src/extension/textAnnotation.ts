@@ -1,7 +1,7 @@
 /**
  * 文字标注覆盖工具
  * 单击放置一个带背景的文字标签
- * 文字内容通过 overlay.extendData 传入，默认显示 'Text'
+ * 绘制完成后弹出输入框让用户编辑文字内容
  */
 
 import { OverlayTemplate } from 'klinecharts'
@@ -14,7 +14,6 @@ const textAnnotation: OverlayTemplate = {
   needDefaultYAxisFigure: true,
   createPointFigures: ({ coordinates, overlay }) => {
     if (coordinates.length > 0) {
-      // 从 extendData 获取文字内容，默认 'Text'
       const text = (overlay.extendData as string) || 'Text'
       return [
         {
@@ -43,6 +42,26 @@ const textAnnotation: OverlayTemplate = {
       ]
     }
     return []
+  },
+  // 绘制完成后弹出文字输入
+  onDrawEnd: ({ overlay }) => {
+    const input = window.prompt('输入标注文字 / Enter text:', (overlay.extendData as string) || 'Text')
+    if (input !== null && input.trim() !== '') {
+      overlay.extendData = input.trim()
+    }
+    return true
+  },
+  // 双击编辑文字
+  onClick: ({ overlay }) => {
+    // 右键或特殊操作才编辑，普通点击不处理
+    return false
+  },
+  onRightClick: ({ overlay }) => {
+    const input = window.prompt('编辑标注文字 / Edit text:', (overlay.extendData as string) || '')
+    if (input !== null && input.trim() !== '') {
+      overlay.extendData = input.trim()
+    }
+    return true  // 阻止默认右键菜单
   }
 }
 

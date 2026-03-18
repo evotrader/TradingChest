@@ -14,7 +14,7 @@
 
 import { Component, createSignal, createMemo, For, Show } from 'solid-js'
 
-import { Modal, List, Checkbox, Input } from '../../component'
+import { Modal, List, Checkbox } from '../../component'
 
 import i18n from '../../i18n'
 
@@ -38,12 +38,13 @@ export interface IndicatorModalProps {
 }
 
 // 主图指标（叠加在蜡烛图上）
+// 名称必须与 IndicatorTemplate.name 完全一致
 const MAIN_INDICATORS = [
   'MA', 'EMA', 'SMA', 'BOLL', 'SAR', 'BBI',
   'DEMA', 'TEMA', 'WMA', 'HMA', 'KAMA', 'VWMA',
-  'ZLEMA', 'McGinley', 'Envelopes', 'T3',
-  'Ichimoku', 'Alligator', 'LinReg',
-  'KC', 'DC', 'PivotPoints'
+  'ZLEMA', 'MCGINLEY', 'ENVELOPES', 'T3',
+  'ICHIMOKU', 'ALLIGATOR', 'LINEARREGRESSION',
+  'KC', 'DC', 'PIVOTPOINTS'
 ]
 
 // 副图指标（独立面板）
@@ -54,12 +55,12 @@ const SUB_INDICATORS = [
   'VR', 'WR', 'MTM', 'EMV', 'SAR',
   'SMA', 'ROC', 'PVT', 'BBI', 'AO',
   // 新增指标
-  'ATR', 'SuperTrend',
+  'ATR', 'SUPERTREND',
   'HV', 'STDDEV', 'CV', 'MI', 'UI', 'BBW',
-  'VWAP', 'MFI', 'CMF', 'AD', 'VROC', 'KVO', 'FI', 'ElderRay',
-  'StochRSI', 'ADX', 'Aroon', 'UltOsc', 'Fisher',
-  'Coppock', 'PPO', 'DPO', 'KST', 'TwiggsMF',
-  'ZigZag'
+  'VWAP', 'MFI', 'CMF', 'AD', 'VROC', 'KVO', 'FI', 'ELDER_RAY',
+  'StochRSI', 'ADX', 'AROON', 'UO', 'FISHER',
+  'COPPOCK', 'PPO', 'DPO', 'KST', 'TMF',
+  'ZIGZAG'
 ]
 
 // 分类 Tab 列表
@@ -111,11 +112,14 @@ const IndicatorModal: Component<IndicatorModalProps> = props => {
       onClose={props.onClose}>
       {/* 搜索栏 */}
       <div class="klinecharts-pro-indicator-modal-search">
-        <Input
-          placeholder={i18n('indicator_search', props.locale)}
-          value={searchText()}
-          onChange={setSearchText}
-        />
+        <div class="klinecharts-pro-input">
+          <input
+            class="value"
+            placeholder={i18n('indicator_search', props.locale)}
+            value={searchText()}
+            onInput={(e) => setSearchText((e.target as HTMLInputElement).value)}
+          />
+        </div>
       </div>
       {/* 分类 Tab */}
       <div class="klinecharts-pro-indicator-modal-tabs">

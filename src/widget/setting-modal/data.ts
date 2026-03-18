@@ -70,6 +70,32 @@ export function getOptions (locale: string) {
       key: 'grid.show',
       text: i18n('grid_show', locale),
       component: 'switch',
+    },
+    // 十字光标设置
+    {
+      key: 'crosshair.show',
+      text: i18n('crosshair_show', locale),
+      component: 'switch'
+    },
+    {
+      key: 'crosshair.horizontal.show',
+      text: i18n('crosshair_horizontal_show', locale),
+      component: 'switch'
+    },
+    {
+      key: 'crosshair.vertical.show',
+      text: i18n('crosshair_vertical_show', locale),
+      component: 'switch'
+    },
+    // 蜡烛图 tooltip 设置
+    {
+      key: 'candle.tooltip.showType',
+      text: i18n('tooltip_show_type', locale),
+      component: 'select',
+      dataSource: [
+        { key: 'standard', text: i18n('tooltip_standard', locale) },
+        { key: 'rect', text: i18n('tooltip_rect', locale) }
+      ]
     }
   ]
 }

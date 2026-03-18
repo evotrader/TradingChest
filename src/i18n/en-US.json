@@ -114,6 +114,12 @@
   "log": "Log",
   "reverse_coordinate": "Reverse Coordinate",
   "grid_show": "Show Grids",
+  "crosshair_show": "Show Crosshair",
+  "crosshair_horizontal_show": "Show Horizontal Line",
+  "crosshair_vertical_show": "Show Vertical Line",
+  "tooltip_show_type": "Tooltip Type",
+  "tooltip_standard": "Standard",
+  "tooltip_rect": "Rect",
   "restore_default": "Restore Defaults",
 
   "atr": "ATR(Average True Range)",

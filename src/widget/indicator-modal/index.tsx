@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { Component, createSignal, createMemo, For, Show } from 'solid-js'
+import { Component, createSignal, createMemo, For, Show, onMount } from 'solid-js'
 
 import { Modal, List, Checkbox } from '../../component'
 
@@ -69,6 +69,9 @@ const CATEGORY_KEYS = ['all', 'trend', 'volatility', 'volume', 'momentum', 'othe
 const IndicatorModal: Component<IndicatorModalProps> = props => {
   const [searchText, setSearchText] = createSignal('')
   const [activeCategory, setActiveCategory] = createSignal<string>('all')
+  let searchInputRef!: HTMLInputElement
+
+  onMount(() => { searchInputRef?.focus() })
 
   // 根据分类和搜索筛选指标
   const filteredMainIndicators = createMemo(() => {
@@ -114,6 +117,7 @@ const IndicatorModal: Component<IndicatorModalProps> = props => {
       <div class="klinecharts-pro-indicator-modal-search">
         <div class="klinecharts-pro-input">
           <input
+            ref={(el) => { searchInputRef = el }}
             class="value"
             placeholder={i18n('indicator_search', props.locale)}
             value={searchText()}

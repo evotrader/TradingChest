@@ -76,9 +76,12 @@ const DrawingBar: Component<DrawingBarProps> = props => {
     <div
       class="klinecharts-pro-drawing-bar">
       {
-        overlays().map(item => (
+        overlays().map(item => {
+          const currentLabel = () => String(item.list.find(d => d.key === item.icon)?.text ?? '')
+          return (
           <div
             class="item"
+            title={currentLabel()}
             tabIndex={0}
             onBlur={() => { setPopoverKey('') }}>
             <span
@@ -121,7 +124,8 @@ const DrawingBar: Component<DrawingBarProps> = props => {
               )
             }
           </div>
-        ))
+          )
+        })
       }
       <span class="split-line"/>
       <div

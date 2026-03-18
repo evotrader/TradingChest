@@ -96,3 +96,23 @@
     margin-top: @gap;
   }
 }
+
+// 绘图工具 tooltip（hover 时在图标右侧显示工具名称）
+.@{prefix-cls}-drawing-bar .item {
+  &[title]:hover::after {
+    content: attr(title);
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+    background-color: var(--klinecharts-pro-popover-background-color);
+    color: var(--klinecharts-pro-text-color);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+  }
+}

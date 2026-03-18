@@ -1,25 +1,75 @@
 @import (reference) '../../base.less';
 
+.@{prefix-cls}-indicator-modal-search {
+  margin-bottom: 12px;
+  .@{prefix-cls}-input {
+    width: 100%;
+    input.value {
+      width: 100%;
+      box-sizing: border-box;
+    }
+  }
+}
+
+.@{prefix-cls}-indicator-modal-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: solid 1px var(--klinecharts-pro-border-color);
+}
+
+.@{prefix-cls}-indicator-modal-tab {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--klinecharts-pro-text-second-color);
+  transition: all 0.2s;
+  user-select: none;
+  &:hover {
+    background-color: var(--klinecharts-pro-hover-background-color);
+    color: var(--klinecharts-pro-text-color);
+  }
+  &.active {
+    background-color: var(--klinecharts-pro-primary-color);
+    color: #ffffff;
+  }
+}
+
+.@{prefix-cls}-indicator-modal-empty {
+  text-align: center;
+  color: var(--klinecharts-pro-text-second-color);
+  padding: 40px 0;
+  font-size: 13px;
+}
+
 .@{prefix-cls}-indicator-modal-list {
   margin-left: -20px;
   margin-right: -20px;
-  height: 440px;
+  height: 380px;
   position: relative;
   .title {
     position: sticky;
     top: 0;
     background-color: var(--klinecharts-pro-popover-background-color);
-    font-size: 16px;
+    font-size: 14px;
     color: var(--klinecharts-pro-text-color);
-    font-weight: 400;
+    font-weight: 500;
+    z-index: 1;
     &:hover {
       background-color: var(--klinecharts-pro-popover-background-color);
     }
   }
-  .row:hover {
-    .checkbox {
-      fill: var(--klinecharts-pro-primary-color);
-      color: var(--klinecharts-pro-primary-color);
+  .row {
+    font-size: 13px;
+    &:hover {
+      .checkbox {
+        fill: var(--klinecharts-pro-primary-color);
+        color: var(--klinecharts-pro-primary-color);
+      }
     }
   }
 }

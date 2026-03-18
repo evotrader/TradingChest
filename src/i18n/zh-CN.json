@@ -121,6 +121,12 @@
   "log": "对数轴",
   "reverse_coordinate": "倒置坐标",
   "grid_show": "网格线显示",
+  "crosshair_show": "十字光标显示",
+  "crosshair_horizontal_show": "水平线显示",
+  "crosshair_vertical_show": "垂直线显示",
+  "tooltip_show_type": "提示框类型",
+  "tooltip_standard": "标准",
+  "tooltip_rect": "矩形",
   "restore_default": "恢复默认",
 
   "atr": "ATR(平均真实波幅)",

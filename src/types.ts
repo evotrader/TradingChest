@@ -43,6 +43,17 @@ export interface Datafeed {
   unsubscribe (symbol: SymbolInfo, period: Period): void
 }
 
+/** 指标图形点击事件 */
+export interface IndicatorClickEvent {
+  /** 指标名称 */
+  indicatorName: string
+  /** 点击的图形数据（由指标 draw 回调通过 __hitTargets 暴露） */
+  data: any
+  /** 点击像素坐标（相对于 widget） */
+  x: number
+  y: number
+}
+
 export interface ChartProOptions {
   container: string | HTMLElement
   styles?: DeepPartial<Styles>
@@ -57,6 +68,8 @@ export interface ChartProOptions {
   mainIndicators?: string[]
   subIndicators?: string[]
   datafeed: Datafeed
+  /** 指标图形被点击时的回调 */
+  onIndicatorClick?: (event: IndicatorClickEvent) => void
 }
 
 export interface ChartPro {

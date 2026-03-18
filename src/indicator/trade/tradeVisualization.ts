@@ -117,7 +117,10 @@ const tradeVisualization: IndicatorTemplate = {
       }
     }
 
-    // ── 第二遍：画入场/出场标记 ──
+    // ── 第二遍：画入场/出场标记 + 收集可见标记像素坐标用于点击检测 ──
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const hitTargets: Array<{ x: number; y: number; trade: TradeRecord; type: 'entry' | 'exit' }> = [];
+
     for (let i = visibleRange.from; i < visibleRange.to; i++) {
       const info = result[i]
       if (!info) continue
@@ -130,6 +133,9 @@ const tradeVisualization: IndicatorTemplate = {
         const color = isLong ? 'rgba(38, 166, 154, 0.9)' : 'rgba(239, 83, 80, 0.9)'
         const label = isLong ? 'B' : 'S'
         drawLabel(ctx, barX, y, label, color)
+        // 收集标签中心像素位置
+        const trade = trades.find(t => Math.abs(t.entryPrice - info.entry!.price) < 1)
+        if (trade) hitTargets.push({ x: barX, y: y - 35 - 9, trade, type: 'entry' })
       }
 
       if (info.exit) {
@@ -139,8 +145,14 @@ const tradeVisualization: IndicatorTemplate = {
         const label = isLong ? 'S' : 'B'
         const pnlStr = `${label} ${info.exit.pnl >= 0 ? '+' : ''}${info.exit.pnl.toFixed(0)}`
         drawLabel(ctx, barX, y, pnlStr, color)
+        const trade = trades.find(t => Math.abs(t.exitPrice - info.exit!.price) < 1)
+        if (trade) hitTargets.push({ x: barX, y: y - 35 - 9, trade, type: 'exit' })
       }
     }
+
+    // 将可见标记的像素坐标暴露到全局，供点击检测使用
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(globalThis as any).__tradeVisHitTargets = hitTargets
 
     ctx.restore()
     return false

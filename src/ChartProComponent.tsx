@@ -301,9 +301,45 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         }
       }
     })
-    // 点击蜡烛区域时清除 overlay 选中状态
-    widget?.subscribeAction(ActionType.OnCandleBarClick, () => {
+    // 点击蜡烛区域：清除 overlay 选中状态 + 检测指标图形点击
+    widget?.subscribeAction(ActionType.OnCandleBarClick, (data) => {
       setSelectedOverlay(null)
+
+      // 检测指标图形点击（通过 draw 回调暴露的 __tradeVisHitTargets）
+      // OnCandleBarClick data 包含 {x, y, ...} 或 {dataIndex, ...}
+      // 先用 console.log 确认结构
+      console.log('[ChartPro] OnCandleBarClick data keys:', data ? Object.keys(data) : 'null')
+      if (props.onIndicatorClick && data) {
+        const clickX = data.x ?? data.coordinate?.x
+        const clickY = data.y ?? data.coordinate?.y
+        if (clickX == null || clickY == null) return
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const hitTargets: Array<{ x: number; y: number; trade: any; type: string }> =
+          (globalThis as any).__tradeVisHitTargets ?? []
+
+        const HIT_RADIUS = 50
+        let closest: { x: number; y: number; trade: any; type: string } | null = null
+        let minDist = Infinity
+
+        for (const ht of hitTargets) {
+          const dx = clickX - ht.x
+          const dy = clickY - ht.y
+          const dist = Math.sqrt(dx * dx + dy * dy)
+          if (dist < HIT_RADIUS && dist < minDist) {
+            minDist = dist
+            closest = ht
+          }
+        }
+
+        if (closest) {
+          props.onIndicatorClick({
+            indicatorName: 'TradeVis',
+            data: { ...closest.trade, type: closest.type },
+            x: clickX,
+            y: clickY,
+          })
+        }
+      }
     })
   })
 

@@ -70,3 +70,4 @@ export type {
 export type { ThemePreset } from './theme'
 export type { ChartLayout } from './persistence'
 export type { ShortcutBinding } from './shortcut'
+export type { IndicatorClickEvent } from './types'

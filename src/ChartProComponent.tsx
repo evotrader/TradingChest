@@ -183,8 +183,24 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     return [from, to]
   }
 
+  // Backspace/Delete 删除选中的绘图
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      const info = selectedOverlay()
+      if (info && widget) {
+        widget.removeOverlay({ id: info.id })
+        setSelectedOverlay(null)
+        e.preventDefault()
+      }
+    }
+    if (e.key === 'Escape') {
+      setSelectedOverlay(null)
+    }
+  }
+
   onMount(() => {
     window.addEventListener('resize', documentResize)
+    window.addEventListener('keydown', handleKeyDown)
     widget = init(widgetRef!, {
       customApi: {
         formatDate: (dateTimeFormat: Intl.DateTimeFormat, timestamp, format: string, type: FormatDateType) => {
@@ -312,6 +328,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   onCleanup(() => {
     window.removeEventListener('resize', documentResize)
+    window.removeEventListener('keydown', handleKeyDown)
     dispose(widgetRef!)
   })
 
@@ -646,6 +663,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
                   return true
                 },
                 onDeselected: () => {
+                  setSelectedOverlay(null)
+                  return true
+                },
+                onRemoved: () => {
                   setSelectedOverlay(null)
                   return true
                 }

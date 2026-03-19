@@ -598,7 +598,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
                       y = (pixel?.y ?? 100) - 50 // above the point
                     }
                     // 检测是否为有填充的图形（含 polygon 的 overlay）
-                    const fillOverlays = ['rect', 'circle', 'triangle', 'parallelogram', 'positionRange', 'longPosition', 'shortPosition']
+                    const fillOverlays = [
+                      'rect', 'circle', 'triangle', 'parallelogram',
+                      'gannBox', 'regressionChannel', 'xabcd',
+                      'positionRange', 'longPosition', 'shortPosition',
+                      'dateAndPriceRange', 'dateRange', 'priceRange',
+                      'fibonacciCircle',
+                    ]
                     const hasFill = fillOverlays.includes(ov.name ?? '')
                     setSelectedOverlay({
                       id: ov.id,
@@ -642,15 +648,18 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onColorChange={(color) => {
             const info = selectedOverlay()
             if (info && widget) {
-              const fillStyles = info.fillColor != null ? {
-                // 同时设置 polygon 和 circle 的描边色，保留现有填充色
-                polygon: { borderColor: color, color: info.fillColor, style: 'stroke_fill' as any },
-                circle: { borderColor: color, color: info.fillColor, style: 'stroke_fill' as any },
+              // 构建完整样式对象，覆盖所有相关路径，保留现有值
+              const fc = info.fillColor ?? 'rgba(0,0,0,0)'
+              const fillShapeStyles = info.fillColor != null ? {
+                polygon: { borderColor: color, color: fc, borderSize: info.lineWidth, style: 'stroke_fill' as any },
+                circle: { borderColor: color, color: fc, borderSize: info.lineWidth, style: 'stroke_fill' as any },
+                arc: { color },
+                rect: { borderColor: color, color: fc, style: 'stroke_fill' as any },
               } : {}
               widget.overrideOverlay({ id: info.id, styles: {
-                line: { color },
+                line: { color, size: info.lineWidth },
                 point: { color },
-                ...fillStyles,
+                ...fillShapeStyles,
               } })
               setSelectedOverlay({ ...info, color })
             }
@@ -659,10 +668,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             const info = selectedOverlay()
             if (info && widget) {
               const fc = fillColor === 'transparent' ? 'rgba(0,0,0,0)' : fillColor
-              // 同时设置 polygon 和 circle 的填充色，保留现有描边色
               widget.overrideOverlay({ id: info.id, styles: {
-                polygon: { color: fc, borderColor: info.color, style: 'stroke_fill' as any },
-                circle: { color: fc, borderColor: info.color, style: 'stroke_fill' as any },
+                polygon: { color: fc, borderColor: info.color, borderSize: info.lineWidth, style: 'stroke_fill' as any },
+                circle: { color: fc, borderColor: info.color, borderSize: info.lineWidth, style: 'stroke_fill' as any },
+                rect: { color: fc, borderColor: info.color, style: 'stroke_fill' as any },
               } })
               setSelectedOverlay({ ...info, fillColor })
             }
@@ -670,13 +679,14 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onLineWidthChange={(width) => {
             const info = selectedOverlay()
             if (info && widget) {
-              const fillStyles = info.fillColor != null ? {
-                polygon: { borderSize: width, color: info.fillColor, borderColor: info.color, style: 'stroke_fill' as any },
-                circle: { borderSize: width, color: info.fillColor, borderColor: info.color, style: 'stroke_fill' as any },
+              const fc = info.fillColor ?? 'rgba(0,0,0,0)'
+              const fillShapeStyles = info.fillColor != null ? {
+                polygon: { borderSize: width, color: fc, borderColor: info.color, style: 'stroke_fill' as any },
+                circle: { borderSize: width, color: fc, borderColor: info.color, style: 'stroke_fill' as any },
               } : {}
               widget.overrideOverlay({ id: info.id, styles: {
-                line: { size: width },
-                ...fillStyles,
+                line: { size: width, color: info.color },
+                ...fillShapeStyles,
               } })
               setSelectedOverlay({ ...info, lineWidth: width })
             }
@@ -684,8 +694,9 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onLineStyleChange={(style) => {
             const info = selectedOverlay()
             if (info && widget) {
+              // 线型只影响线条，不改变填充图形的任何属性
               widget.overrideOverlay({ id: info.id, styles: {
-                line: { style: style as any },
+                line: { style: style as any, color: info.color, size: info.lineWidth },
               } })
               setSelectedOverlay({ ...info, lineStyle: style })
             }

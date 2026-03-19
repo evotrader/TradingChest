@@ -695,14 +695,16 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             const info = selectedOverlay()
             if (info && widget) {
               const fc = info.fillColor ?? 'rgba(0,0,0,0)'
-              // overrideOverlay 替换整个 styles，必须传入全部属性
+              // 线型映射：line 用 style，polygon/circle 用 borderStyle + borderDashedValue
+              const borderStyle = style as any
+              const borderDashedValue = style === 'dashed' ? [6, 4] : style === 'dotted' ? [2, 4] : [0]
               const fillShapeStyles = info.fillColor != null ? {
-                polygon: { color: fc, borderColor: info.color, borderSize: info.lineWidth, style: 'stroke_fill' as any },
-                circle: { color: fc, borderColor: info.color, borderSize: info.lineWidth, style: 'stroke_fill' as any },
-                rect: { color: fc, borderColor: info.color, style: 'stroke_fill' as any },
+                polygon: { color: fc, borderColor: info.color, borderSize: info.lineWidth, borderStyle, borderDashedValue, style: 'stroke_fill' as any },
+                circle: { color: fc, borderColor: info.color, borderSize: info.lineWidth, borderStyle, borderDashedValue, style: 'stroke_fill' as any },
+                rect: { color: fc, borderColor: info.color, borderStyle, borderDashedValue, style: 'stroke_fill' as any },
               } : {}
               widget.overrideOverlay({ id: info.id, styles: {
-                line: { style: style as any, color: info.color, size: info.lineWidth },
+                line: { style: style as any, color: info.color, size: info.lineWidth, dashedValue: borderDashedValue },
                 point: { color: info.color },
                 ...fillShapeStyles,
               } })

@@ -19,11 +19,16 @@ export interface OverlayPropertyBarProps {
   visible: boolean
   position: { x: number, y: number }
   overlayId: string
+  /** 描边色 */
   currentColor: string
+  /** 填充色（可选，有值时显示填充色控件） */
+  currentFillColor?: string
   currentLineWidth: number
   currentLineStyle: string
   locked: boolean
   onColorChange: (color: string) => void
+  /** 填充色变更 */
+  onFillColorChange?: (color: string) => void
   onLineWidthChange: (width: number) => void
   onLineStyleChange: (style: string) => void
   onLockChange: (locked: boolean) => void
@@ -60,12 +65,13 @@ const LINE_STYLES: { key: string, label_zh: string, label_en: string }[] = [
 
 const OverlayPropertyBar: Component<OverlayPropertyBarProps> = props => {
   const [showColorPalette, setShowColorPalette] = createSignal(false)
+  const [showFillPalette, setShowFillPalette] = createSignal(false)
   const [showWidthPicker, setShowWidthPicker] = createSignal(false)
   const [showStylePicker, setShowStylePicker] = createSignal(false)
 
-  // 关闭所有子弹出层
   const closeAllPopups = () => {
     setShowColorPalette(false)
+    setShowFillPalette(false)
     setShowWidthPicker(false)
     setShowStylePicker(false)
   }
@@ -95,6 +101,42 @@ const OverlayPropertyBar: Component<OverlayPropertyBarProps> = props => {
             </div>
           </Show>
         </div>
+
+        {/* 填充色（仅对有填充的图形显示） */}
+        <Show when={props.currentFillColor != null}>
+          <div class="klinecharts-pro-overlay-property-bar-item"
+            onClick={() => { const next = !showFillPalette(); closeAllPopups(); setShowFillPalette(next) }}>
+            <div class="klinecharts-pro-overlay-property-bar-color-swatch"
+              style={{
+                'background-color': props.currentFillColor ?? 'transparent',
+                'background-image': !props.currentFillColor || props.currentFillColor === 'transparent'
+                  ? 'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc)'
+                  : 'none',
+                'background-size': '6px 6px',
+                'background-position': '0 0, 3px 3px',
+              }} />
+            <Show when={showFillPalette()}>
+              <div class="klinecharts-pro-overlay-property-bar-palette">
+                {/* 透明（无填充）选项 */}
+                <div
+                  class={`klinecharts-pro-overlay-property-bar-palette-item${props.currentFillColor === 'transparent' ? ' active' : ''}`}
+                  style={{
+                    'background-image': 'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%)',
+                    'background-size': '8px 8px', 'background-position': '0 0, 4px 4px',
+                  }}
+                  onClick={(e) => { e.stopPropagation(); props.onFillColorChange?.('transparent'); setShowFillPalette(false) }}
+                />
+                {PALETTE_COLORS.map(color => (
+                  <div
+                    class={`klinecharts-pro-overlay-property-bar-palette-item${color === props.currentFillColor ? ' active' : ''}`}
+                    style={{ 'background-color': color + '40' }}
+                    onClick={(e) => { e.stopPropagation(); props.onFillColorChange?.(color + '40'); setShowFillPalette(false) }}
+                  />
+                ))}
+              </div>
+            </Show>
+          </div>
+        </Show>
 
         <span class="klinecharts-pro-overlay-property-bar-separator" />
 

@@ -104,7 +104,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   // 绘图 overlay 选中状态（浮动属性工具栏）
   const [selectedOverlay, setSelectedOverlay] = createSignal<{
     id: string, x: number, y: number,
-    color: string, lineWidth: number, lineStyle: string, locked: boolean
+    color: string, fillColor?: string, lineWidth: number, lineStyle: string, locked: boolean
   } | null>(null)
 
   props.ref({
@@ -597,11 +597,15 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
                       x = (pixel?.x ?? 200) + 52 // offset for drawing bar width
                       y = (pixel?.y ?? 100) - 50 // above the point
                     }
+                    // 检测是否为有填充的图形（含 polygon 的 overlay）
+                    const fillOverlays = ['rect', 'circle', 'triangle', 'parallelogram', 'positionRange', 'longPosition', 'shortPosition']
+                    const hasFill = fillOverlays.includes(ov.name ?? '')
                     setSelectedOverlay({
                       id: ov.id,
                       x: Math.max(100, x),
                       y: Math.max(10, y),
                       color: '#1677ff',
+                      fillColor: hasFill ? 'rgba(22, 119, 255, 0.15)' : undefined,
                       lineWidth: 1,
                       lineStyle: 'solid',
                       locked: ov.lock ?? false
@@ -631,26 +635,41 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           position={{ x: selectedOverlay()?.x ?? 0, y: selectedOverlay()?.y ?? 0 }}
           overlayId={selectedOverlay()?.id ?? ''}
           currentColor={selectedOverlay()?.color ?? '#1677ff'}
+          currentFillColor={selectedOverlay()?.fillColor}
           currentLineWidth={selectedOverlay()?.lineWidth ?? 1}
           currentLineStyle={selectedOverlay()?.lineStyle ?? 'solid'}
           locked={selectedOverlay()?.locked ?? false}
           onColorChange={(color) => {
             const info = selectedOverlay()
             if (info && widget) {
+              const hasFill = info.fillColor != null
               widget.overrideOverlay({ id: info.id, styles: {
                 line: { color },
                 point: { color },
-                polygon: { color: color + '26', borderColor: color, style: 'stroke_fill' as any },
+                ...(hasFill ? { polygon: { borderColor: color, style: 'stroke_fill' as any } } : {}),
               } })
               setSelectedOverlay({ ...info, color })
+            }
+          }}
+          onFillColorChange={(fillColor) => {
+            const info = selectedOverlay()
+            if (info && widget) {
+              widget.overrideOverlay({ id: info.id, styles: {
+                polygon: {
+                  color: fillColor === 'transparent' ? 'rgba(0,0,0,0)' : fillColor,
+                  style: 'stroke_fill' as any,
+                },
+              } })
+              setSelectedOverlay({ ...info, fillColor })
             }
           }}
           onLineWidthChange={(width) => {
             const info = selectedOverlay()
             if (info && widget) {
+              const hasFill = info.fillColor != null
               widget.overrideOverlay({ id: info.id, styles: {
                 line: { size: width },
-                polygon: { borderSize: width, style: 'stroke_fill' as any },
+                ...(hasFill ? { polygon: { borderSize: width, style: 'stroke_fill' as any } } : {}),
               } })
               setSelectedOverlay({ ...info, lineWidth: width })
             }
@@ -660,7 +679,6 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             if (info && widget) {
               widget.overrideOverlay({ id: info.id, styles: {
                 line: { style: style as any },
-                polygon: { style: 'stroke_fill' as any },
               } })
               setSelectedOverlay({ ...info, lineStyle: style })
             }

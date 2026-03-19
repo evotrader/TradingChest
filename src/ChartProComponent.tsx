@@ -456,6 +456,32 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     }
   })
 
+  // 构建完整的 overlay 样式对象（每次 override 都传入全部属性，防止浅替换丢失）
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const buildStyles = (s: { color: string; fillColor?: string; lineWidth: number; lineStyle: string }): any => {
+    const lineStyleKC = s.lineStyle === 'dashed' || s.lineStyle === 'dotted' ? 'dashed' : 'solid'
+    const dashedValue = s.lineStyle === 'dashed' ? [6, 4] : s.lineStyle === 'dotted' ? [1, 3] : [0]
+    const fc = s.fillColor ?? 'rgba(0,0,0,0)'
+    const hasFill = s.fillColor != null
+
+    const lineStyles = { color: s.color, size: s.lineWidth, style: lineStyleKC, dashedValue }
+    const pointStyles = { color: s.color }
+
+    if (!hasFill) {
+      return { line: lineStyles, point: pointStyles, arc: { color: s.color, style: lineStyleKC, dashedValue } }
+    }
+
+    const shapeStyles = {
+      color: fc, borderColor: s.color, borderSize: s.lineWidth,
+      borderStyle: lineStyleKC, borderDashedValue: dashedValue, style: 'stroke_fill',
+    }
+    return {
+      line: lineStyles, point: pointStyles,
+      polygon: shapeStyles, circle: shapeStyles, rect: { ...shapeStyles, borderRadius: 0 },
+      arc: { color: s.color, style: lineStyleKC, dashedValue },
+    }
+  }
+
   return (
     <>
       <i class="icon-close klinecharts-pro-load-icon"/>
@@ -648,67 +674,33 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onColorChange={(color) => {
             const info = selectedOverlay()
             if (info && widget) {
-              // 构建完整样式对象，覆盖所有相关路径，保留现有值
-              const fc = info.fillColor ?? 'rgba(0,0,0,0)'
-              const fillShapeStyles = info.fillColor != null ? {
-                polygon: { borderColor: color, color: fc, borderSize: info.lineWidth, style: 'stroke_fill' as any },
-                circle: { borderColor: color, color: fc, borderSize: info.lineWidth, style: 'stroke_fill' as any },
-                arc: { color },
-                rect: { borderColor: color, color: fc, style: 'stroke_fill' as any },
-              } : {}
-              widget.overrideOverlay({ id: info.id, styles: {
-                line: { color, size: info.lineWidth },
-                point: { color },
-                ...fillShapeStyles,
-              } })
-              setSelectedOverlay({ ...info, color })
+              const next = { ...info, color }
+              widget.overrideOverlay({ id: info.id, styles: buildStyles(next) })
+              setSelectedOverlay(next)
             }
           }}
           onFillColorChange={(fillColor) => {
             const info = selectedOverlay()
             if (info && widget) {
-              const fc = fillColor === 'transparent' ? 'rgba(0,0,0,0)' : fillColor
-              widget.overrideOverlay({ id: info.id, styles: {
-                polygon: { color: fc, borderColor: info.color, borderSize: info.lineWidth, style: 'stroke_fill' as any },
-                circle: { color: fc, borderColor: info.color, borderSize: info.lineWidth, style: 'stroke_fill' as any },
-                rect: { color: fc, borderColor: info.color, style: 'stroke_fill' as any },
-              } })
-              setSelectedOverlay({ ...info, fillColor })
+              const next = { ...info, fillColor: fillColor === 'transparent' ? 'rgba(0,0,0,0)' : fillColor }
+              widget.overrideOverlay({ id: info.id, styles: buildStyles(next) })
+              setSelectedOverlay(next)
             }
           }}
           onLineWidthChange={(width) => {
             const info = selectedOverlay()
             if (info && widget) {
-              const fc = info.fillColor ?? 'rgba(0,0,0,0)'
-              const fillShapeStyles = info.fillColor != null ? {
-                polygon: { borderSize: width, color: fc, borderColor: info.color, style: 'stroke_fill' as any },
-                circle: { borderSize: width, color: fc, borderColor: info.color, style: 'stroke_fill' as any },
-              } : {}
-              widget.overrideOverlay({ id: info.id, styles: {
-                line: { size: width, color: info.color },
-                ...fillShapeStyles,
-              } })
-              setSelectedOverlay({ ...info, lineWidth: width })
+              const next = { ...info, lineWidth: width }
+              widget.overrideOverlay({ id: info.id, styles: buildStyles(next) })
+              setSelectedOverlay(next)
             }
           }}
           onLineStyleChange={(style) => {
             const info = selectedOverlay()
             if (info && widget) {
-              const fc = info.fillColor ?? 'rgba(0,0,0,0)'
-              // 线型映射：line 用 style，polygon/circle 用 borderStyle + borderDashedValue
-              const borderStyle = style as any
-              const borderDashedValue = style === 'dashed' ? [6, 4] : style === 'dotted' ? [2, 4] : [0]
-              const fillShapeStyles = info.fillColor != null ? {
-                polygon: { color: fc, borderColor: info.color, borderSize: info.lineWidth, borderStyle, borderDashedValue, style: 'stroke_fill' as any },
-                circle: { color: fc, borderColor: info.color, borderSize: info.lineWidth, borderStyle, borderDashedValue, style: 'stroke_fill' as any },
-                rect: { color: fc, borderColor: info.color, borderStyle, borderDashedValue, style: 'stroke_fill' as any },
-              } : {}
-              widget.overrideOverlay({ id: info.id, styles: {
-                line: { style: style as any, color: info.color, size: info.lineWidth, dashedValue: borderDashedValue },
-                point: { color: info.color },
-                ...fillShapeStyles,
-              } })
-              setSelectedOverlay({ ...info, lineStyle: style })
+              const next = { ...info, lineStyle: style }
+              widget.overrideOverlay({ id: info.id, styles: buildStyles(next) })
+              setSelectedOverlay(next)
             }
           }}
           onLockChange={(locked) => {

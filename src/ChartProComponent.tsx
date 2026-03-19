@@ -637,21 +637,31 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onColorChange={(color) => {
             const info = selectedOverlay()
             if (info && widget) {
-              widget.overrideOverlay({ id: info.id, styles: { line: { color }, point: { color } } })
+              widget.overrideOverlay({ id: info.id, styles: {
+                line: { color },
+                point: { color },
+                polygon: { color: color + '26', borderColor: color, style: 'stroke_fill' as any },
+              } })
               setSelectedOverlay({ ...info, color })
             }
           }}
           onLineWidthChange={(width) => {
             const info = selectedOverlay()
             if (info && widget) {
-              widget.overrideOverlay({ id: info.id, styles: { line: { size: width } } })
+              widget.overrideOverlay({ id: info.id, styles: {
+                line: { size: width },
+                polygon: { borderSize: width, style: 'stroke_fill' as any },
+              } })
               setSelectedOverlay({ ...info, lineWidth: width })
             }
           }}
           onLineStyleChange={(style) => {
             const info = selectedOverlay()
             if (info && widget) {
-              widget.overrideOverlay({ id: info.id, styles: { line: { style: style as any } } })
+              widget.overrideOverlay({ id: info.id, styles: {
+                line: { style: style as any },
+                polygon: { style: 'stroke_fill' as any },
+              } })
               setSelectedOverlay({ ...info, lineStyle: style })
             }
           }}

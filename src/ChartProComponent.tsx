@@ -694,9 +694,17 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onLineStyleChange={(style) => {
             const info = selectedOverlay()
             if (info && widget) {
-              // 线型只影响线条，不改变填充图形的任何属性
+              const fc = info.fillColor ?? 'rgba(0,0,0,0)'
+              // overrideOverlay 替换整个 styles，必须传入全部属性
+              const fillShapeStyles = info.fillColor != null ? {
+                polygon: { color: fc, borderColor: info.color, borderSize: info.lineWidth, style: 'stroke_fill' as any },
+                circle: { color: fc, borderColor: info.color, borderSize: info.lineWidth, style: 'stroke_fill' as any },
+                rect: { color: fc, borderColor: info.color, style: 'stroke_fill' as any },
+              } : {}
               widget.overrideOverlay({ id: info.id, styles: {
                 line: { style: style as any, color: info.color, size: info.lineWidth },
+                point: { color: info.color },
+                ...fillShapeStyles,
               } })
               setSelectedOverlay({ ...info, lineStyle: style })
             }

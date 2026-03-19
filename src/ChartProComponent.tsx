@@ -642,11 +642,15 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onColorChange={(color) => {
             const info = selectedOverlay()
             if (info && widget) {
-              const hasFill = info.fillColor != null
+              const fillStyles = info.fillColor != null ? {
+                // 同时设置 polygon 和 circle 的描边色，保留现有填充色
+                polygon: { borderColor: color, color: info.fillColor, style: 'stroke_fill' as any },
+                circle: { borderColor: color, color: info.fillColor, style: 'stroke_fill' as any },
+              } : {}
               widget.overrideOverlay({ id: info.id, styles: {
                 line: { color },
                 point: { color },
-                ...(hasFill ? { polygon: { borderColor: color, style: 'stroke_fill' as any } } : {}),
+                ...fillStyles,
               } })
               setSelectedOverlay({ ...info, color })
             }
@@ -654,11 +658,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onFillColorChange={(fillColor) => {
             const info = selectedOverlay()
             if (info && widget) {
+              const fc = fillColor === 'transparent' ? 'rgba(0,0,0,0)' : fillColor
+              // 同时设置 polygon 和 circle 的填充色，保留现有描边色
               widget.overrideOverlay({ id: info.id, styles: {
-                polygon: {
-                  color: fillColor === 'transparent' ? 'rgba(0,0,0,0)' : fillColor,
-                  style: 'stroke_fill' as any,
-                },
+                polygon: { color: fc, borderColor: info.color, style: 'stroke_fill' as any },
+                circle: { color: fc, borderColor: info.color, style: 'stroke_fill' as any },
               } })
               setSelectedOverlay({ ...info, fillColor })
             }
@@ -666,10 +670,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onLineWidthChange={(width) => {
             const info = selectedOverlay()
             if (info && widget) {
-              const hasFill = info.fillColor != null
+              const fillStyles = info.fillColor != null ? {
+                polygon: { borderSize: width, color: info.fillColor, borderColor: info.color, style: 'stroke_fill' as any },
+                circle: { borderSize: width, color: info.fillColor, borderColor: info.color, style: 'stroke_fill' as any },
+              } : {}
               widget.overrideOverlay({ id: info.id, styles: {
                 line: { size: width },
-                ...(hasFill ? { polygon: { borderSize: width, style: 'stroke_fill' as any } } : {}),
+                ...fillStyles,
               } })
               setSelectedOverlay({ ...info, lineWidth: width })
             }

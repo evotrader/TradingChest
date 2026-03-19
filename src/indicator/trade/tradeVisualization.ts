@@ -33,33 +33,47 @@ const tradeVisualization: IndicatorTemplate = {
       return dataList.map(() => ({}))
     }
 
-    // 为每根 K 线标记交易信息
-    return dataList.map((bar) => {
-      const info: BarTradeInfo = {}
-      const ts = bar.timestamp
+    // 先为每笔交易找到最近的入场/出场 K 线索引（精确匹配，不用固定容差）
+    const entryMap = new Map<number, { price: number; direction: 'long' | 'short'; pnl: number }>()
+    const exitMap = new Map<number, { price: number; direction: 'long' | 'short'; pnl: number }>()
+    const rangeSet = new Map<number, Array<{ entryPrice: number; exitPrice: number; pnl: number }>>()
 
-      for (const t of trades) {
-        // 入场点（时间戳匹配，允许 ±12 小时误差以兼容时区差异）
-        if (Math.abs(ts - t.entryTs) < 43200000) {
-          info.entry = { price: t.entryPrice, direction: t.direction, pnl: t.pnl }
-        }
-        // 出场点
-        if (Math.abs(ts - t.exitTs) < 43200000) {
-          info.exit = { price: t.exitPrice, direction: t.direction, pnl: t.pnl }
-        }
-        // 在交易区间内
-        if (ts >= t.entryTs - 43200000 && ts <= t.exitTs + 43200000) {
-          if (!info.ranges) info.ranges = []
-          info.ranges.push({
-            entryPrice: t.entryPrice,
-            exitPrice: t.exitPrice,
-            pnl: t.pnl,
-            isStart: Math.abs(ts - t.entryTs) < 43200000,
-            isEnd: Math.abs(ts - t.exitTs) < 43200000,
-          })
+    for (const t of trades) {
+      // 找入场最近的 K 线
+      let entryIdx = -1, entryMinDiff = Infinity
+      let exitIdx = -1, exitMinDiff = Infinity
+      for (let i = 0; i < dataList.length; i++) {
+        const diff = Math.abs(dataList[i].timestamp - t.entryTs)
+        if (diff < entryMinDiff) { entryMinDiff = diff; entryIdx = i }
+        const diff2 = Math.abs(dataList[i].timestamp - t.exitTs)
+        if (diff2 < exitMinDiff) { exitMinDiff = diff2; exitIdx = i }
+      }
+      if (entryIdx >= 0) {
+        entryMap.set(entryIdx, { price: t.entryPrice, direction: t.direction, pnl: t.pnl })
+      }
+      if (exitIdx >= 0) {
+        exitMap.set(exitIdx, { price: t.exitPrice, direction: t.direction, pnl: t.pnl })
+      }
+      // 区间：标记 entryIdx 到 exitIdx 之间的所有 K 线
+      if (entryIdx >= 0 && exitIdx >= 0) {
+        const lo = Math.min(entryIdx, exitIdx)
+        const hi = Math.max(entryIdx, exitIdx)
+        for (let i = lo; i <= hi; i++) {
+          if (!rangeSet.has(i)) rangeSet.set(i, [])
+          rangeSet.get(i)!.push({ entryPrice: t.entryPrice, exitPrice: t.exitPrice, pnl: t.pnl })
         }
       }
+    }
 
+    return dataList.map((_, i) => {
+      const info: BarTradeInfo = {}
+      if (entryMap.has(i)) info.entry = entryMap.get(i)!
+      if (exitMap.has(i)) info.exit = exitMap.get(i)!
+      if (rangeSet.has(i)) {
+        info.ranges = rangeSet.get(i)!.map(r => ({
+          ...r, isStart: entryMap.has(i), isEnd: exitMap.has(i)
+        }))
+      }
       return info
     })
   },

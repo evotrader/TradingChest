@@ -78,6 +78,48 @@ export default class KLineChartPro implements ChartPro {
       this._container
     )
 
+    // 指标图形点击检测：延迟注册确保 klinecharts init 完成
+    if (options.onIndicatorClick) {
+      const onIndClick = options.onIndicatorClick
+      const container = this._container
+      setTimeout(() => {
+        const widgetEl = container?.querySelector('.klinecharts-pro-widget')
+        if (widgetEl) {
+          widgetEl.addEventListener('click', (e: Event) => {
+            const me = e as MouseEvent
+            const rect = (widgetEl as HTMLElement).getBoundingClientRect()
+            const clickX = me.clientX - rect.left
+            const clickY = me.clientY - rect.top
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const hitTargets: Array<{ x: number; y: number; trade: any; type: string }> =
+              (globalThis as any).__tradeVisHitTargets ?? []
+
+            let closest: { x: number; y: number; trade: any; type: string } | null = null
+            let minDist = Infinity
+            for (const ht of hitTargets) {
+              const dx = clickX - ht.x
+              const dy = clickY - ht.y
+              const dist = Math.sqrt(dx * dx + dy * dy)
+              if (dist < 40 && dist < minDist) {
+                minDist = dist
+                closest = ht
+              }
+            }
+
+            if (closest) {
+              onIndClick({
+                indicatorName: 'TradeVis',
+                data: { ...closest.trade, type: closest.type },
+                x: clickX,
+                y: clickY,
+              })
+            }
+          }, true)
+        }
+      }, 500)
+    }
+
     // 初始化快捷键管理器
     this._shortcutManager = new KeyboardShortcutManager()
     this._shortcutManager.registerActions({

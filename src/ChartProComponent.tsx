@@ -306,44 +306,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       setSelectedOverlay(null)
     })
 
-    // 指标图形点击检测：直接在 widget DOM 上注册原生 click（不依赖 OnCandleBarClick）
-    // OnCandleBarClick 只在点击蜡烛时触发，标签在蜡烛上方所以接收不到
-    if (widgetRef) {
-      const indicatorClickHandler = (e: MouseEvent) => {
-        if (!props.onIndicatorClick) return
-        const rect = widgetRef!.getBoundingClientRect()
-        const clickX = e.clientX - rect.left
-        const clickY = e.clientY - rect.top
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const hitTargets: Array<{ x: number; y: number; trade: any; type: string }> =
-          (globalThis as any).__tradeVisHitTargets ?? []
-
-        const HIT_RADIUS = 40
-        let closest: { x: number; y: number; trade: any; type: string } | null = null
-        let minDist = Infinity
-
-        for (const ht of hitTargets) {
-          const dx = clickX - ht.x
-          const dy = clickY - ht.y
-          const dist = Math.sqrt(dx * dx + dy * dy)
-          if (dist < HIT_RADIUS && dist < minDist) {
-            minDist = dist
-            closest = ht
-          }
-        }
-
-        if (closest) {
-          props.onIndicatorClick({
-            indicatorName: 'TradeVis',
-            data: { ...closest.trade, type: closest.type },
-            x: clickX,
-            y: clickY,
-          })
-        }
-      }
-      widgetRef.addEventListener('click', indicatorClickHandler, true)
-    }
+    // 指标图形点击检测已移至 KLineChartPro 构造函数中
+    // （Solid.js onMount 中注册的 listener 在 React 嵌入场景下不可靠）
   })
 
   onCleanup(() => {

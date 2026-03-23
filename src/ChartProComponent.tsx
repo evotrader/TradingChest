@@ -32,6 +32,7 @@ import {
 import { translateTimezone } from './widget/timezone-modal/data'
 
 import { SymbolInfo, Period, ChartProOptions, ChartPro } from './types'
+import { indicatorRegistry } from './indicator'
 import { adjustFromTo } from './core/adjustFromTo'
 import { buildStyles } from './core/buildStyles'
 
@@ -44,7 +45,8 @@ interface PrevSymbolPeriod {
   period: Period
 }
 
-function createIndicator (widget: Nullable<Chart>, indicatorName: string, isStack?: boolean, paneOptions?: PaneOptions): Nullable<string> {
+async function createIndicator (widget: Nullable<Chart>, indicatorName: string, isStack?: boolean, paneOptions?: PaneOptions): Promise<Nullable<string>> {
+  await indicatorRegistry.ensureRegistered(indicatorName)
   if (indicatorName === 'VOL') {
     paneOptions = { gap: { bottom: 2 }, ...paneOptions }
   }
@@ -212,17 +214,19 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       priceUnitContainer?.appendChild(priceUnitDom)
     }
 
-    mainIndicators().forEach(indicator => {
-      createIndicator(widget, indicator, true, { id: 'candle_pane' })
-    })
-    const subIndicatorMap: Record<string, string> = {}
-    props.subIndicators!.forEach(indicator => {
-      const paneId = createIndicator(widget, indicator, true)
-      if (paneId) {
-        subIndicatorMap[indicator] = paneId
+    ;(async () => {
+      for (const indicator of mainIndicators()) {
+        await createIndicator(widget, indicator, true, { id: 'candle_pane' })
       }
-    })
-    setSubIndicators(subIndicatorMap)
+      const subIndicatorMap: Record<string, string> = {}
+      for (const indicator of props.subIndicators!) {
+        const paneId = await createIndicator(widget, indicator, true)
+        if (paneId) {
+          subIndicatorMap[indicator] = paneId
+        }
+      }
+      setSubIndicators(subIndicatorMap)
+    })()
     widget?.loadMore(timestamp => {
       loading = true
       const get = async () => {
@@ -441,10 +445,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           mainIndicators={mainIndicators()}
           subIndicators={subIndicators()}
           onClose={() => { setIndicatorModalVisible(false) }}
-          onMainIndicatorChange={data => {
+          onMainIndicatorChange={async data => {
             const newMainIndicators = [...mainIndicators()]
             if (data.added) {
-              createIndicator(widget, data.name, true, { id: 'candle_pane' })
+              await createIndicator(widget, data.name, true, { id: 'candle_pane' })
               newMainIndicators.push(data.name)
             } else {
               widget?.removeIndicator('candle_pane', data.name)
@@ -452,10 +456,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             }
             setMainIndicators(newMainIndicators)
           }}
-          onSubIndicatorChange={data => {
+          onSubIndicatorChange={async data => {
             const newSubIndicators: Record<string, string> = { ...subIndicators() }
             if (data.added) {
-              const paneId = createIndicator(widget, data.name)
+              const paneId = await createIndicator(widget, data.name)
               if (paneId) {
                 newSubIndicators[data.name] = paneId
               }

@@ -91,5 +91,19 @@ export default class DefaultDatafeed implements Datafeed {
   }
 
   unsubscribe(symbol: SymbolInfo, period: Period): void {
+    if (this._ws) {
+      try {
+        this._ws.send(JSON.stringify({ action: 'unsubscribe', params: `T.${symbol.ticker}` }))
+      } catch {
+        // WebSocket may already be closed
+      }
+    }
+  }
+
+  dispose(): void {
+    if (this._ws) {
+      this._ws.close()
+      this._ws = undefined
+    }
   }
 }

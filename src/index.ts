@@ -15,7 +15,6 @@
 import { registerOverlay, registerIndicator } from 'klinecharts'
 
 import overlays from './extension'
-import customIndicators from './indicator'
 import chartTypes from './chartType'
 
 import DefaultDatafeed from './DefaultDatafeed'
@@ -30,7 +29,6 @@ import './index.less'
 import tradeVisualization from './indicator/trade/tradeVisualization'
 
 overlays.forEach(o => { registerOverlay(o) })
-customIndicators.forEach(i => { registerIndicator(i) })
 chartTypes.forEach(ct => { registerIndicator(ct) })
 registerIndicator(tradeVisualization)
 
@@ -39,7 +37,7 @@ import { themePresets, getThemeByName } from './theme'
 import { exportToCSV, exportAllToCSV, exportScreenshot } from './export'
 import { saveLayout, loadLayout, deleteLayout, listLayouts } from './persistence'
 import KeyboardShortcutManager from './shortcut'
-import { indicatorCategories } from './indicator'
+import { indicatorCategories, indicatorRegistry } from './indicator'
 
 export {
   DefaultDatafeed,
@@ -60,7 +58,9 @@ export {
   // 快捷键
   KeyboardShortcutManager,
   // 指标分类
-  indicatorCategories
+  indicatorCategories,
+  // 懒加载注册表
+  indicatorRegistry
 }
 
 export type {

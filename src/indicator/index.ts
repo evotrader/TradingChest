@@ -1,22 +1,11 @@
-/**
- * 自定义技术指标注册入口
- * 汇总所有分类下的指标，统一导出供图表组件注册使用
- */
-import trendIndicators from './trend'
-import volatilityIndicators from './volatility'
-import volumeIndicators from './volume'
-import momentumIndicators from './momentum'
-import otherIndicators from './other'
+import { registerIndicator } from 'klinecharts'
+import { IndicatorRegistry } from './registry'
+import { indicatorLoaders } from './loaders'
 
-const customIndicators = [
-  ...trendIndicators,
-  ...volatilityIndicators,
-  ...volumeIndicators,
-  ...momentumIndicators,
-  ...otherIndicators
-]
-
-export default customIndicators
+// Global singleton registry
+export const indicatorRegistry = new IndicatorRegistry()
+indicatorRegistry.setRegisterFn(registerIndicator)
+indicatorRegistry.setLoaders(indicatorLoaders)
 
 // 指标分类映射（用于 UI 分类显示）
 // 名称必须与 IndicatorTemplate.name 完全一致

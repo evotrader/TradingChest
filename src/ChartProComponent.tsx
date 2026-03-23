@@ -561,8 +561,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
                   // overlay 被选中时显示浮动属性工具栏
                   const { overlay: ov } = event
                   if (ov.id) {
-                    const el = widgetRef
-                    const rect = el?.getBoundingClientRect()
+                    const rect = (widgetRef as HTMLDivElement | undefined)?.getBoundingClientRect()
                     // 使用第一个锚点的坐标定位工具栏
                     const points = ov.points ?? []
                     let x = 0, y = 0

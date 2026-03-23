@@ -22,10 +22,8 @@ const longPosition: OverlayTemplate = {
     }
 
     const points = overlay.points
-    // @ts-expect-error
-    const entryPrice: number = points[0].value
-    // @ts-expect-error
-    const stopLossPrice: number = points[1].value
+    const entryPrice = points[0].value!
+    const stopLossPrice = points[1].value!
 
     // 入场坐标和止损坐标
     const entryY = coordinates[0].y
@@ -100,8 +98,7 @@ const longPosition: OverlayTemplate = {
 
     // 第三个点：止盈
     if (coordinates.length > 2) {
-      // @ts-expect-error
-      const takeProfitPrice: number = points[2].value
+      const takeProfitPrice = points[2].value!
       const takeProfitY = coordinates[2].y
 
       const greenColor = 'rgba(38, 166, 154, 0.15)'

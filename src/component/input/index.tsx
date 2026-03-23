@@ -51,8 +51,7 @@ const Input: Component<InputProps> = p => {
         onFocus={() => { setStatus('focus') }}
         onBlur={() => { setStatus('normal') }}
         onChange={(e) => {
-          // @ts-expect-error
-          const v = e.target.value
+          const v = (e.target as HTMLInputElement).value
           if ('precision' in props) {
             let reg
             const decimalDigit = Math.max(0, Math.floor(props.precision!))

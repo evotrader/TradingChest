@@ -226,5 +226,5 @@ interface IconProps {
   name: string
 }
 
-// @ts-expect-error
+// @ts-expect-error — mapping keys are fixed icon names but props.name is a dynamic string
 export const Icon: Component<IconProps> = props => mapping[props.name](props.class)

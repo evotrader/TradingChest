@@ -15,17 +15,15 @@
 import zhCN from './zh-CN.json'
 import enUS from './en-US.json'
 
-const locales = {
+const locales: Record<string, Record<string, string>> = {
   'zh-CN': zhCN,
   'en-US': enUS
 }
 
-export function load (key: string, ls: any) {
-  // @ts-expect-error
+export function load (key: string, ls: Record<string, string>) {
   locales[key] = ls
 }
 
 export default (key: string, locale: string) => {
-  // @ts-expect-error
   return locales[locale]?.[key] ?? key
 }

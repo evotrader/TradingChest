@@ -49,15 +49,15 @@ const parallelogram: OverlayTemplate = {
   },
   performEventPressedMove: ({ points, performPointIndex, performPoint }) => {
     if (performPointIndex < 2) {
-      // @ts-expect-error
+      // @ts-expect-error — klinecharts internally uses 'price' on Point but it is not in the public type defs
       points[0].price = performPoint.price
-      // @ts-expect-error
+      // @ts-expect-error — klinecharts internally uses 'price' on Point but it is not in the public type defs
       points[1].price = performPoint.price
     }
   },
   performEventMoveForDrawing: ({ currentStep, points, performPoint }) => {
     if (currentStep === 2) {
-      // @ts-expect-error
+      // @ts-expect-error — klinecharts internally uses 'price' on Point but it is not in the public type defs
       points[0].price = performPoint.price
     }
   }

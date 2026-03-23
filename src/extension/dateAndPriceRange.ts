@@ -28,14 +28,10 @@ const dateAndPriceRange: OverlayTemplate = {
   createPointFigures: ({ coordinates, overlay, precision }) => {
     if (coordinates.length > 1) {
       const points = overlay.points
-      // @ts-expect-error
-      const price1: number = points[0].value
-      // @ts-expect-error
-      const price2: number = points[1].value
-      // @ts-expect-error
-      const ts1: number = points[0].timestamp
-      // @ts-expect-error
-      const ts2: number = points[1].timestamp
+      const price1 = points[0].value!
+      const price2 = points[1].value!
+      const ts1 = points[0].timestamp!
+      const ts2 = points[1].timestamp!
 
       // 计算价格差和涨跌幅
       const priceDiff = price2 - price1

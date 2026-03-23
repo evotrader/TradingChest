@@ -51,8 +51,7 @@ const Select: Component<SelectProps> = props => {
             {
               props.dataSource.map(data => {
                 const d = data as SelectDataSourceItem
-                // @ts-expect-error
-                const v = d[props.valueKey ?? 'text'] ?? data
+                const v = (d as Record<string, any>)[props.valueKey ?? 'text'] ?? data
                 return (
                   <li
                     onClick={e => {

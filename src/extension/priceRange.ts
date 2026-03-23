@@ -28,10 +28,8 @@ const priceRange: OverlayTemplate = {
   createPointFigures: ({ coordinates, overlay, precision }) => {
     if (coordinates.length > 1) {
       const points = overlay.points
-      // @ts-expect-error
-      const price1: number = points[0].value
-      // @ts-expect-error
-      const price2: number = points[1].value
+      const price1 = points[0].value!
+      const price2 = points[1].value!
 
       // 计算价格差和涨跌幅
       const priceDiff = price2 - price1

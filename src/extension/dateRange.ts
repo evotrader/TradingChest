@@ -27,10 +27,8 @@ const dateRange: OverlayTemplate = {
   createPointFigures: ({ coordinates, bounding, overlay }) => {
     if (coordinates.length > 1) {
       const points = overlay.points
-      // @ts-expect-error
-      const ts1: number = points[0].timestamp
-      // @ts-expect-error
-      const ts2: number = points[1].timestamp
+      const ts1 = points[0].timestamp!
+      const ts2 = points[1].timestamp!
 
       // 计算时间差（毫秒）
       const timeDiffMs = Math.abs(ts2 - ts1)

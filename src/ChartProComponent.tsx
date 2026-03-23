@@ -33,6 +33,7 @@ import { translateTimezone } from './widget/timezone-modal/data'
 
 import { SymbolInfo, Period, ChartProOptions, ChartPro } from './types'
 import { adjustFromTo } from './core/adjustFromTo'
+import { buildStyles } from './core/buildStyles'
 
 export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container'>> {
   ref: (chart: ChartPro) => void
@@ -421,32 +422,6 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       setWidgetDefaultStyles(lodashClone(widget!.getStyles()))
     }
   })
-
-  // 构建完整的 overlay 样式对象（每次 override 都传入全部属性，防止浅替换丢失）
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const buildStyles = (s: { color: string; fillColor?: string; lineWidth: number; lineStyle: string }): any => {
-    const lineStyleKC = s.lineStyle === 'dashed' || s.lineStyle === 'dotted' ? 'dashed' : 'solid'
-    const dashedValue = s.lineStyle === 'dashed' ? [6, 4] : s.lineStyle === 'dotted' ? [1, 3] : [0]
-    const fc = s.fillColor ?? 'rgba(0,0,0,0)'
-    const hasFill = s.fillColor != null
-
-    const lineStyles = { color: s.color, size: s.lineWidth, style: lineStyleKC, dashedValue }
-    const pointStyles = { color: s.color }
-
-    if (!hasFill) {
-      return { line: lineStyles, point: pointStyles, arc: { color: s.color, style: lineStyleKC, dashedValue } }
-    }
-
-    const shapeStyles = {
-      color: fc, borderColor: s.color, borderSize: s.lineWidth,
-      borderStyle: lineStyleKC, borderDashedValue: dashedValue, style: 'stroke_fill',
-    }
-    return {
-      line: lineStyles, point: pointStyles,
-      polygon: shapeStyles, circle: shapeStyles, rect: { ...shapeStyles, borderRadius: 0 },
-      arc: { color: s.color, style: lineStyleKC, dashedValue },
-    }
-  }
 
   return (
     <>

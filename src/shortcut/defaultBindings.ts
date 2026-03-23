@@ -20,8 +20,6 @@ const defaultBindings: ShortcutBinding[] = [
   { combo: 'alt+m', action: 'draw:dateAndPriceRange', description_zh: '综合测量', description_en: 'Measurement' },
 
   // 图表操作快捷键
-  { combo: 'ctrl+z', action: 'chart:undo', description_zh: '撤销', description_en: 'Undo' },
-  { combo: 'ctrl+shift+z', action: 'chart:redo', description_zh: '重做', description_en: 'Redo' },
   { combo: 'escape', action: 'chart:cancelDraw', description_zh: '取消绘制', description_en: 'Cancel Drawing' },
   { combo: 'delete', action: 'chart:deleteSelected', description_zh: '删除选中', description_en: 'Delete Selected' },
   { combo: 'alt+s', action: 'chart:screenshot', description_zh: '截图', description_en: 'Screenshot' },

@@ -15,6 +15,7 @@
 import { KLineData } from 'klinecharts'
 
 import { Datafeed, SymbolInfo, Period, DatafeedSubscribeCallback } from './types'
+import { ReconnectingWebSocket } from './datafeed/ReconnectingWebSocket'
 
 
 export default class DefaultDatafeed implements Datafeed {
@@ -26,7 +27,7 @@ export default class DefaultDatafeed implements Datafeed {
 
   private _prevSymbolMarket?: string
 
-  private _ws?: WebSocket
+  private _ws?: ReconnectingWebSocket
 
   async searchSymbols (search?: string): Promise<SymbolInfo[]> {
     const response = await fetch(`https://api.polygon.io/v3/reference/tickers?apiKey=${this._apiKey}&active=true&search=${search ?? ''}`)
@@ -60,7 +61,10 @@ export default class DefaultDatafeed implements Datafeed {
   subscribe (symbol: SymbolInfo, period: Period, callback: DatafeedSubscribeCallback): void {
     if (this._prevSymbolMarket !== symbol.market) {
       this._ws?.close()
-      this._ws = new WebSocket(`wss://delayed.polygon.io/${symbol.market}`)
+      this._ws = new ReconnectingWebSocket(
+        `wss://delayed.polygon.io/${symbol.market}`,
+        { maxRetries: 5, baseDelay: 1000, maxDelay: 30000 }
+      )
       this._ws.onopen = () => {
         this._ws?.send(JSON.stringify({ action: 'auth', params: this._apiKey }))
       }

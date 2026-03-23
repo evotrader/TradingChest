@@ -136,6 +136,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     startReplay: () => {},
     stopReplay: () => {},
     getReplayEngine: () => null,
+    feedPrice: () => {},
+    dispose: () => {},
   })
 
   const documentResize = () => {

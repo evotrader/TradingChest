@@ -113,4 +113,8 @@ export interface ChartPro {
   stopReplay(): void
   /** 获取回放引擎 */
   getReplayEngine(): import('./replay/ReplayEngine').ReplayEngine | null
+  /** 向报警系统传入最新价格（实时数据到达时调用） */
+  feedPrice(price: number): void
+  /** 销毁图表实例，释放所有资源。调用后实例不可再使用。 */
+  dispose(): void
 }

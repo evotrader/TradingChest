@@ -49,7 +49,7 @@ export default class KLineChartPro implements ChartPro {
     this._container.classList.add('klinecharts-pro')
     this._container.setAttribute('data-theme', options.theme ?? 'light')
 
-    render(
+    this._solidDispose = render(
       () => (
         <ChartProComponent
           ref={(chart: ChartPro) => { this._chartApi = chart }}
@@ -81,7 +81,7 @@ export default class KLineChartPro implements ChartPro {
           onIndicatorClick={options.onIndicatorClick ?? (() => {})}/>
       ),
       this._container
-    )
+    ) as unknown as (() => void)
 
     this._datafeed = options.datafeed
 
@@ -91,8 +91,10 @@ export default class KLineChartPro implements ChartPro {
       const detector = this._clickDetector
       const container = this._container!
 
+      const self = this
       const attachClickListener = (widgetEl: Element) => {
-        widgetEl.addEventListener('click', (e: Event) => {
+        self._clickTarget = widgetEl
+        self._clickHandler = (e: Event) => {
           const me = e as MouseEvent
           const rect = (widgetEl as HTMLElement).getBoundingClientRect()
           const clickX = me.clientX - rect.left
@@ -106,7 +108,8 @@ export default class KLineChartPro implements ChartPro {
               y: clickY,
             })
           }
-        }, true)
+        }
+        widgetEl.addEventListener('click', self._clickHandler, true)
       }
 
       // Solid.js render() 是同步的，元素可能已存在
@@ -114,14 +117,22 @@ export default class KLineChartPro implements ChartPro {
       if (existingEl) {
         attachClickListener(existingEl)
       } else {
-        const observer = new MutationObserver(() => {
+        this._observer = new MutationObserver(() => {
           const widgetEl = container.querySelector('.klinecharts-pro-widget')
           if (widgetEl) {
-            observer.disconnect()
+            this._observer!.disconnect()
+            if (this._observerTimeoutId) {
+              clearTimeout(this._observerTimeoutId)
+              this._observerTimeoutId = null
+            }
             attachClickListener(widgetEl)
           }
         })
-        observer.observe(container, { childList: true, subtree: true })
+        this._observer.observe(container, { childList: true, subtree: true })
+        this._observerTimeoutId = setTimeout(() => {
+          this._observer?.disconnect()
+          this._observerTimeoutId = null
+        }, 3000)
       }
     }
 
@@ -169,6 +180,12 @@ export default class KLineChartPro implements ChartPro {
   private _alertManager: AlertManager = new AlertManager()
 
   private _replayEngine: ReplayEngine | null = null
+
+  private _solidDispose: (() => void) | null = null
+  private _clickHandler: ((e: Event) => void) | null = null
+  private _clickTarget: Element | null = null
+  private _observer: MutationObserver | null = null
+  private _observerTimeoutId: ReturnType<typeof setTimeout> | null = null
 
   setTheme (theme: string): void {
     this._container?.setAttribute('data-theme', theme)
@@ -316,7 +333,10 @@ export default class KLineChartPro implements ChartPro {
 
     this._replayEngine = new ReplayEngine({
       onDataChange: (data) => { chart.applyNewData(data, data.length > 0) },
-      onBarUpdate: (bar) => { chart.updateData(bar) },
+      onBarUpdate: (bar) => {
+        chart.updateData(bar)
+        this._alertManager.checkPrice(bar.close, bar.timestamp)
+      },
       onStateChange: () => {}
     })
     this._replayEngine.start(dataList, pos)
@@ -332,5 +352,43 @@ export default class KLineChartPro implements ChartPro {
 
   getReplayEngine (): ReplayEngine | null {
     return this._replayEngine
+  }
+
+  feedPrice (price: number): void {
+    this._alertManager.checkPrice(price, Date.now())
+  }
+
+  dispose (): void {
+    // 1. Stop replay
+    this.stopReplay()
+    // 2. Clear alerts
+    this._alertManager.clearAll()
+    this._alertManager.onTrigger = null
+    // 3. Unbind shortcuts
+    this._shortcutManager.unbind()
+    // 4. Remove click listener
+    if (this._clickHandler && this._clickTarget) {
+      this._clickTarget.removeEventListener('click', this._clickHandler, true)
+      this._clickHandler = null
+      this._clickTarget = null
+    }
+    // 5. Disconnect observer
+    if (this._observerTimeoutId) {
+      clearTimeout(this._observerTimeoutId)
+      this._observerTimeoutId = null
+    }
+    if (this._observer) {
+      this._observer.disconnect()
+      this._observer = null
+    }
+    // 6. Unmount Solid.js render tree
+    if (this._solidDispose) {
+      this._solidDispose()
+      this._solidDispose = null
+    }
+    // 7. Clean container
+    this._container?.classList.remove('klinecharts-pro')
+    this._container?.removeAttribute('data-theme')
+    this._chartApi = null
   }
 }

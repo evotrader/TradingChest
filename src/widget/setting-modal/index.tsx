@@ -15,7 +15,7 @@
 import { Component, createEffect, For, createSignal } from 'solid-js'
 import { Styles, utils, DeepPartial } from 'klinecharts'
 
-import lodashSet from 'lodash/set'
+import { deepSet } from '../../core/deepSet'
 
 import { Modal, Select, Switch, ColorInput } from '../../component'
 import type { SelectDataSourceItem } from '../../component'
@@ -42,9 +42,9 @@ const SettingModal: Component<SettingModalProps> = props => {
 
   const update = (option: SettingOption, newValue: any) => {
     const style = {}
-    lodashSet(style, option.key, newValue)
+    deepSet(style, option.key, newValue)
     const ss = utils.clone(styles())
-    lodashSet(ss, option.key, newValue)
+    deepSet(ss, option.key, newValue)
     setStyles(ss)
     setGroups(getOptions(props.locale))
     props.onChange(style)

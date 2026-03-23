@@ -19,8 +19,7 @@ import {
   TooltipIconPosition, ActionType, PaneOptions, Indicator, DomPosition, FormatDateType
 } from 'klinecharts'
 
-import lodashSet from 'lodash/set'
-import lodashClone from 'lodash/cloneDeep'
+import { deepSet } from './core/deepSet'
 
 import { SelectDataSourceItem, Loading } from './component'
 
@@ -430,7 +429,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   createEffect(() => {
     if (styles()) {
       widget?.setStyles(styles())
-      setWidgetDefaultStyles(lodashClone(widget!.getStyles()))
+      setWidgetDefaultStyles(structuredClone(widget!.getStyles()))
     }
   })
 
@@ -497,7 +496,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             const style = {}
             options.forEach(option => {
               const key = option.key
-              lodashSet(style, key, utils.formatValue(widgetDefaultStyles(), key))
+              deepSet(style, key, utils.formatValue(widgetDefaultStyles(), key))
             })
             widget?.setStyles(style)
           }}

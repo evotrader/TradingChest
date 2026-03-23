@@ -129,7 +129,9 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     getShortcutManager: () => null,
     addAlert: () => {},
     removeAlert: () => {},
-    getAlerts: () => []
+    getAlerts: () => [],
+    addComparison: async () => {},
+    removeComparison: () => {}
   })
 
   const documentResize = () => {

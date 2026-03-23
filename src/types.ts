@@ -103,4 +103,8 @@ export interface ChartPro {
   removeAlert(id: string): void
   /** 获取所有报警 */
   getAlerts(): import('./alert/types').AlertConfig[]
+  /** 添加对比品种（归一化为百分比变化叠加在主图） */
+  addComparison(symbol: SymbolInfo): Promise<void>
+  /** 移除对比品种 */
+  removeComparison(ticker: string): void
 }

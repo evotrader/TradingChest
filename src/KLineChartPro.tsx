@@ -14,7 +14,8 @@
 
 import { render } from 'solid-js/web'
 
-import { utils, Nullable, DeepPartial, Styles } from 'klinecharts'
+import { utils, Nullable, DeepPartial, Styles, registerIndicator } from 'klinecharts'
+import { normalizeToPercent } from './compare'
 
 import ChartProComponent from './ChartProComponent'
 
@@ -80,6 +81,8 @@ export default class KLineChartPro implements ChartPro {
       ),
       this._container
     )
+
+    this._datafeed = options.datafeed
 
     // 指标图形点击检测：先检查元素是否已存在，否则用 MutationObserver
     if (options.onIndicatorClick) {
@@ -155,6 +158,10 @@ export default class KLineChartPro implements ChartPro {
   private _chartApi: Nullable<ChartPro> = null
 
   private _shortcutManager: KeyboardShortcutManager
+
+  private _comparisons = new Map<string, string>() // ticker → indicatorName
+
+  private _datafeed: import('./types').Datafeed
 
   private _clickDetector: IndicatorClickDetector = new IndicatorClickDetector()
 
@@ -255,5 +262,46 @@ export default class KLineChartPro implements ChartPro {
 
   getAlerts (): AlertConfig[] {
     return this._alertManager.getAlerts()
+  }
+
+  async addComparison (symbol: SymbolInfo): Promise<void> {
+    const chart = this.getChart()
+    if (!chart) return
+
+    const p = this.getPeriod()
+    const mainData = chart.getDataList()
+    if (mainData.length === 0) return
+
+    const from = mainData[0].timestamp
+    const to = mainData[mainData.length - 1].timestamp
+    const compData = await this._datafeed.getHistoryKLineData(symbol, p, from, to)
+    if (compData.length === 0) return
+
+    const compPercent = normalizeToPercent(compData)
+    const compMap = new Map<number, number>()
+    compData.forEach((d, i) => { compMap.set(d.timestamp, compPercent[i]) })
+
+    const indicatorName = `COMPARE_${symbol.ticker.replace(/[^A-Z0-9]/g, '_')}`
+    registerIndicator({
+      name: indicatorName,
+      shortName: symbol.shortName ?? symbol.ticker,
+      figures: [{ key: 'pct', title: `${symbol.ticker}: `, type: 'line' }],
+      calc: (dataList) => {
+        return dataList.map(d => ({
+          pct: compMap.get(d.timestamp) ?? undefined
+        }))
+      }
+    })
+
+    chart.createIndicator(indicatorName, true, { id: 'candle_pane' })
+    this._comparisons.set(symbol.ticker, indicatorName)
+  }
+
+  removeComparison (ticker: string): void {
+    const indicatorName = this._comparisons.get(ticker)
+    if (indicatorName) {
+      this.getChart()?.removeIndicator('candle_pane', indicatorName)
+      this._comparisons.delete(ticker)
+    }
   }
 }

@@ -35,7 +35,7 @@ import { SymbolInfo, Period, ChartProOptions, ChartPro } from './types'
 import { adjustFromTo } from './core/adjustFromTo'
 import { buildStyles } from './core/buildStyles'
 
-export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container'>> {
+export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger'>> {
   ref: (chart: ChartPro) => void
 }
 
@@ -126,7 +126,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     exportCSV: () => {},
     exportAllCSV: () => {},
     exportScreenshot: () => {},
-    getShortcutManager: () => null
+    getShortcutManager: () => null,
+    addAlert: () => {},
+    removeAlert: () => {},
+    getAlerts: () => []
   })
 
   const documentResize = () => {

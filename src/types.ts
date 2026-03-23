@@ -70,6 +70,8 @@ export interface ChartProOptions {
   datafeed: Datafeed
   /** 指标图形被点击时的回调 */
   onIndicatorClick?: (event: IndicatorClickEvent) => void
+  /** 报警触发时的回调 */
+  onAlertTrigger?: (event: import('./alert/types').AlertEvent) => void
 }
 
 export interface ChartPro {
@@ -95,4 +97,10 @@ export interface ChartPro {
   exportScreenshot(options?: { format?: 'png' | 'jpeg', backgroundColor?: string, filename?: string }): void
   /** 获取快捷键管理器 */
   getShortcutManager(): KeyboardShortcutManager | null
+  /** 添加报警线 */
+  addAlert(config: import('./alert/types').AlertConfig): void
+  /** 移除报警线 */
+  removeAlert(id: string): void
+  /** 获取所有报警 */
+  getAlerts(): import('./alert/types').AlertConfig[]
 }

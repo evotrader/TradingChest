@@ -23,6 +23,8 @@ import { SymbolInfo, Period, ChartPro, ChartProOptions } from './types'
 import KeyboardShortcutManager from './shortcut'
 import { IndicatorClickDetector } from './core/indicatorClickDetector'
 import { exportToCSV, exportAllToCSV, exportScreenshot } from './export'
+import { AlertManager } from './alert'
+import type { AlertConfig } from './alert/types'
 
 const Logo = (
   <svg class="logo" viewBox="0 0 80 92">
@@ -119,6 +121,11 @@ export default class KLineChartPro implements ChartPro {
       }
     }
 
+    // 初始化报警管理器
+    if (options.onAlertTrigger) {
+      this._alertManager.onTrigger = options.onAlertTrigger
+    }
+
     // 初始化快捷键管理器
     this._shortcutManager = new KeyboardShortcutManager()
     this._shortcutManager.registerActions({
@@ -150,6 +157,8 @@ export default class KLineChartPro implements ChartPro {
   private _shortcutManager: KeyboardShortcutManager
 
   private _clickDetector: IndicatorClickDetector = new IndicatorClickDetector()
+
+  private _alertManager: AlertManager = new AlertManager()
 
 
   setTheme (theme: string): void {
@@ -223,5 +232,28 @@ export default class KLineChartPro implements ChartPro {
 
   getClickDetector (): IndicatorClickDetector {
     return this._clickDetector
+  }
+
+  addAlert (config: AlertConfig): void {
+    this._alertManager.addAlert(config)
+    const chart = this.getChart()
+    if (chart) {
+      chart.createOverlay({
+        name: 'alertLine',
+        id: `alert_${config.id}`,
+        points: [{ value: config.price }],
+        styles: { line: { color: config.color ?? '#ff9800' } },
+        lock: true
+      })
+    }
+  }
+
+  removeAlert (id: string): void {
+    this._alertManager.removeAlert(id)
+    this.getChart()?.removeOverlay({ id: `alert_${id}` })
+  }
+
+  getAlerts (): AlertConfig[] {
+    return this._alertManager.getAlerts()
   }
 }

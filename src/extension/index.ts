@@ -31,6 +31,7 @@ import shortPosition from './shortPosition'
 import note from './note'
 import positionRange from './positionRange'
 import tradeMarker from './tradeMarker'
+import alertLine from '../alert/AlertLine'
 
 const overlays = [
   arrow,
@@ -42,7 +43,8 @@ const overlays = [
   pitchfork, schiffPitchfork, regressionTrend, regressionChannel,
   textAnnotation, callout, brush, longPosition, shortPosition, note,
   positionRange,
-  tradeMarker
+  tradeMarker,
+  alertLine
 ]
 
 export default overlays

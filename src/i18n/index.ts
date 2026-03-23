@@ -14,10 +14,14 @@
 
 import zhCN from './zh-CN.json'
 import enUS from './en-US.json'
+import ja from './ja.json'
+import ko from './ko.json'
 
 const locales: Record<string, Record<string, string>> = {
   'zh-CN': zhCN,
-  'en-US': enUS
+  'en-US': enUS,
+  'ja': ja,
+  'ko': ko
 }
 
 export function load (key: string, ls: Record<string, string>) {

@@ -1,4 +1,4 @@
 /node_modules
 /dist
 /website
-/docs/.vitepress/cache
+/docs/.vitepress/cache.worktrees

@@ -31,7 +31,7 @@ type OnIndicatorChange = (
 export interface IndicatorModalProps {
   locale: string
   mainIndicators: string[]
-  subIndicators: object
+  subIndicators: Record<string, string>
   onMainIndicatorChange: OnIndicatorChange
   onSubIndicatorChange: OnIndicatorChange
   onClose: () => void
@@ -166,7 +166,6 @@ const IndicatorModal: Component<IndicatorModalProps> = props => {
               <li
                 class="row"
                 onClick={() => {
-                  // @ts-expect-error
                   props.onSubIndicatorChange({ name, paneId: props.subIndicators[name] ?? '', added: !checked() })
                 }}>
                 <Checkbox checked={checked()} label={i18n(name.toLowerCase(), props.locale) || name}/>

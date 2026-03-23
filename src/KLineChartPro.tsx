@@ -26,6 +26,7 @@ import { IndicatorClickDetector } from './core/indicatorClickDetector'
 import { exportToCSV, exportAllToCSV, exportScreenshot } from './export'
 import { AlertManager } from './alert'
 import type { AlertConfig } from './alert/types'
+import { ReplayEngine } from './replay/ReplayEngine'
 
 const Logo = (
   <svg class="logo" viewBox="0 0 80 92">
@@ -167,6 +168,7 @@ export default class KLineChartPro implements ChartPro {
 
   private _alertManager: AlertManager = new AlertManager()
 
+  private _replayEngine: ReplayEngine | null = null
 
   setTheme (theme: string): void {
     this._container?.setAttribute('data-theme', theme)
@@ -303,5 +305,32 @@ export default class KLineChartPro implements ChartPro {
       this.getChart()?.removeIndicator('candle_pane', indicatorName)
       this._comparisons.delete(ticker)
     }
+  }
+
+  startReplay (startPosition?: number): void {
+    const chart = this.getChart()
+    if (!chart) return
+    const dataList = chart.getDataList()
+    if (dataList.length === 0) return
+    const pos = startPosition ?? Math.floor(dataList.length * 0.5)
+
+    this._replayEngine = new ReplayEngine({
+      onDataChange: (data) => { chart.applyNewData(data, data.length > 0) },
+      onBarUpdate: (bar) => { chart.updateData(bar) },
+      onStateChange: () => {}
+    })
+    this._replayEngine.start(dataList, pos)
+  }
+
+  stopReplay (): void {
+    if (this._replayEngine) {
+      this._replayEngine.stop()
+      this._replayEngine.dispose()
+      this._replayEngine = null
+    }
+  }
+
+  getReplayEngine (): ReplayEngine | null {
+    return this._replayEngine
   }
 }

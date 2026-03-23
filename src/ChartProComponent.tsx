@@ -132,7 +132,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     removeAlert: () => {},
     getAlerts: () => [],
     addComparison: async () => {},
-    removeComparison: () => {}
+    removeComparison: () => {},
+    startReplay: () => {},
+    stopReplay: () => {},
+    getReplayEngine: () => null,
   })
 
   const documentResize = () => {

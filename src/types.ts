@@ -107,4 +107,10 @@ export interface ChartPro {
   addComparison(symbol: SymbolInfo): Promise<void>
   /** 移除对比品种 */
   removeComparison(ticker: string): void
+  /** 进入回放模式 */
+  startReplay(startPosition?: number): void
+  /** 退出回放模式 */
+  stopReplay(): void
+  /** 获取回放引擎 */
+  getReplayEngine(): import('./replay/ReplayEngine').ReplayEngine | null
 }

@@ -456,6 +456,25 @@ describe('KeyboardShortcutManager', () => {
       manager.unbind()
       expect(manager.getHandler()).toBeNull()
     })
+
+    it('unbind 后 dispatch 事件不触发 handler', () => {
+      const mgr = new KeyboardShortcutManager()
+      const handler = vi.fn()
+      mgr.registerAction('chart:cancelDraw', handler)
+
+      const el = document.createElement('div')
+      mgr.bindTo(el)
+
+      // Before unbind: handler fires
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      expect(handler).toHaveBeenCalledTimes(1)
+
+      mgr.unbind()
+
+      // After unbind: handler should NOT fire
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      expect(handler).toHaveBeenCalledTimes(1) // still 1, not 2
+    })
   })
 
   describe('case 敏感性', () => {

@@ -7,6 +7,7 @@ import defaultBindings, { ShortcutBinding } from './defaultBindings'
 export class KeyboardShortcutManager {
   private bindings: ShortcutBinding[]
   private handler: ((e: KeyboardEvent) => void) | null = null
+  private element: HTMLElement | Window | null = null
   private actionHandlers: Map<string, () => void> = new Map()
   private enabled: boolean = true
 
@@ -88,6 +89,7 @@ export class KeyboardShortcutManager {
    */
   bindTo(element: HTMLElement | Window): void {
     this.unbind()
+    this.element = element
     this.handler = (e: KeyboardEvent) => {
       if (!this.enabled) return
 
@@ -115,9 +117,11 @@ export class KeyboardShortcutManager {
    * 解绑
    */
   unbind(): void {
-    // 这里无法自动解绑因为我们不保存 element 引用
-    // 调用者需要在 cleanup 时手动管理
+    if (this.handler && this.element) {
+      this.element.removeEventListener('keydown', this.handler as EventListener)
+    }
     this.handler = null
+    this.element = null
   }
 
   /**

@@ -21,6 +21,7 @@ import ChartProComponent from './ChartProComponent'
 import { SymbolInfo, Period, ChartPro, ChartProOptions } from './types'
 
 import KeyboardShortcutManager from './shortcut'
+import { IndicatorClickDetector } from './core/indicatorClickDetector'
 import { exportToCSV, exportAllToCSV, exportScreenshot } from './export'
 
 const Logo = (
@@ -78,46 +79,44 @@ export default class KLineChartPro implements ChartPro {
       this._container
     )
 
-    // 指标图形点击检测：延迟注册确保 klinecharts init 完成
+    // 指标图形点击检测：先检查元素是否已存在，否则用 MutationObserver
     if (options.onIndicatorClick) {
       const onIndClick = options.onIndicatorClick
-      const container = this._container
-      setTimeout(() => {
-        const widgetEl = container?.querySelector('.klinecharts-pro-widget')
-        if (widgetEl) {
-          widgetEl.addEventListener('click', (e: Event) => {
-            const me = e as MouseEvent
-            const rect = (widgetEl as HTMLElement).getBoundingClientRect()
-            const clickX = me.clientX - rect.left
-            const clickY = me.clientY - rect.top
+      const detector = this._clickDetector
+      const container = this._container!
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const hitTargets: Array<{ x: number; y: number; trade: any; type: string }> =
-              (globalThis as any).__tradeVisHitTargets ?? []
+      const attachClickListener = (widgetEl: Element) => {
+        widgetEl.addEventListener('click', (e: Event) => {
+          const me = e as MouseEvent
+          const rect = (widgetEl as HTMLElement).getBoundingClientRect()
+          const clickX = me.clientX - rect.left
+          const clickY = me.clientY - rect.top
+          const closest = detector.findClosest(clickX, clickY, 40)
+          if (closest) {
+            onIndClick({
+              indicatorName: 'TradeVis',
+              data: { ...closest.trade, type: closest.type },
+              x: clickX,
+              y: clickY,
+            })
+          }
+        }, true)
+      }
 
-            let closest: { x: number; y: number; trade: any; type: string } | null = null
-            let minDist = Infinity
-            for (const ht of hitTargets) {
-              const dx = clickX - ht.x
-              const dy = clickY - ht.y
-              const dist = Math.sqrt(dx * dx + dy * dy)
-              if (dist < 40 && dist < minDist) {
-                minDist = dist
-                closest = ht
-              }
-            }
-
-            if (closest) {
-              onIndClick({
-                indicatorName: 'TradeVis',
-                data: { ...closest.trade, type: closest.type },
-                x: clickX,
-                y: clickY,
-              })
-            }
-          }, true)
-        }
-      }, 500)
+      // Solid.js render() 是同步的，元素可能已存在
+      const existingEl = container.querySelector('.klinecharts-pro-widget')
+      if (existingEl) {
+        attachClickListener(existingEl)
+      } else {
+        const observer = new MutationObserver(() => {
+          const widgetEl = container.querySelector('.klinecharts-pro-widget')
+          if (widgetEl) {
+            observer.disconnect()
+            attachClickListener(widgetEl)
+          }
+        })
+        observer.observe(container, { childList: true, subtree: true })
+      }
     }
 
     // 初始化快捷键管理器
@@ -149,6 +148,8 @@ export default class KLineChartPro implements ChartPro {
   private _chartApi: Nullable<ChartPro> = null
 
   private _shortcutManager: KeyboardShortcutManager
+
+  private _clickDetector: IndicatorClickDetector = new IndicatorClickDetector()
 
 
   setTheme (theme: string): void {
@@ -218,5 +219,9 @@ export default class KLineChartPro implements ChartPro {
 
   getShortcutManager (): KeyboardShortcutManager {
     return this._shortcutManager
+  }
+
+  getClickDetector (): IndicatorClickDetector {
+    return this._clickDetector
   }
 }

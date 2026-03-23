@@ -1,82 +1,112 @@
 <h1 align="center">TradingChest</h1>
-<p align="center">专业级交易图表库，对标 TradingView 图表能力。基于 KLineChart 构建。</p>
 <p align="center">Professional trading chart library targeting TradingView-level capabilities. Built on KLineChart.</p>
 
 <div align="center">
 
 [![Version](https://badgen.net/npm/v/trading-chest)](https://www.npmjs.com/package/trading-chest)
 [![Typescript](https://badgen.net/badge/types/TypeScript/blue)](dist/index.d.ts)
-[![LICENSE](https://badgen.net/badge/license/Apache-2.0/green)](LICENSE)
+[![License](https://badgen.net/badge/license/Apache-2.0/green)](LICENSE)
+
+**English** | [中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md)
 
 </div>
 
-## 特性 / Features
+<p align="center">
+  <img src="docs/public/image.png" alt="TradingChest Screenshot" width="800" />
+</p>
 
-### 技术指标（73+）
-| 分类 | 数量 | 示例 |
-|------|------|------|
-| 趋势 | 21 | MA, EMA, BOLL, Ichimoku, SuperTrend, Alligator, KAMA, HMA... |
-| 波动率 | 9 | Keltner Channels, Donchian Channels, ATR, Bollinger Band Width... |
-| 成交量 | 12 | VOL, VWAP, MFI, CMF, Klinger Oscillator, Elder Ray... |
-| 动量 | 26 | MACD, RSI, KDJ, StochRSI, ADX, Aroon, Fisher Transform, PPO... |
-| 其他 | 2 | Pivot Points, ZigZag |
+## Features
 
-- 分类 Tab 快速筛选（趋势/波动率/成交量/动量/其他）
-- 实时搜索过滤
-- 指标参数可自定义
+### Technical Indicators (73+)
 
-### 绘图工具（42+）
-| 分类 | 工具 |
-|------|------|
-| 线条 | 水平线、垂直线、趋势线、射线、线段、箭头、价格线、平行线、价格通道 |
-| 斐波那契 | 回调线、线段、圆环、螺旋、速度阻力扇、趋势扩展 |
-| 波浪 | 三浪、五浪、八浪、任意浪、ABCD、XABCD |
-| 几何 | 圆、矩形、三角形、平行四边形 |
-| 形态 | Andrew's Pitchfork、Schiff Pitchfork、线性回归、回归通道、Gann Box |
-| 测量 | 价格区间、时间区间、综合测量 |
-| 标注 | 文字标注、标注气泡、便签、自由画笔 |
-| 交易 | 做多持仓、做空持仓（入场/止损/止盈可视化 + 盈亏比） |
+| Category | Count | Examples |
+|----------|-------|----------|
+| Trend | 21 | MA, EMA, BOLL, Ichimoku, SuperTrend, Alligator, KAMA, HMA... |
+| Volatility | 9 | Keltner Channels, Donchian Channels, ATR, Bollinger Band Width... |
+| Volume | 12 | VOL, VWAP, MFI, CMF, Klinger Oscillator, Elder Ray... |
+| Momentum | 26 | MACD, RSI, KDJ, StochRSI, ADX, Aroon, Fisher Transform, PPO... |
+| Other | 2 | Pivot Points, ZigZag |
 
-- 所有工具支持 hover tooltip 提示
-- 文字类工具支持输入文字 + 右键编辑
-- **选中绘图后弹出浮动属性工具栏**（对标 TradingView）：
-  - TradingView 风格 9×8 调色板（72 色）
-  - 线宽选择器（1-4px 可视化预览）
-  - 线型选择器（实线/虚线/点线）
-  - 锁定/删除快捷按钮
+- Category tabs for quick filtering (Trend / Volatility / Volume / Momentum / Other)
+- Real-time search filtering
+- Customizable indicator parameters
+- Lazy-loaded indicator registration for faster startup
 
-### 图表类型（8 种）
-蜡烛实心、蜡烛空心、涨空心、跌空心、OHLC、面积图、**Heikin Ashi**、**Baseline**
+### Drawing Tools (42+)
 
-### 设置面板
-- 蜡烛图类型选择
-- **涨/跌颜色自定义**（颜色选择器）
-- 价格轴类型（线性/百分比/对数）
-- 十字光标显隐（水平/垂直独立控制）
-- 网格线、最高/最低价标记、提示框类型
-- 设置项分组显示（蜡烛图/坐标轴/网格与光标）
+| Category | Tools |
+|----------|-------|
+| Lines | Horizontal, Vertical, Trend, Ray, Segment, Arrow, Price Line, Parallel, Price Channel |
+| Fibonacci | Retracement, Segment, Circle, Spiral, Speed Resistance Fan, Trend Extension |
+| Waves | 3-Wave, 5-Wave, 8-Wave, Any-Wave, ABCD, XABCD |
+| Geometry | Circle, Rectangle, Triangle, Parallelogram |
+| Patterns | Andrew's Pitchfork, Schiff Pitchfork, Linear Regression, Regression Channel, Gann Box |
+| Measurement | Price Range, Time Range, Combined Measurement |
+| Annotations | Text Label, Annotation Bubble, Sticky Note, Freehand Drawing |
+| Trading | Long / Short Position (Entry / Stop-loss / Take-profit visualization + Risk/Reward ratio) |
 
-### 其他功能
-- **键盘快捷键**：19 默认绑定（Alt+T 趋势线、Alt+F 斐波那契、Ctrl+Z 撤销等），可自定义
-- **5 种预设主题**：暗色、亮色、午夜蓝、经典（TradingView 风格）、高对比
-- **数据导出**：CSV（可见区间/全量）、截图（PNG/JPEG）
-- **布局持久化**：localStorage 保存/加载/删除图表布局
-- **撤销/重做**：Command Pattern 操作历史管理
-- **国际化**：中文 (zh-CN)、英文 (en-US)
-- **时区**：14 个时区支持
+- Hover tooltip on all tools
+- Text tools support inline editing + right-click edit
+- **Floating property toolbar on selected drawing** (TradingView-style):
+  - 9×8 color palette (72 colors)
+  - Line width selector (1–4px visual preview)
+  - Line style selector (solid / dashed / dotted)
+  - Lock / Delete quick buttons
 
-## 安装 / Install
+### Chart Types (8)
+
+Candle Solid, Candle Hollow, Up Hollow, Down Hollow, OHLC, Area, **Heikin Ashi**, **Baseline**
+
+### Price Alerts
+
+- Add / remove alert lines at specific prices
+- Callback when price crosses alert level
+- Visual overlay on chart
+- Works in both live and replay modes
+
+### Symbol Comparison
+
+- Overlay additional symbols normalized to percentage change
+- Automatic cross-symbol timestamp alignment
+
+### Bar Replay
+
+- Replay historical data bar-by-bar
+- Play / Pause / Step Forward / Step Backward / Go To Position
+- Adjustable speed (0.5×–16×)
+- Alert system active during replay
+
+### Trade Visualization
+
+- Overlay buy/sell markers on the chart from trade records
+- Click detection on trade markers with callback
+- Integrates with `IndicatorClickDetector`
+
+### Settings Panel
+
+- Candle type selection
+- Up / Down color customization (color picker)
+- Price axis type (Linear / Percentage / Logarithmic)
+- Crosshair visibility (Horizontal / Vertical independent control)
+- Grid lines, High / Low markers, Tooltip type
+- Grouped settings (Candle / Axis / Grid & Crosshair)
+
+### Other
+
+- **Keyboard Shortcuts**: 15+ default bindings (Alt+T trend line, Alt+F Fibonacci, etc.), fully customizable
+- **5 Theme Presets**: Dark, Light, Midnight Blue, Classic (TradingView-style), High Contrast
+- **Data Export**: CSV (visible range / all data), Screenshot (PNG / JPEG)
+- **Layout Persistence**: Save / Load / Delete chart layouts via localStorage
+- **i18n**: Chinese (zh-CN), English (en-US)
+- **Timezone**: 14 timezone support
+
+## Install
 
 ```bash
-npm install trading-chest
+npm install trading-chest klinecharts
 ```
 
-**Peer Dependency:**
-```bash
-npm install klinecharts
-```
-
-## 使用 / Usage
+## Usage
 
 ```typescript
 import { KLineChartPro } from 'trading-chest'
@@ -95,119 +125,176 @@ const chart = new KLineChartPro({
   datafeed: {
     searchSymbols: async () => [],
     getHistoryKLineData: async (symbol, period, from, to) => {
-      // 返回 KLineData[] — 实现你的数据获取逻辑
+      // Return KLineData[] — implement your data fetching logic
       return []
     },
     subscribe: () => {},
     unsubscribe: () => {},
   },
   theme: 'dark',
-  locale: 'zh-CN',
+  locale: 'en-US',
 })
+
+// Don't forget to dispose when done
+// chart.dispose()
 ```
 
 ## API
 
-### KLineChartPro
+### Constructor Options
 
 ```typescript
-// 主题
+interface ChartProOptions {
+  container: string | HTMLElement
+  symbol: SymbolInfo
+  period: Period
+  datafeed: Datafeed
+  styles?: DeepPartial<Styles>
+  watermark?: string | Node
+  theme?: string              // default: 'light'
+  locale?: string             // default: 'zh-CN'
+  drawingBarVisible?: boolean // default: true
+  periods?: Period[]
+  timezone?: string           // default: 'Asia/Shanghai'
+  mainIndicators?: string[]   // default: ['MA']
+  subIndicators?: string[]    // default: ['VOL']
+  onIndicatorClick?: (event: IndicatorClickEvent) => void
+  onAlertTrigger?: (event: AlertEvent) => void
+}
+```
+
+### Instance Methods
+
+```typescript
+// Theme
 chart.setTheme('dark' | 'light')
 chart.getTheme(): string
 
-// 样式
+// Styles
 chart.setStyles(styles: DeepPartial<Styles>)
 chart.getStyles(): Styles
 
-// 语言
+// Locale
 chart.setLocale('zh-CN' | 'en-US')
+chart.getLocale(): string
 
-// 时区
+// Timezone
 chart.setTimezone('Asia/Shanghai')
+chart.getTimezone(): string
 
-// 标的/周期
+// Symbol / Period
 chart.setSymbol(symbol: SymbolInfo)
+chart.getSymbol(): SymbolInfo
 chart.setPeriod(period: Period)
+chart.getPeriod(): Period
 
-// 内部图表实例（用于自定义 overlay 操作）
+// Internal chart instance (for custom overlay operations)
 chart.getChart(): Chart | null
 
-// 数据导出
+// Data Export
 chart.exportCSV(filename?: string)
 chart.exportAllCSV(filename?: string)
 chart.exportScreenshot({ format?, backgroundColor?, filename? })
 
-// 快捷键管理
+// Keyboard Shortcuts
 chart.getShortcutManager(): KeyboardShortcutManager
+
+// Alerts
+chart.addAlert({ id, price, condition, color? })
+chart.removeAlert(id: string)
+chart.getAlerts(): AlertConfig[]
+chart.feedPrice(price: number)     // Feed live price for alert checking
+
+// Symbol Comparison
+chart.addComparison(symbol: SymbolInfo): Promise<void>
+chart.removeComparison(ticker: string)
+
+// Bar Replay
+chart.startReplay(startPosition?: number)
+chart.stopReplay()
+chart.getReplayEngine(): ReplayEngine | null
+
+// Trade Visualization
+chart.createTradeVisualization(trades: TradeRecord[], paneOptions?)
+chart.getClickDetector(): IndicatorClickDetector
+
+// Lifecycle
+chart.dispose()
 ```
 
-### 导出模块
+### Exports
 
 ```typescript
 import {
-  // 主类
   KLineChartPro,
   DefaultDatafeed,
   loadLocales,
 
-  // 主题
+  // Themes
   themePresets,
   getThemeByName,
 
-  // 数据导出
-  exportToCSV,
-  exportAllToCSV,
-  exportScreenshot,
+  // Data Export
+  exportToCSV, exportAllToCSV, exportScreenshot,
 
-  // 布局持久化
-  saveLayout,
-  loadLayout,
-  deleteLayout,
-  listLayouts,
+  // Layout Persistence
+  saveLayout, loadLayout, deleteLayout, listLayouts,
 
-  // 快捷键
+  // Keyboard Shortcuts
   KeyboardShortcutManager,
 
-  // 指标分类
+  // Indicators
   indicatorCategories,
+  indicatorRegistry,
+
+  // Alerts
+  AlertManager,
+
+  // Comparison
+  normalizeToPercent,
+
+  // Replay
+  ReplayEngine,
 } from 'trading-chest'
 ```
 
-## 技术栈 / Tech Stack
+## Tech Stack
 
-- **渲染引擎**: [KLineChart](https://github.com/klinecharts/KLineChart) 9.x (Canvas, 高性能)
-- **UI 框架**: [Solid.js](https://www.solidjs.com/) (响应式, 轻量)
-- **构建工具**: [Vite](https://vitejs.dev/) (ESM + UMD 双格式)
-- **语言**: TypeScript
+- **Rendering Engine**: [KLineChart](https://github.com/klinecharts/KLineChart) 9.x (Canvas, high performance)
+- **UI Framework**: [Solid.js](https://www.solidjs.com/) (reactive, lightweight)
+- **Build Tool**: [Vite](https://vitejs.dev/) (ESM + UMD dual output)
+- **Language**: TypeScript (zero `@ts-expect-error` for project code)
+- **Testing**: Vitest (211 tests, 18 test files)
 
-## 构建 / Build
+## Build
 
 ```bash
-# 安装依赖
 npm install
-
-# 开发构建（仅 JS + CSS）
-npm run build-core
-
-# 完整构建（含类型声明）
-npm run build
+npm run build       # Full build (JS + CSS + .d.ts)
+npm run test        # Run tests
 ```
 
-构建产物:
-- `dist/trading-chest.js` — ES Module (~325KB)
-- `dist/trading-chest.umd.js` — UMD (~249KB)
-- `dist/trading-chest.css` — 样式 (~42KB)
-- `dist/index.d.ts` — TypeScript 声明
+Build artifacts:
+- `dist/trading-chest.js` — ES Module (~291KB, gzip ~81KB)
+- `dist/trading-chest.umd.js` — UMD
+- `dist/trading-chest.css` — Styles (~42KB)
+- `dist/index.d.ts` — TypeScript declarations
 
-## 源自 / Based On
+## Based On
 
-Fork 自 [KLineChart Pro](https://github.com/klinecharts/pro)，在此基础上大幅扩展：
-- 新增 45+ 自定义技术指标
-- 新增 13+ 绘图工具（测量、标注、交易持仓可视化）
-- 新增绘图选中后浮动属性工具栏（调色板、线宽、线型、锁定、删除）
-- 新增键盘快捷键系统、主题预设、数据导出、布局持久化
-- 指标面板分类搜索、设置面板分组 + 颜色选择器
-- 暴露 `getChart()` API 用于自定义 overlay 操作
+Forked from [KLineChart Pro](https://github.com/klinecharts/pro), significantly extended:
+
+- 45+ custom technical indicators with lazy-loading registry
+- 13+ drawing tools (measurement, annotations, trade position visualization)
+- Floating property toolbar on selected drawings (color palette, line width/style, lock/delete)
+- Keyboard shortcut system, theme presets, data export, layout persistence
+- Price alert system with live/replay integration
+- Symbol comparison overlay (normalized percentage)
+- Bar replay engine with step/play/speed controls
+- Trade visualization with click detection
+- Indicator panel with category tabs + search
+- Settings panel with grouped options + color picker
+- Full resource cleanup via `dispose()` — zero memory leaks
 
 ## License
 

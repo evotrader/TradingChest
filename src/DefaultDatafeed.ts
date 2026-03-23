@@ -87,22 +87,34 @@ export default class DefaultDatafeed implements Datafeed {
         this._ws?.send(JSON.stringify({ action: 'auth', params: this._apiKey }))
       }
       this._ws.onmessage = event => {
-        const result = JSON.parse(event.data)
+        let result: any
+        try {
+          result = JSON.parse(event.data)
+        } catch {
+          console.warn('[TradingChest] WebSocket: invalid JSON received')
+          return
+        }
+        if (!Array.isArray(result) || result.length === 0) return
         if (result[0].ev === 'status') {
           if (result[0].status === 'auth_success') {
             this._ws?.send(JSON.stringify({ action: 'subscribe', params: `T.${symbol.ticker}`}))
           }
         } else {
-          if ('sym' in result) {
-            callback({
-              timestamp: result.s,
-              open: result.o,
-              high: result.h,
-              low: result.l,
-              close: result.c,
-              volume: result.v,
-              turnover: result.vw
-            })
+          if ('sym' in result[0]) {
+            const d = result[0]
+            if (typeof d.s === 'number' && typeof d.o === 'number' &&
+                typeof d.h === 'number' && typeof d.l === 'number' &&
+                typeof d.c === 'number') {
+              callback({
+                timestamp: d.s,
+                open: d.o,
+                high: d.h,
+                low: d.l,
+                close: d.c,
+                volume: typeof d.v === 'number' ? d.v : 0,
+                turnover: d.vw
+              })
+            }
           }
         }
       }

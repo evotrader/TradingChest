@@ -1,0 +1,56 @@
+.klinecharts-pro-replay-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: var(--klinecharts-pro-card-bg, rgba(22, 22, 25, 0.9));
+  border-radius: 4px;
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  user-select: none;
+
+  .replay-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--klinecharts-pro-text-color, #929AA5);
+    &:hover { background: rgba(255,255,255,0.1); }
+    svg { width: 16px; height: 16px; fill: currentColor; }
+  }
+
+  .replay-speed {
+    font-size: 12px;
+    color: var(--klinecharts-pro-text-color, #929AA5);
+    cursor: pointer;
+    min-width: 28px;
+    text-align: center;
+    &:hover { color: #1677ff; }
+  }
+
+  .replay-progress {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--klinecharts-pro-text-secondary, #76808F);
+    input[type="range"] {
+      width: 120px;
+      height: 4px;
+      accent-color: #1677ff;
+    }
+  }
+
+  .replay-exit {
+    color: #F23645;
+    font-size: 12px;
+    cursor: pointer;
+    &:hover { text-decoration: underline; }
+  }
+}

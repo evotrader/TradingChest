@@ -21,10 +21,11 @@ import ScreenshotModal from './screenshot-modal'
 import IndicatorSettingModal from './indicator-setting-modal'
 import SymbolSearchModal from './symbol-search-modal'
 import OverlayPropertyBar from './overlay-property-bar'
+import ReplayControlBar from './replay-bar'
 
 export {
   PeriodBar, DrawingBar, IndicatorModal,
   TimezoneModal, SettingModal, ScreenshotModal,
   IndicatorSettingModal, SymbolSearchModal,
-  OverlayPropertyBar
+  OverlayPropertyBar, ReplayControlBar
 }

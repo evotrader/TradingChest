@@ -219,6 +219,9 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       priceUnitContainer?.appendChild(priceUnitDom)
     }
 
+    // Capture default styles once for "restore defaults" in settings modal
+    setWidgetDefaultStyles(structuredClone(widget!.getStyles()))
+
     ;(async () => {
       for (const indicator of mainIndicators()) {
         await createIndicator(widget, indicator, true, { id: 'candle_pane' })
@@ -429,7 +432,6 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   createEffect(() => {
     if (styles()) {
       widget?.setStyles(styles())
-      setWidgetDefaultStyles(structuredClone(widget!.getStyles()))
     }
   })
 

@@ -73,7 +73,8 @@ export function wrapWithIncrementalCalc(fullCalc: CalcFn, lookback: number): Cal
     const tailResult = fullCalc(tailData, indicator)
 
     // Merge preserved head with freshly computed tail.
-    cached = [...cached.slice(0, startIdx), ...tailResult]
+    cached.length = startIdx
+    cached.push(...tailResult)
     prevLen = len
     prevSecondLastTs = len >= 2 ? dataList[len - 2].timestamp : 0
     return cached

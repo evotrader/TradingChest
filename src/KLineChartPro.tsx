@@ -293,6 +293,10 @@ export default class KLineChartPro implements ChartPro {
     return this._alertManager.getAlerts()
   }
 
+  /**
+   * Add comparison overlay for another symbol.
+   * Known limitation: comparison data is fetched once and not updated with new ticks.
+   */
   async addComparison (symbol: SymbolInfo): Promise<void> {
     const chart = this.getChart()
     if (!chart) return
@@ -316,9 +320,15 @@ export default class KLineChartPro implements ChartPro {
       shortName: symbol.shortName ?? symbol.ticker,
       figures: [{ key: 'pct', title: `${symbol.ticker}: `, type: 'line' }],
       calc: (dataList) => {
-        return dataList.map(d => ({
-          pct: compMap.get(d.timestamp) ?? undefined
-        }))
+        return dataList.map(d => {
+          let pct = compMap.get(d.timestamp)
+          if (pct === undefined) {
+            for (const [ts, val] of compMap) {
+              if (Math.abs(ts - d.timestamp) <= 60000) { pct = val; break }
+            }
+          }
+          return { pct }
+        })
       }
     })
 

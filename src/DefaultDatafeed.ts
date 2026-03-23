@@ -18,6 +18,7 @@ import { Datafeed, SymbolInfo, Period, DatafeedSubscribeCallback } from './types
 import { ReconnectingWebSocket } from './datafeed/ReconnectingWebSocket'
 
 
+/** Demo datafeed for Polygon.io. Production should proxy API calls through a backend to avoid exposing API keys. */
 export default class DefaultDatafeed implements Datafeed {
   constructor (apiKey: string) {
     this._apiKey = apiKey
@@ -31,7 +32,7 @@ export default class DefaultDatafeed implements Datafeed {
 
   async searchSymbols (search?: string): Promise<SymbolInfo[]> {
     try {
-      const response = await fetch(`https://api.polygon.io/v3/reference/tickers?apiKey=${this._apiKey}&active=true&search=${search ?? ''}`)
+      const response = await fetch(`https://api.polygon.io/v3/reference/tickers?apiKey=${this._apiKey}&active=true&search=${encodeURIComponent(search ?? '')}`)
       if (!response.ok) {
         console.warn(`searchSymbols failed: ${response.status} ${response.statusText}`)
         return []
@@ -55,7 +56,7 @@ export default class DefaultDatafeed implements Datafeed {
 
   async getHistoryKLineData (symbol: SymbolInfo, period: Period, from: number, to: number): Promise<KLineData[]> {
     try {
-      const response = await fetch(`https://api.polygon.io/v2/aggs/ticker/${symbol.ticker}/range/${period.multiplier}/${period.timespan}/${from}/${to}?apiKey=${this._apiKey}`)
+      const response = await fetch(`https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol.ticker)}/range/${period.multiplier}/${period.timespan}/${from}/${to}?apiKey=${this._apiKey}`)
       if (!response.ok) {
         console.warn(`getHistoryKLineData failed: ${response.status} ${response.statusText}`)
         return []

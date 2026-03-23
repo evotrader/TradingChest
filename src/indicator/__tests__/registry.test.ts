@@ -46,6 +46,25 @@ describe('IndicatorRegistry', () => {
     expect(loader).toHaveBeenCalledTimes(1)
   })
 
+  it('loader rejection 后清除 _pending 允许重试', async () => {
+    const registry = new IndicatorRegistry()
+    registry.setRegisterFn(() => {})
+    let callCount = 0
+    registry.setLoader('FAIL_THEN_OK', async () => {
+      callCount++
+      if (callCount === 1) throw new Error('network error')
+      return { name: 'FAIL_THEN_OK', calc: () => [] } as any
+    })
+
+    // First call fails
+    await expect(registry.ensureRegistered('FAIL_THEN_OK')).rejects.toThrow('network error')
+    expect(registry.isRegistered('FAIL_THEN_OK')).toBe(false)
+
+    // Second call should retry (not return cached rejected promise)
+    await registry.ensureRegistered('FAIL_THEN_OK')
+    expect(registry.isRegistered('FAIL_THEN_OK')).toBe(true)
+  })
+
   it('无 loader 的指标视为内置，直接标记', async () => {
     const registerFn = vi.fn()
     registry.setRegisterFn(registerFn)

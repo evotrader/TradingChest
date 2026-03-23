@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, Component } from 'solid-js'
+import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, Component, untrack } from 'solid-js'
 
 import {
   init, dispose, utils, Nullable, Chart, OverlayMode, Styles,
@@ -74,7 +74,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   let priceUnitDom: HTMLElement
 
-  let loading = false
+  const [loading, setLoading] = createSignal(false)
 
   const [theme, setTheme] = createSignal(props.theme)
   const [styles, setStyles] = createSignal(props.styles)
@@ -206,7 +206,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         watermark.className = 'klinecharts-pro-watermark'
         if (utils.isString(props.watermark)) {
           const str = (props.watermark as string).replace(/(^\s*)|(\s*$)/g, '')
-          watermark.innerHTML = str
+          watermark.textContent = str
         } else {
           watermark.appendChild(props.watermark as Node)
         }
@@ -231,18 +231,17 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         }
       }
       setSubIndicators(subIndicatorMap)
-    })()
+    })().catch(e => { console.error('[TradingChest] indicator init failed:', e) })
     widget?.loadMore(timestamp => {
-      loading = true
+      setLoading(true)
       const get = async () => {
         const p = period()
         const [to] = adjustFromTo(p, timestamp!, 1)
         const [from] = adjustFromTo(p, to, 500)
         const kLineDataList = await props.datafeed.getHistoryKLineData(symbol(), p, from, to)
         widget?.applyMoreData(kLineDataList, kLineDataList.length > 0)
-        loading = false
       }
-      get()
+      get().catch(e => { console.warn('[TradingChest] loadMore failed:', e) }).finally(() => { setLoading(false) })
     })
     widget?.subscribeAction(ActionType.OnTooltipIconClick, (data) => {
       if (data.indicatorName) {
@@ -296,7 +295,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   createEffect(() => {
     const s = symbol()
     if (s?.priceCurrency) {
-      priceUnitDom.innerHTML = s?.priceCurrency.toLocaleUpperCase()
+      priceUnitDom.textContent = s?.priceCurrency.toLocaleUpperCase()
       priceUnitDom.style.display = 'flex'
     } else {
       priceUnitDom.style.display = 'none'
@@ -305,13 +304,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   })
 
   createEffect((prev?: PrevSymbolPeriod) => {
-    if (!loading) {
+    if (!untrack(loading)) {
       if (prev) {
         props.datafeed.unsubscribe(prev.symbol, prev.period)
       }
       const s = symbol()
       const p = period()
-      loading = true
+      setLoading(true)
       setLoadingVisible(true)
       const get = async () => {
         const [from, to] = adjustFromTo(p, new Date().getTime(), 500)
@@ -320,10 +319,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         props.datafeed.subscribe(s, p, data => {
           widget?.updateData(data)
         })
-        loading = false
-        setLoadingVisible(false)
       }
       get()
+        .catch(e => { console.warn('[TradingChest] data fetch failed:', e) })
+        .finally(() => { setLoading(false); setLoadingVisible(false) })
       return { symbol: s, period: p }
     }
     return prev

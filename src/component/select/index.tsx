@@ -36,8 +36,15 @@ const Select: Component<SelectProps> = props => {
       style={props.style}
       class={`klinecharts-pro-select ${props.class ?? ''} ${open() ? 'klinecharts-pro-select-show' : ''}`}
       tabIndex="0"
+      role="combobox"
+      aria-expanded={open()}
+      aria-haspopup="listbox"
       onClick={_ => { setOpen(o => !o) }}
-      onBlur={_ => { setOpen(false) }}>
+      onBlur={_ => { setOpen(false) }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(o => !o) }
+        if (e.key === 'Escape') { setOpen(false) }
+      }}>
       <div
         class="selector-container">
         <span class="value">{props.value}</span>
@@ -47,13 +54,14 @@ const Select: Component<SelectProps> = props => {
         (props.dataSource && props.dataSource.length > 0) &&
         <div
           class="drop-down-container">
-          <ul>
+          <ul role="listbox">
             {
               props.dataSource.map(data => {
                 const d = data as SelectDataSourceItem
                 const v = (d as Record<string, any>)[props.valueKey ?? 'text'] ?? data
                 return (
                   <li
+                    role="option"
                     onClick={e => {
                       e.stopPropagation()
                       if (props.value !== v) {

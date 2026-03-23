@@ -29,7 +29,8 @@ const List: ParentComponent<ListProps> = props => {
   return (
     <ul
       style={props.style}
-      class={`klinecharts-pro-list ${props.class ?? ''}`}>
+      class={`klinecharts-pro-list ${props.class ?? ''}`}
+      role="list">
       <Show when={props.loading}>
         <Loading/>
       </Show>

@@ -58,10 +58,21 @@ const Checkbox: Component<CheckboxProps> = props => {
     <div
       style={props.style}
       class={`klinecharts-pro-checkbox ${(innerChecked() && 'checked') || ''} ${props.class || ''}`}
+      role="checkbox"
+      aria-checked={innerChecked()}
+      tabIndex={0}
       onClick={_ => {
         const ck = !innerChecked();
         props.onChange && props.onChange(ck);
         setInnderChecked(ck);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          const ck = !innerChecked()
+          props.onChange && props.onChange(ck)
+          setInnderChecked(ck)
+        }
       }}>
       {innerChecked() ? <CheckedIcon/> : <NormalIcon/>}
       {

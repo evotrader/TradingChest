@@ -22,13 +22,20 @@ interface BarTradeInfo {
   exit?: { price: number; direction: 'long' | 'short'; pnl: number }
 }
 
+/** extendData shape for TradeVis indicator */
+export interface TradeVisExtendData {
+  trades: TradeRecord[]
+  clickDetector?: import('../../core/indicatorClickDetector').IndicatorClickDetector
+}
+
 const tradeVisualization: IndicatorTemplate = {
   name: 'TradeVis',
   shortName: 'Trades',
   calcParams: [],
   figures: [],
   calc: (dataList: KLineData[], indicator) => {
-    const trades = indicator.extendData as TradeRecord[] | undefined
+    const ext = indicator.extendData as TradeVisExtendData | TradeRecord[] | undefined
+    const trades = Array.isArray(ext) ? ext : ext?.trades
     if (!trades || trades.length === 0) {
       return dataList.map(() => ({}))
     }
@@ -81,7 +88,9 @@ const tradeVisualization: IndicatorTemplate = {
     const result = indicator.result as BarTradeInfo[]
     if (!result || result.length === 0) return false
 
-    const trades = indicator.extendData as TradeRecord[] | undefined
+    const ext = indicator.extendData as TradeVisExtendData | TradeRecord[] | undefined
+    const trades = Array.isArray(ext) ? ext : ext?.trades
+    const clickDetector = !Array.isArray(ext) ? ext?.clickDetector : undefined
     if (!trades || trades.length === 0) return false
 
     ctx.save()
@@ -164,9 +173,12 @@ const tradeVisualization: IndicatorTemplate = {
       }
     }
 
-    // 将可见标记的像素坐标暴露到全局，供点击检测使用
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(globalThis as any).__tradeVisHitTargets = hitTargets
+    if (clickDetector) {
+      clickDetector.clearTargets()
+      for (const ht of hitTargets) {
+        clickDetector.addTarget(ht)
+      }
+    }
 
     ctx.restore()
     return false

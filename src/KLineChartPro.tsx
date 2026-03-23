@@ -27,6 +27,7 @@ import { exportToCSV, exportAllToCSV, exportScreenshot } from './export'
 import { AlertManager } from './alert'
 import type { AlertConfig } from './alert/types'
 import { ReplayEngine } from './replay/ReplayEngine'
+import type { TradeRecord } from './indicator/trade/tradeVisualization'
 
 const Logo = (
   <svg class="logo" viewBox="0 0 80 92">
@@ -258,6 +259,15 @@ export default class KLineChartPro implements ChartPro {
 
   getClickDetector (): IndicatorClickDetector {
     return this._clickDetector
+  }
+
+  createTradeVisualization (trades: TradeRecord[], paneOptions?: any): void {
+    const chart = this.getChart()
+    if (!chart) return
+    chart.createIndicator({
+      name: 'TradeVis',
+      extendData: { trades, clickDetector: this._clickDetector }
+    } as any, true, paneOptions ?? { id: 'candle_pane' })
   }
 
   addAlert (config: AlertConfig): void {

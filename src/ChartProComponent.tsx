@@ -136,6 +136,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     startReplay: () => {},
     stopReplay: () => {},
     getReplayEngine: () => null,
+    createTradeVisualization: () => {},
     feedPrice: () => {},
     dispose: () => {},
   })

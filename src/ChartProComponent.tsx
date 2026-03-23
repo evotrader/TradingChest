@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, Component, untrack } from 'solid-js'
+import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, Component, untrack, ErrorBoundary } from 'solid-js'
 
 import {
   init, dispose, utils, Nullable, Chart, OverlayMode, Styles,
@@ -436,7 +436,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   })
 
   return (
-    <>
+    <ErrorBoundary fallback={(err) => (
+      <div style={{ padding: '20px', color: 'red', 'font-family': 'monospace' }}>
+        [TradingChest] Render error: {err?.message ?? String(err)}
+      </div>
+    )}>
       <i class="icon-close klinecharts-pro-load-icon"/>
       <Show when={symbolSearchModalVisible()}>
         <SymbolSearchModal
@@ -674,7 +678,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onClose={() => setSelectedOverlay(null)}
         />
       </div>
-    </>
+    </ErrorBoundary>
   )
 }
 

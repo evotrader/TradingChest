@@ -48,4 +48,51 @@ describe('AlertManager', () => {
     mgr.clearAll()
     expect(mgr.getAlerts()).toHaveLength(0)
   })
+
+  it('below 条件触发', () => {
+    const mgr = new AlertManager()
+    const cb = vi.fn()
+    mgr.onTrigger = cb
+    mgr.addAlert({ id: '1', price: 100, condition: 'below', triggered: false })
+    mgr.checkPrice(101, 1000) // above, sets prevPrice
+    mgr.checkPrice(99, 2000)  // drops below
+    expect(cb).toHaveBeenCalledTimes(1)
+    expect(cb.mock.calls[0][0].alert.condition).toBe('below')
+  })
+
+  it('已触发的报警不重复触发', () => {
+    const mgr = new AlertManager()
+    const cb = vi.fn()
+    mgr.onTrigger = cb
+    mgr.addAlert({ id: '1', price: 100, condition: 'crossing', triggered: false })
+    mgr.checkPrice(99, 1000)
+    mgr.checkPrice(101, 2000) // triggers
+    mgr.checkPrice(99, 3000)  // crosses again but already triggered
+    expect(cb).toHaveBeenCalledTimes(1)
+  })
+
+  it('resetAll 重置触发状态', () => {
+    const mgr = new AlertManager()
+    const cb = vi.fn()
+    mgr.onTrigger = cb
+    mgr.addAlert({ id: '1', price: 100, condition: 'crossing', triggered: false })
+    mgr.checkPrice(99, 1000)
+    mgr.checkPrice(101, 2000) // triggers
+    expect(cb).toHaveBeenCalledTimes(1)
+    mgr.resetAll()
+    mgr.checkPrice(99, 3000)  // crosses again after reset
+    expect(cb).toHaveBeenCalledTimes(2)
+  })
+
+  it('精确等于边界价格', () => {
+    const mgr = new AlertManager()
+    const cb = vi.fn()
+    mgr.onTrigger = cb
+    mgr.addAlert({ id: '1', price: 100, condition: 'above', triggered: false })
+    mgr.checkPrice(99, 1000)
+    mgr.checkPrice(100, 2000) // exactly at price, not above
+    expect(cb).toHaveBeenCalledTimes(0)
+    mgr.checkPrice(101, 3000) // now above
+    expect(cb).toHaveBeenCalledTimes(1)
+  })
 })

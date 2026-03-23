@@ -179,12 +179,13 @@ describe('KeyboardShortcutManager', () => {
       manager.bindTo(el1)
       const el2 = document.createElement('div')
       manager.bindTo(el2)
-      // 两个元素都可以触发（因为事件可能冒泡），但 handler 应该只被注册一次
       const event = new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true })
+      // 旧元素解绑后不再触发
       el1.dispatchEvent(event)
+      expect(handler.mock.calls.length).toBe(0)
+      // 新元素触发恰好一次
       el2.dispatchEvent(event)
-      // 在实际场景中，handler 可能被触发多次，这取决于事件冒泡
-      expect(handler.mock.calls.length).toBeGreaterThanOrEqual(1)
+      expect(handler.mock.calls.length).toBe(1)
     })
 
     it('在 input 上不触发快捷键', () => {

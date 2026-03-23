@@ -109,4 +109,53 @@ describe('ReplayEngine', () => {
     engine.stepBackward()
     expect(engine.getState().position).toBe(1)
   })
+
+  it('goToPosition 夹紧到有效范围', () => {
+    const cbs = { onDataChange: vi.fn(), onBarUpdate: vi.fn(), onStateChange: vi.fn() }
+    const engine2 = new ReplayEngine(cbs)
+    const data = Array.from({ length: 10 }, (_, i) => ({ timestamp: i * 1000, open: 1, high: 2, low: 0.5, close: 1.5 })) as any
+    engine2.start(data, 5)
+
+    engine2.goToPosition(0) // should clamp to 1
+    expect(engine2.getState().position).toBe(1)
+
+    engine2.goToPosition(999) // should clamp to 10
+    expect(engine2.getState().position).toBe(10)
+    engine2.dispose()
+  })
+
+  it('stepForward 在末尾不越界', () => {
+    const cbs = { onDataChange: vi.fn(), onBarUpdate: vi.fn(), onStateChange: vi.fn() }
+    const engine2 = new ReplayEngine(cbs)
+    const data = Array.from({ length: 5 }, (_, i) => ({ timestamp: i * 1000, open: 1, high: 2, low: 0.5, close: 1.5 })) as any
+    engine2.start(data, 5) // position = 5 = totalBars
+    const beforeCalls = cbs.onBarUpdate.mock.calls.length
+    engine2.stepForward() // should be no-op
+    expect(cbs.onBarUpdate.mock.calls.length).toBe(beforeCalls)
+    expect(engine2.getState().position).toBe(5)
+    engine2.dispose()
+  })
+
+  it('play 重复调用无效', () => {
+    const cbs = { onDataChange: vi.fn(), onBarUpdate: vi.fn(), onStateChange: vi.fn() }
+    const engine2 = new ReplayEngine(cbs)
+    const data = Array.from({ length: 100 }, (_, i) => ({ timestamp: i * 1000, open: 1, high: 2, low: 0.5, close: 1.5 })) as any
+    engine2.start(data, 5)
+    engine2.play()
+    engine2.play() // second call should be no-op
+    expect(engine2.getState().playing).toBe(true)
+    engine2.dispose()
+  })
+
+  it('dispose 在播放中停止定时器', () => {
+    const cbs = { onDataChange: vi.fn(), onBarUpdate: vi.fn(), onStateChange: vi.fn() }
+    const engine2 = new ReplayEngine(cbs)
+    const data = Array.from({ length: 100 }, (_, i) => ({ timestamp: i * 1000, open: 1, high: 2, low: 0.5, close: 1.5 })) as any
+    engine2.start(data, 5)
+    engine2.play()
+    engine2.dispose()
+    const posBefore = engine2.getState().position
+    vi.advanceTimersByTime(5000)
+    expect(engine2.getState().position).toBe(posBefore) // no advancement
+  })
 })

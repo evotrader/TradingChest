@@ -202,5 +202,12 @@
   "note": "便签",
   "brush": "画笔",
   "long_position": "做多持仓",
-  "short_position": "做空持仓"
+  "short_position": "做空持仓",
+
+  "replay": "回放",
+  "replay_back": "后退一根",
+  "replay_forward": "前进一根",
+  "replay_speed": "播放速度",
+  "replay_exit": "退出回放",
+  "replay_start": "开始回放"
 }

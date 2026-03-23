@@ -195,5 +195,12 @@
   "note": "Note",
   "brush": "Brush",
   "long_position": "Long Position",
-  "short_position": "Short Position"
+  "short_position": "Short Position",
+
+  "replay": "Replay",
+  "replay_back": "Step Back",
+  "replay_forward": "Step Forward",
+  "replay_speed": "Speed",
+  "replay_exit": "Exit Replay",
+  "replay_start": "Start Replay"
 }

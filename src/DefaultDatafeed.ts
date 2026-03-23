@@ -38,7 +38,7 @@ export default class DefaultDatafeed implements Datafeed {
         return []
       }
       const result = await response.json()
-      return (result.results || []).map((data: any) => ({
+      return (result.results || []).map((data: Record<string, string>) => ({
         ticker: data.ticker,
         name: data.name,
         shortName: data.ticker,
@@ -62,7 +62,7 @@ export default class DefaultDatafeed implements Datafeed {
         return []
       }
       const result = await response.json()
-      return (result.results || []).map((data: any) => ({
+      return (result.results || []).map((data: Record<string, number>) => ({
         timestamp: data.t,
         open: data.o,
         high: data.h,
@@ -88,7 +88,7 @@ export default class DefaultDatafeed implements Datafeed {
         this._ws?.send(JSON.stringify({ action: 'auth', params: this._apiKey }))
       }
       this._ws.onmessage = event => {
-        let result: any
+        let result: Array<Record<string, unknown>>
         try {
           result = JSON.parse(event.data)
         } catch {
@@ -113,7 +113,7 @@ export default class DefaultDatafeed implements Datafeed {
                 low: d.l,
                 close: d.c,
                 volume: typeof d.v === 'number' ? d.v : 0,
-                turnover: d.vw
+                turnover: typeof d.vw === 'number' ? d.vw : undefined
               })
             }
           }

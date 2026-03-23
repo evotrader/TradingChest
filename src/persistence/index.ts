@@ -23,7 +23,7 @@ export interface OverlaySerializedData {
   points: Array<{ timestamp: number, value: number }>
   lock: boolean
   visible: boolean
-  extendData?: any
+  extendData?: Record<string, unknown>
 }
 
 const STORAGE_KEY_PREFIX = 'trading-chest-layout-'

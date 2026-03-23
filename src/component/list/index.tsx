@@ -17,12 +17,12 @@ import { ParentComponent, ParentProps, JSX, Show } from 'solid-js'
 import Loading from '../loading'
 import Empty from '../empty'
 
-export interface ListProps extends ParentProps {
+export interface ListProps<T = unknown> extends ParentProps {
   class?: string
   style?: JSX.CSSProperties | string
   loading?: boolean
-  dataSource?: any[]
-  renderItem?: (data: any) => JSX.Element
+  dataSource?: T[]
+  renderItem?: (data: T) => JSX.Element
 }
 
 const List: ParentComponent<ListProps> = props => {

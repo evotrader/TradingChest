@@ -1,7 +1,7 @@
 export interface HitTarget {
   x: number
   y: number
-  trade: any
+  trade: import('../indicator/trade/tradeVisualization').TradeRecord
   type: string
 }
 

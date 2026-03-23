@@ -40,11 +40,11 @@ const SettingModal: Component<SettingModalProps> = props => {
     setGroups(getOptions(props.locale))
   })
 
-  const update = (option: SettingOption, newValue: any) => {
-    const style = {}
+  const update = (option: SettingOption, newValue: unknown) => {
+    const style = {} as Record<string, unknown>
     deepSet(style, option.key, newValue)
     const ss = utils.clone(styles())
-    deepSet(ss, option.key, newValue)
+    deepSet(ss as unknown as Record<string, unknown>, option.key, newValue)
     setStyles(ss)
     setGroups(getOptions(props.locale))
     props.onChange(style)

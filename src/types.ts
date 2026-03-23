@@ -47,8 +47,8 @@ export interface Datafeed {
 export interface IndicatorClickEvent {
   /** 指标名称 */
   indicatorName: string
-  /** 点击的图形数据（由指标 draw 回调通过 __hitTargets 暴露） */
-  data: any
+  /** 点击的图形数据（TradeRecord + type） */
+  data: Record<string, unknown>
   /** 点击像素坐标（相对于 widget） */
   x: number
   y: number
@@ -114,7 +114,7 @@ export interface ChartPro {
   /** 获取回放引擎 */
   getReplayEngine(): import('./replay/ReplayEngine').ReplayEngine | null
   /** 创建交易可视化指标（自动连接点击检测） */
-  createTradeVisualization(trades: any[], paneOptions?: any): void
+  createTradeVisualization(trades: import('./indicator/trade/tradeVisualization').TradeRecord[], paneOptions?: Record<string, unknown>): void
   /** 向报警系统传入最新价格（实时数据到达时调用） */
   feedPrice(price: number): void
   /** 销毁图表实例，释放所有资源。调用后实例不可再使用。 */

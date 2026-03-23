@@ -253,7 +253,7 @@ export default class KLineChartPro implements ChartPro {
     return this._clickDetector
   }
 
-  createTradeVisualization (trades: TradeRecord[], paneOptions?: any): void {
+  createTradeVisualization (trades: TradeRecord[], paneOptions?: Record<string, unknown>): void {
     const chart = this.getChart()
     if (!chart) return
     chart.createIndicator({

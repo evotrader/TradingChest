@@ -54,7 +54,9 @@ const SymbolSearchModal: Component<SymbolSearchModalProps> = props => {
         class="klinecharts-pro-symbol-search-modal-list"
         loading={symbolList.loading}
         dataSource={symbolList() ?? []}
-        renderItem={(symbol: SymbolInfo) => (
+        renderItem={(data) => {
+          const symbol = data as SymbolInfo
+          return (
           <li
             onClick={() => {
               props.onSymbolSelected(symbol)
@@ -68,7 +70,7 @@ const SymbolSearchModal: Component<SymbolSearchModalProps> = props => {
             </div>
             {symbol.exchange ?? ''}
           </li>
-        )}>
+        )}}>
       </List>
     </Modal>
   )

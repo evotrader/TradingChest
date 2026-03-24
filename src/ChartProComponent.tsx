@@ -25,8 +25,11 @@ import { SelectDataSourceItem, Loading } from './component'
 
 import {
   PeriodBar, DrawingBar, IndicatorModal, TimezoneModal, SettingModal,
-  ScreenshotModal, IndicatorSettingModal, SymbolSearchModal, OverlayPropertyBar
+  ScreenshotModal, IndicatorSettingModal, SymbolSearchModal, OverlayPropertyBar,
+  ReplayControlBar
 } from './widget'
+import { ReplayEngine } from './replay/ReplayEngine'
+import type { ReplayState, ReplaySpeed } from './replay/types'
 
 import { translateTimezone } from './widget/timezone-modal/data'
 
@@ -34,8 +37,6 @@ import { SymbolInfo, Period, ChartProOptions, ChartPro } from './types'
 import { indicatorRegistry } from './indicator'
 import { adjustFromTo } from './core/adjustFromTo'
 import { buildStyles } from './core/buildStyles'
-import { getTradeVisHitTargets } from './indicator/trade/tradeVisualization'
-import type { TradeRecord } from './indicator/trade/tradeVisualization'
 
 export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger'>> {
   ref: (chart: ChartPro) => void
@@ -111,6 +112,42 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     color: string, fillColor?: string, lineWidth: number, lineStyle: string, locked: boolean
   } | null>(null)
 
+  // 回放状态
+  const defaultReplayState: ReplayState = { active: false, playing: false, speed: 1, position: 0, totalBars: 0 }
+  const [replayState, setReplayState] = createSignal<ReplayState>(defaultReplayState)
+  let replayEngine: ReplayEngine | null = null
+
+  const startReplay = (startPosition?: number) => {
+    if (replayEngine || !widget) return
+    const dataList = widget.getDataList()
+    if (dataList.length === 0) return
+    const pos = startPosition ?? Math.floor(dataList.length * 0.5)
+    replayEngine = new ReplayEngine({
+      onDataChange: (data) => { widget?.applyNewData(data, data.length > 0) },
+      onBarUpdate: (bar) => { widget?.updateData(bar) },
+      onStateChange: (state) => { setReplayState(state) },
+    })
+    replayEngine.start(dataList, pos)
+  }
+
+  const stopReplay = () => {
+    if (replayEngine) {
+      replayEngine.stop()
+      replayEngine.dispose()
+      replayEngine = null
+      setReplayState(defaultReplayState)
+      // 重新加载原始数据
+      const s = symbol()
+      const p = period()
+      const get = async () => {
+        const [from, to] = adjustFromTo(p, new Date().getTime(), 500)
+        const kLineDataList = await props.datafeed.getHistoryKLineData(s, p, from, to)
+        widget?.applyNewData(kLineDataList, kLineDataList.length > 0)
+      }
+      get().catch(e => { console.warn('[TradingChest] replay data reload failed:', e) })
+    }
+  }
+
   props.ref({
     setTheme,
     getTheme: () => theme(),
@@ -134,9 +171,9 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     getAlerts: () => [],
     addComparison: async () => {},
     removeComparison: () => {},
-    startReplay: () => {},
-    stopReplay: () => {},
-    getReplayEngine: () => null,
+    startReplay: (pos?: number) => { startReplay(pos) },
+    stopReplay: () => { stopReplay() },
+    getReplayEngine: () => replayEngine,
     createTradeVisualization: () => {},
     feedPrice: () => {},
     dispose: () => {},
@@ -287,46 +324,16 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       setSelectedOverlay(null)
     })
 
-    // TradeVis 交易标签点击检测
-    // 用 mouseup 而非 click — KLineChart 内部 mousedown handler 可能阻止 click 事件生成
-    {
-      const el = widgetRef as HTMLDivElement | undefined
-      if (el) {
-        const onTradeClick = (e: MouseEvent) => {
-          const target = e.target as HTMLElement
-          const rect = target.getBoundingClientRect()
-          const clickX = e.clientX - rect.left
-          const clickY = e.clientY - rect.top
-          const hitTargets = getTradeVisHitTargets()
-          let closest: { x: number; y: number; trade: TradeRecord; type: string } | null = null
-          let minDist = Infinity
-          for (const ht of hitTargets) {
-            const dx = clickX - ht.x
-            const dy = clickY - ht.y
-            const dist = Math.sqrt(dx * dx + dy * dy)
-            if (dist < 40 && dist < minDist) {
-              minDist = dist
-              closest = ht
-            }
-          }
-          if (closest) {
-            props.onIndicatorClick({
-              indicatorName: 'TradeVis',
-              data: { ...closest.trade, type: closest.type },
-              x: clickX,
-              y: clickY,
-            })
-          }
-        }
-        el.addEventListener('mouseup', onTradeClick, true)
-        onCleanup(() => { el.removeEventListener('mouseup', onTradeClick, true) })
-      }
-    }
   })
 
   onCleanup(() => {
     window.removeEventListener('resize', documentResize)
     window.removeEventListener('keydown', handleKeyDown)
+    if (replayEngine) {
+      replayEngine.stop()
+      replayEngine.dispose()
+      replayEngine = null
+    }
     dispose(widgetRef!)
   })
 
@@ -571,7 +578,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           try {
             await startTransition(() => setDrawingBarVisible(!drawingBarVisible()))
             widget?.resize()
-          } catch (e) {}    
+          } catch (e) { console.warn('[TradingChest] toggle drawing bar failed:', e) }
         }}
         onSymbolClick={() => { setSymbolSearchModalVisible(!symbolSearchModalVisible()) }}
         onPeriodChange={setPeriod}
@@ -582,6 +589,14 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           if (widget) {
             const url = widget.getConvertPictureUrl(true, 'jpeg', props.theme === 'dark' ? '#151517' : '#ffffff')
             setScreenshotUrl(url)
+          }
+        }}
+        replayActive={replayState().active}
+        onReplayClick={() => {
+          if (replayState().active) {
+            stopReplay()
+          } else {
+            startReplay()
           }
         }}
       />
@@ -711,6 +726,17 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             }
           }}
           onClose={() => setSelectedOverlay(null)}
+        />
+        <ReplayControlBar
+          locale={props.locale}
+          state={replayState()}
+          onPlay={() => { replayEngine?.play() }}
+          onPause={() => { replayEngine?.pause() }}
+          onStepForward={() => { replayEngine?.stepForward() }}
+          onStepBackward={() => { replayEngine?.stepBackward() }}
+          onSpeedChange={(speed: ReplaySpeed) => { replayEngine?.setSpeed(speed) }}
+          onPositionChange={(pos: number) => { replayEngine?.goToPosition(pos) }}
+          onStop={() => { stopReplay() }}
         />
       </div>
     </ErrorBoundary>

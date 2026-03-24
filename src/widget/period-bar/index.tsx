@@ -24,6 +24,7 @@ export interface PeriodBarProps {
   symbol: SymbolInfo
   period: Period
   periods: Period[]
+  replayActive?: boolean
   onMenuClick: () => void
   onSymbolClick: () => void
   onPeriodChange: (period: Period) => void
@@ -31,6 +32,7 @@ export interface PeriodBarProps {
   onTimezoneClick: () => void
   onSettingClick: () => void
   onScreenshotClick: () => void
+  onReplayClick?: () => void
 }
 
 const PeriodBar: Component<PeriodBarProps> = props => {
@@ -113,6 +115,16 @@ const PeriodBar: Component<PeriodBarProps> = props => {
         </svg>
         <span>{i18n('setting', props.locale)}</span>
       </div>
+      <Show when={props.onReplayClick}>
+        <div
+          class={`item tools ${props.replayActive ? 'selected' : ''}`}
+          onClick={() => props.onReplayClick?.()}>
+          <svg viewBox="0 0 24 24">
+            <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+          </svg>
+          <span>{i18n('replay', props.locale)}</span>
+        </div>
+      </Show>
       <div
         class='item tools'
         onClick={props.onScreenshotClick}>

@@ -40,6 +40,8 @@ export class IndicatorRegistry {
 
     const loader = this._loaders.get(name)
     if (!loader) {
+      // No loader registered — assume it was registered externally (e.g. by KLineChart built-ins)
+      console.debug(`[TradingChest] No loader for indicator "${name}", assuming pre-registered`)
       this._registered.add(name)
       return
     }

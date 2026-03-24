@@ -22,7 +22,6 @@ import ChartProComponent from './ChartProComponent'
 import { SymbolInfo, Period, ChartPro, ChartProOptions } from './types'
 
 import KeyboardShortcutManager from './shortcut'
-import { IndicatorClickDetector } from './core/indicatorClickDetector'
 import { exportToCSV, exportAllToCSV, exportScreenshot } from './export'
 import { AlertManager } from './alert'
 import type { AlertConfig } from './alert/types'
@@ -164,69 +163,71 @@ export default class KLineChartPro implements ChartPro {
 
   private _datafeed: import('./types').Datafeed
 
-  private _clickDetector: IndicatorClickDetector = new IndicatorClickDetector()
-
   private _alertManager: AlertManager = new AlertManager()
-
-  private _replayEngine: ReplayEngine | null = null
 
   private _solidDispose: (() => void) | null = null
   private _clickHandler: ((e: Event) => void) | null = null
   private _clickTarget: Element | null = null
-  private _observer: MutationObserver | null = null
-  private _observerTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+  /** Throws if called before Solid.js render completes. */
+  private _api(): ChartPro {
+    if (!this._chartApi) {
+      throw new Error('[TradingChest] Chart not initialized yet. Wait for render to complete before calling API methods.')
+    }
+    return this._chartApi
+  }
 
   setTheme (theme: string): void {
     this._container?.setAttribute('data-theme', theme)
-    this._chartApi!.setTheme(theme)
+    this._api().setTheme(theme)
   }
 
   getTheme (): string {
-    return this._chartApi!.getTheme()
+    return this._api().getTheme()
   }
 
   setStyles(styles: DeepPartial<Styles>): void {
-    this._chartApi!.setStyles(styles)
+    this._api().setStyles(styles)
   }
 
   getStyles(): Styles {
-    return this._chartApi!.getStyles()
+    return this._api().getStyles()
   }
 
   setLocale (locale: string): void {
-    this._chartApi!.setLocale(locale)
+    this._api().setLocale(locale)
   }
 
   getLocale (): string {
-    return this._chartApi!.getLocale()
+    return this._api().getLocale()
   }
 
   setTimezone (timezone: string): void {
-    this._chartApi!.setTimezone(timezone)
+    this._api().setTimezone(timezone)
   }
 
   getTimezone (): string {
-    return this._chartApi!.getTimezone()
+    return this._api().getTimezone()
   }
 
   setSymbol (symbol: SymbolInfo): void {
-    this._chartApi!.setSymbol(symbol)
+    this._api().setSymbol(symbol)
   }
 
   getSymbol (): SymbolInfo {
-    return this._chartApi!.getSymbol()
+    return this._api().getSymbol()
   }
 
   setPeriod (period: Period): void {
-    this._chartApi!.setPeriod(period)
+    this._api().setPeriod(period)
   }
 
   getPeriod (): Period {
-    return this._chartApi!.getPeriod()
+    return this._api().getPeriod()
   }
 
   getChart () {
-    return this._chartApi!.getChart()
+    return this._api().getChart()
   }
 
   exportCSV (filename?: string): void {
@@ -245,16 +246,12 @@ export default class KLineChartPro implements ChartPro {
     return this._shortcutManager
   }
 
-  getClickDetector (): IndicatorClickDetector {
-    return this._clickDetector
-  }
-
   createTradeVisualization (trades: TradeRecord[], paneOptions?: Record<string, unknown>): void {
     const chart = this.getChart()
     if (!chart) return
     chart.createIndicator({
       name: 'TradeVis',
-      extendData: { trades, clickDetector: this._clickDetector }
+      extendData: { trades }
     } as any, true, paneOptions ?? { id: 'candle_pane' })
   }
 
@@ -300,6 +297,8 @@ export default class KLineChartPro implements ChartPro {
 
     const compPercent = normalizeToPercent(compData)
     const compMap = new Map<number, number>()
+    // Sorted arrays for binary search fallback
+    const compTimestamps = compData.map(d => d.timestamp)
     compData.forEach((d, i) => { compMap.set(d.timestamp, compPercent[i]) })
 
     const indicatorName = `COMPARE_${symbol.ticker.replace(/[^A-Z0-9]/g, '_')}`
@@ -311,8 +310,19 @@ export default class KLineChartPro implements ChartPro {
         return dataList.map(d => {
           let pct = compMap.get(d.timestamp)
           if (pct === undefined) {
-            for (const [ts, val] of compMap) {
-              if (Math.abs(ts - d.timestamp) <= 60000) { pct = val; break }
+            // Binary search for nearest timestamp within tolerance
+            let lo = 0, hi = compTimestamps.length - 1
+            while (lo < hi) {
+              const mid = (lo + hi) >> 1
+              if (compTimestamps[mid] < d.timestamp) lo = mid + 1
+              else hi = mid
+            }
+            // Check lo and lo-1 for closest match within 60s
+            for (const idx of [lo, lo - 1]) {
+              if (idx >= 0 && idx < compTimestamps.length && Math.abs(compTimestamps[idx] - d.timestamp) <= 60000) {
+                pct = compMap.get(compTimestamps[idx])
+                break
+              }
             }
           }
           return { pct }
@@ -333,33 +343,15 @@ export default class KLineChartPro implements ChartPro {
   }
 
   startReplay (startPosition?: number): void {
-    const chart = this.getChart()
-    if (!chart) return
-    const dataList = chart.getDataList()
-    if (dataList.length === 0) return
-    const pos = startPosition ?? Math.floor(dataList.length * 0.5)
-
-    this._replayEngine = new ReplayEngine({
-      onDataChange: (data) => { chart.applyNewData(data, data.length > 0) },
-      onBarUpdate: (bar) => {
-        chart.updateData(bar)
-        this._alertManager.checkPrice(bar.close, bar.timestamp)
-      },
-      onStateChange: () => {}
-    })
-    this._replayEngine.start(dataList, pos)
+    this._api().startReplay(startPosition)
   }
 
   stopReplay (): void {
-    if (this._replayEngine) {
-      this._replayEngine.stop()
-      this._replayEngine.dispose()
-      this._replayEngine = null
-    }
+    this._api().stopReplay()
   }
 
   getReplayEngine (): ReplayEngine | null {
-    return this._replayEngine
+    return this._api().getReplayEngine()
   }
 
   feedPrice (price: number): void {
@@ -367,9 +359,15 @@ export default class KLineChartPro implements ChartPro {
   }
 
   dispose (): void {
-    // 1. Stop replay
-    this.stopReplay()
-    // 2. Clear alerts
+    // 1. Stop replay (safe — ChartProComponent.onCleanup also handles this)
+    if (this._chartApi) {
+      try { this._chartApi.stopReplay() } catch (_) { /* already disposing */ }
+    }
+    // 2. Remove comparisons
+    for (const ticker of this._comparisons.keys()) {
+      try { this.removeComparison(ticker) } catch (_) { /* already disposing */ }
+    }
+    // 3. Clear alerts
     this._alertManager.clearAll()
     this._alertManager.onTrigger = null
     // 3. Unbind shortcuts
@@ -380,16 +378,7 @@ export default class KLineChartPro implements ChartPro {
       this._clickHandler = null
       this._clickTarget = null
     }
-    // 5. Disconnect observer
-    if (this._observerTimeoutId) {
-      clearTimeout(this._observerTimeoutId)
-      this._observerTimeoutId = null
-    }
-    if (this._observer) {
-      this._observer.disconnect()
-      this._observer = null
-    }
-    // 6. Unmount Solid.js render tree
+    // 5. Unmount Solid.js render tree
     if (this._solidDispose) {
       this._solidDispose()
       this._solidDispose = null

@@ -41,6 +41,12 @@ export function getTradeVisHitTargets(instanceId?: string): ReadonlyArray<{ x: n
   return _hitTargetsMap.get(instanceId ?? '_default') ?? []
 }
 
+/** Clean up per-instance data when a chart instance is disposed. */
+export function cleanupTradeVisInstance(instanceId: string): void {
+  _hitTargetsMap.delete(instanceId)
+  _tradeBarIndicesMap.delete(instanceId)
+}
+
 /**
  * Binary search: find index of bar with timestamp closest to target.
  * Assumes dataList is sorted by timestamp ascending.
@@ -190,9 +196,6 @@ const tradeVisualization: IndicatorTemplate = {
 
     // Update per-instance targets (for KLineChartPro click detection)
     _hitTargetsMap.set(instanceId, hitTargets)
-
-    // Backwards compatibility: also expose on window for external click handlers
-    ;(globalThis as Record<string, unknown>).__tradeVisHitTargets = hitTargets
 
     ctx.restore()
     return false

@@ -84,6 +84,39 @@ describe('AlertManager', () => {
     expect(cb).toHaveBeenCalledTimes(2)
   })
 
+  it('resetPrevPrice 防止切换品种误触发', () => {
+    const mgr = new AlertManager()
+    const cb = vi.fn()
+    mgr.onTrigger = cb
+    mgr.addAlert({ id: '1', price: 50, condition: 'crossing' })
+    // 旧品种价格 90
+    mgr.checkPrice(90, 1000)
+    // 切换品种，重置 prevPrice
+    mgr.resetPrevPrice()
+    // 新品种第一个 tick 是 30（跨过了 50，但不应触发，因为 prevPrice 已重置）
+    mgr.checkPrice(30, 2000)
+    expect(cb).toHaveBeenCalledTimes(0)
+    // 第二个 tick 才正常检测
+    mgr.checkPrice(60, 3000) // 30 → 60 crosses 50
+    expect(cb).toHaveBeenCalledTimes(1)
+  })
+
+  it('updateAlert 更新价格保留触发状态', () => {
+    const mgr = new AlertManager()
+    const cb = vi.fn()
+    mgr.onTrigger = cb
+    mgr.addAlert({ id: '1', price: 100, condition: 'crossing' })
+    mgr.checkPrice(99, 1000)
+    mgr.checkPrice(101, 2000) // triggers
+    expect(cb).toHaveBeenCalledTimes(1)
+    // updateAlert 保留 triggered=true
+    mgr.updateAlert('1', { price: 200 })
+    expect(mgr.getAlert('1')?.price).toBe(200)
+    expect(mgr.getAlert('1')?.triggered).toBe(true)
+    // 不存在的 id 返回 false
+    expect(mgr.updateAlert('nonexistent', { price: 300 })).toBe(false)
+  })
+
   it('精确等于边界价格', () => {
     const mgr = new AlertManager()
     const cb = vi.fn()

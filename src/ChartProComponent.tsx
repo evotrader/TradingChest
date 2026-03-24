@@ -38,10 +38,14 @@ import { indicatorRegistry } from './indicator'
 import { adjustFromTo } from './core/adjustFromTo'
 import { buildStyles } from './core/buildStyles'
 
-export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger'>> {
+export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onError'>> {
   ref: (chart: ChartPro) => void
   /** 内部回调：实时数据到达时通知外层（用于报警检测） */
   onPriceUpdate?: (price: number) => void
+  /** 内部回调：品种/周期切换时通知外层（用于重置报警状态等） */
+  onDataReset?: () => void
+  /** 内部错误回调 */
+  onError?: (error: { type: string, message: string, raw?: unknown }) => void
 }
 
 interface PrevSymbolPeriod {
@@ -141,12 +145,14 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       replayEngine.dispose()
       replayEngine = null
       setReplayState(defaultReplayState)
-      // 重新加载原始数据并恢复实时订阅
+      // 重新加载原始数据并恢复实时订阅（受 fetchSeq 保护，防止与品种切换竞态）
       const s = symbol()
       const p = period()
+      const seq = ++fetchSeq
       const get = async () => {
         const [from, to] = adjustFromTo(p, new Date().getTime(), 500)
         const kLineDataList = await props.datafeed.getHistoryKLineData(s, p, from, to)
+        if (seq !== fetchSeq) return  // 品种/周期已切换，丢弃过期响应
         widget?.applyNewData(kLineDataList, kLineDataList.length > 0)
         // 恢复实时数据订阅
         props.datafeed.subscribe(s, p, data => {
@@ -154,7 +160,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           props.onPriceUpdate?.(data.close)
         })
       }
-      get().catch(e => { console.warn('[TradingChest] replay data reload failed:', e) })
+      get().catch(e => { props.onError?.({ type: 'replay-reload', message: 'replay data reload failed', raw: e }) })
     }
   }
 
@@ -165,28 +171,31 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     getStyles: () => widget?.getStyles() ?? {} as Styles,
     setLocale,
     getLocale: () => locale(),
-    setTimezone: (timezone: string) => { setTimezone({ key: timezone, text: translateTimezone(props.timezone, locale()) }) },
+    setTimezone: (tz: string) => { setTimezone({ key: tz, text: translateTimezone(tz, locale()) }) },
     getTimezone: () => timezone().key,
-    setSymbol,
+    setSymbol: (s: SymbolInfo) => { if (!replayEngine) setSymbol(s) },
     getSymbol: () => symbol(),
-    setPeriod,
+    setPeriod: (p: Period) => { if (!replayEngine) setPeriod(p) },
     getPeriod: () => period(),
     getChart: () => widget,
-    exportCSV: () => {},
-    exportAllCSV: () => {},
-    exportScreenshot: () => {},
-    getShortcutManager: () => null,
-    addAlert: () => {},
-    removeAlert: () => {},
-    getAlerts: () => [],
-    addComparison: async () => {},
-    removeComparison: () => {},
+    // 以下方法由 KLineChartPro 直接实现，不经过 _chartApi 代理
+    // 如果有人绕过 KLineChartPro 直接调用组件 ref，给出明确错误
+    exportCSV: () => { throw new Error('[TradingChest] exportCSV must be called on KLineChartPro instance') },
+    exportAllCSV: () => { throw new Error('[TradingChest] exportAllCSV must be called on KLineChartPro instance') },
+    exportScreenshot: () => { throw new Error('[TradingChest] exportScreenshot must be called on KLineChartPro instance') },
+    getShortcutManager: () => { throw new Error('[TradingChest] getShortcutManager must be called on KLineChartPro instance') },
+    addAlert: () => { throw new Error('[TradingChest] addAlert must be called on KLineChartPro instance') },
+    updateAlert: () => { throw new Error('[TradingChest] updateAlert must be called on KLineChartPro instance') },
+    removeAlert: () => { throw new Error('[TradingChest] removeAlert must be called on KLineChartPro instance') },
+    getAlerts: () => { throw new Error('[TradingChest] getAlerts must be called on KLineChartPro instance') },
+    addComparison: async () => { throw new Error('[TradingChest] addComparison must be called on KLineChartPro instance') },
+    removeComparison: () => { throw new Error('[TradingChest] removeComparison must be called on KLineChartPro instance') },
     startReplay: (pos?: number) => { startReplay(pos) },
     stopReplay: () => { stopReplay() },
     getReplayEngine: () => replayEngine,
-    createTradeVisualization: () => {},
-    feedPrice: () => {},
-    dispose: () => {},
+    createTradeVisualization: () => { throw new Error('[TradingChest] createTradeVisualization must be called on KLineChartPro instance') },
+    feedPrice: () => { throw new Error('[TradingChest] feedPrice must be called on KLineChartPro instance') },
+    dispose: () => { throw new Error('[TradingChest] dispose must be called on KLineChartPro instance') },
   })
 
   const documentResize = () => {
@@ -210,7 +219,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   onMount(() => {
     window.addEventListener('resize', documentResize)
-    window.addEventListener('keydown', handleKeyDown)
+    // 绑定到 container 而非 window，避免图表外的按键误触发
+    widgetRef!.addEventListener('keydown', handleKeyDown)
     widget = init(widgetRef!, {
       customApi: {
         formatDate: (dateTimeFormat: Intl.DateTimeFormat, timestamp, format: string, type: FormatDateType) => {
@@ -283,17 +293,20 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         }
       }
       setSubIndicators(subIndicatorMap)
-    })().catch(e => { console.error('[TradingChest] indicator init failed:', e) })
+    })().catch(e => { props.onError?.({ type: 'indicator-init', message: 'indicator init failed', raw: e }) })
     widget?.loadMore(timestamp => {
+      if (replayEngine) return  // 回放模式下不从 datafeed 拉取数据
+      const seq = ++fetchSeq  // 复用 fetchSeq 防止 loadMore 与主加载/品种切换竞态
       setLoading(true)
       const get = async () => {
         const p = period()
         const [to] = adjustFromTo(p, timestamp!, 1)
         const [from] = adjustFromTo(p, to, 500)
         const kLineDataList = await props.datafeed.getHistoryKLineData(symbol(), p, from, to)
+        if (seq !== fetchSeq) return
         widget?.applyMoreData(kLineDataList, kLineDataList.length > 0)
       }
-      get().catch(e => { console.warn('[TradingChest] loadMore failed:', e) }).finally(() => { setLoading(false) })
+      get().catch(e => { props.onError?.({ type: 'load-more', message: 'loadMore failed', raw: e }) }).finally(() => { if (seq === fetchSeq) setLoading(false) })
     })
     widget?.subscribeAction(ActionType.OnTooltipIconClick, (data) => {
       if (data.indicatorName) {
@@ -338,7 +351,9 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   onCleanup(() => {
     window.removeEventListener('resize', documentResize)
-    window.removeEventListener('keydown', handleKeyDown)
+    widgetRef!.removeEventListener('keydown', handleKeyDown)
+    // 取消实时数据订阅，防止组件卸载后幽灵回调
+    props.datafeed.unsubscribe(symbol(), period())
     if (replayEngine) {
       replayEngine.stop()
       replayEngine.dispose()
@@ -366,6 +381,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     }
     const s = symbol()
     const p = period()
+    // 品种/周期切换，通知外层重置状态（如报警 prevPrice）
+    if (prev) {
+      props.onDataReset?.()
+    }
     const seq = ++fetchSeq  // 捕获当前序号
     setLoading(true)
     setLoadingVisible(true)
@@ -381,7 +400,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       })
     }
     get()
-      .catch(e => { console.warn('[TradingChest] data fetch failed:', e) })
+      .catch(e => { props.onError?.({ type: 'data-fetch', message: 'data fetch failed', raw: e }) })
       .finally(() => { if (seq === fetchSeq) { setLoading(false); setLoadingVisible(false) } })
     return { symbol: s, period: p }
   })

@@ -27,8 +27,11 @@ export default class DefaultDatafeed implements Datafeed {
   private _apiKey: string
 
   private _prevSymbolMarket?: string
+  private _prevTicker?: string
 
   private _ws?: ReconnectingWebSocket
+
+  private _callback?: DatafeedSubscribeCallback
 
   async searchSymbols (search?: string): Promise<SymbolInfo[]> {
     try {
@@ -78,6 +81,8 @@ export default class DefaultDatafeed implements Datafeed {
   }
 
   subscribe (symbol: SymbolInfo, period: Period, callback: DatafeedSubscribeCallback): void {
+    // 始终更新回调引用，确保切换 ticker 后新回调生效
+    this._callback = callback
     if (this._prevSymbolMarket !== symbol.market) {
       this._ws?.close()
       this._ws = new ReconnectingWebSocket(
@@ -106,7 +111,8 @@ export default class DefaultDatafeed implements Datafeed {
             if (typeof d.s === 'number' && typeof d.o === 'number' &&
                 typeof d.h === 'number' && typeof d.l === 'number' &&
                 typeof d.c === 'number') {
-              callback({
+              // 通过间接引用调用最新 callback，避免闭包捕获旧引用
+              this._callback?.({
                 timestamp: d.s,
                 open: d.o,
                 high: d.h,
@@ -120,12 +126,18 @@ export default class DefaultDatafeed implements Datafeed {
         }
       }
     } else {
+      // 同市场换品种时，先 unsubscribe 旧 ticker
+      if (this._prevTicker && this._prevTicker !== symbol.ticker) {
+        try { this._ws?.send(JSON.stringify({ action: 'unsubscribe', params: `T.${this._prevTicker}` })) } catch { /* ws may be closed */ }
+      }
       this._ws?.send(JSON.stringify({ action: 'subscribe', params: `T.${symbol.ticker}`}))
     }
     this._prevSymbolMarket = symbol.market
+    this._prevTicker = symbol.ticker
   }
 
   unsubscribe(symbol: SymbolInfo, period: Period): void {
+    this._callback = undefined
     if (this._ws) {
       try {
         this._ws.send(JSON.stringify({ action: 'unsubscribe', params: `T.${symbol.ticker}` }))

@@ -27,7 +27,7 @@ import { AlertManager } from './alert'
 import type { AlertConfig } from './alert/types'
 import { ReplayEngine } from './replay/ReplayEngine'
 import type { TradeRecord } from './indicator/trade/tradeVisualization'
-import { getTradeVisHitTargets } from './indicator/trade/tradeVisualization'
+import { getTradeVisHitTargets, cleanupTradeVisInstance } from './indicator/trade/tradeVisualization'
 
 export default class KLineChartPro implements ChartPro {
   constructor (options: ChartProOptions) {
@@ -72,7 +72,13 @@ export default class KLineChartPro implements ChartPro {
           subIndicators={options.subIndicators ?? ['VOL']}
           datafeed={options.datafeed}
           onIndicatorClick={options.onIndicatorClick ?? (() => {})}
-          onPriceUpdate={(price: number) => { this._alertManager.checkPrice(price, Date.now()) }}/>
+          onPriceUpdate={(price: number) => { this._alertManager.checkPrice(price, Date.now()) }}
+          onDataReset={() => {
+            this._alertManager.resetPrevPrice()
+            // 品种/周期切换时清理比较指标（旧数据时间戳不再对齐）
+            this._clearComparisons()
+          }}
+          onError={options.onError}/>
       ),
       this._container
     ) as unknown as (() => void)
@@ -300,6 +306,28 @@ export default class KLineChartPro implements ChartPro {
     }
   }
 
+  updateAlert (id: string, updates: Partial<Omit<AlertConfig, 'id'>>): boolean {
+    const ok = this._alertManager.updateAlert(id, updates)
+    if (ok && updates.price !== undefined) {
+      // 更新 overlay 位置
+      const chart = this.getChart()
+      if (chart) {
+        chart.removeOverlay({ id: `alert_${id}` })
+        const alert = this._alertManager.getAlert(id)
+        if (alert) {
+          chart.createOverlay({
+            name: 'alertLine',
+            id: `alert_${id}`,
+            points: [{ value: alert.price }],
+            styles: { line: { color: updates.color ?? alert.color ?? '#ff9800' } },
+            lock: true
+          })
+        }
+      }
+    }
+    return ok
+  }
+
   removeAlert (id: string): void {
     this._alertManager.removeAlert(id)
     this.getChart()?.removeOverlay({ id: `alert_${id}` })
@@ -309,11 +337,22 @@ export default class KLineChartPro implements ChartPro {
     return this._alertManager.getAlerts()
   }
 
+  private _clearComparisons (): void {
+    const tickers = [...this._comparisons.keys()]
+    for (const ticker of tickers) {
+      try { this.removeComparison(ticker) } catch (_) { /* already disposing */ }
+    }
+  }
+
   /**
    * Add comparison overlay for another symbol.
    * Known limitation: comparison data is fetched once and not updated with new ticks.
    */
   async addComparison (symbol: SymbolInfo): Promise<void> {
+    // 防止重复添加同一品种（先移除旧的）
+    if (this._comparisons.has(symbol.ticker)) {
+      this.removeComparison(symbol.ticker)
+    }
     const chart = this.getChart()
     if (!chart) return
 
@@ -398,23 +437,26 @@ export default class KLineChartPro implements ChartPro {
     for (const ticker of this._comparisons.keys()) {
       try { this.removeComparison(ticker) } catch (_) { /* already disposing */ }
     }
-    // 3. Clear alerts
+    // 3. Clear alerts & TradeVis instance data
     this._alertManager.clearAll()
     this._alertManager.onTrigger = null
-    // 3. Unbind shortcuts
+    cleanupTradeVisInstance(this._instanceId)
+    // 4. Unbind shortcuts
     this._shortcutManager.unbind()
-    // 4. Remove click listener
+    // 5. Remove click listener
     if (this._clickHandler && this._clickTarget) {
       this._clickTarget.removeEventListener('click', this._clickHandler, true)
       this._clickHandler = null
       this._clickTarget = null
     }
-    // 5. Unmount Solid.js render tree
+    // 6. Unmount Solid.js render tree (triggers onCleanup → unsubscribe datafeed)
     if (this._solidDispose) {
       this._solidDispose()
       this._solidDispose = null
     }
-    // 7. Clean container
+    // 7. Release datafeed resources (WebSocket etc.)
+    this._datafeed.dispose?.()
+    // 8. Clean container
     this._container?.classList.remove('klinecharts-pro')
     this._container?.removeAttribute('data-theme')
     this._chartApi = null

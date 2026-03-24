@@ -89,6 +89,7 @@ export class ReplayEngine {
 
   dispose(): void {
     this._stopTimer()
+    this._fullData = []
   }
 
   private _startTimer(): void {

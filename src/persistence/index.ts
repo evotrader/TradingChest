@@ -29,12 +29,12 @@ export interface OverlaySerializedData {
 const STORAGE_KEY_PREFIX = 'trading-chest-layout-'
 
 /**
- * 保存布局
+ * 保存布局。返回 true 表示成功，false 表示失败（如 localStorage 已满）。
  */
 export function saveLayout(
   key: string,
   layout: Omit<ChartLayout, 'version' | 'timestamp'>
-): void {
+): boolean {
   const data: ChartLayout = {
     version: 1,
     timestamp: Date.now(),
@@ -42,13 +42,14 @@ export function saveLayout(
   }
   try {
     localStorage.setItem(STORAGE_KEY_PREFIX + key, JSON.stringify(data))
-  } catch (e) {
-    console.warn('[TradingChest] 布局保存失败:', e)
+    return true
+  } catch {
+    return false
   }
 }
 
 /**
- * 加载布局
+ * 加载布局。返回 null 表示不存在、版本不匹配或数据损坏。
  */
 export function loadLayout(key: string): ChartLayout | null {
   try {
@@ -57,8 +58,7 @@ export function loadLayout(key: string): ChartLayout | null {
     const data = JSON.parse(raw) as ChartLayout
     if (data.version !== 1) return null
     return data
-  } catch (e) {
-    console.warn('[TradingChest] 布局加载失败:', e)
+  } catch {
     return null
   }
 }

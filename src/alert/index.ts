@@ -12,6 +12,14 @@ export class AlertManager {
     this._alerts.set(config.id, { ...config, triggered: false })
   }
 
+  /** 更新报警配置，保留触发状态 */
+  updateAlert(id: string, updates: Partial<Omit<AlertConfig, 'id'>>): boolean {
+    const existing = this._alerts.get(id)
+    if (!existing) return false
+    this._alerts.set(id, { ...existing, ...updates, id })
+    return true
+  }
+
   removeAlert(id: string): void {
     this._alerts.delete(id)
   }
@@ -62,6 +70,11 @@ export class AlertManager {
     }
 
     this._prevPrice = currentPrice
+  }
+
+  /** 重置前价格记录（品种切换时调用，防止跨品种误触发） */
+  resetPrevPrice(): void {
+    this._prevPrice = null
   }
 
   resetAll(): void {

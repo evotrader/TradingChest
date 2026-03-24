@@ -184,6 +184,9 @@ const tradeVisualization: IndicatorTemplate = {
     // Always update module-level targets (for KLineChartPro click detection)
     _hitTargets = hitTargets
 
+    // Backwards compatibility: also expose on window for external click handlers
+    ;(globalThis as Record<string, unknown>).__tradeVisHitTargets = hitTargets
+
     // Also update clickDetector if provided via extendData
     if (clickDetector) {
       clickDetector.clearTargets()

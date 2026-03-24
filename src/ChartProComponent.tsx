@@ -34,6 +34,8 @@ import { SymbolInfo, Period, ChartProOptions, ChartPro } from './types'
 import { indicatorRegistry } from './indicator'
 import { adjustFromTo } from './core/adjustFromTo'
 import { buildStyles } from './core/buildStyles'
+import { getTradeVisHitTargets } from './indicator/trade/tradeVisualization'
+import type { TradeRecord } from './indicator/trade/tradeVisualization'
 
 export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger'>> {
   ref: (chart: ChartPro) => void
@@ -285,8 +287,41 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       setSelectedOverlay(null)
     })
 
-    // 指标图形点击检测已移至 KLineChartPro 构造函数中
-    // （Solid.js onMount 中注册的 listener 在 React 嵌入场景下不可靠）
+    // TradeVis 交易标签点击检测
+    // 用 mouseup 而非 click — KLineChart 内部 mousedown handler 可能阻止 click 事件生成
+    {
+      const el = widgetRef as HTMLDivElement | undefined
+      if (el) {
+        const onTradeClick = (e: MouseEvent) => {
+          const target = e.target as HTMLElement
+          const rect = target.getBoundingClientRect()
+          const clickX = e.clientX - rect.left
+          const clickY = e.clientY - rect.top
+          const hitTargets = getTradeVisHitTargets()
+          let closest: { x: number; y: number; trade: TradeRecord; type: string } | null = null
+          let minDist = Infinity
+          for (const ht of hitTargets) {
+            const dx = clickX - ht.x
+            const dy = clickY - ht.y
+            const dist = Math.sqrt(dx * dx + dy * dy)
+            if (dist < 40 && dist < minDist) {
+              minDist = dist
+              closest = ht
+            }
+          }
+          if (closest) {
+            props.onIndicatorClick({
+              indicatorName: 'TradeVis',
+              data: { ...closest.trade, type: closest.type },
+              x: clickX,
+              y: clickY,
+            })
+          }
+        }
+        el.addEventListener('mouseup', onTradeClick, true)
+        onCleanup(() => { el.removeEventListener('mouseup', onTradeClick, true) })
+      }
+    }
   })
 
   onCleanup(() => {

@@ -28,6 +28,7 @@ import { AlertManager } from './alert'
 import type { AlertConfig } from './alert/types'
 import { ReplayEngine } from './replay/ReplayEngine'
 import type { TradeRecord } from './indicator/trade/tradeVisualization'
+import { getTradeVisHitTargets } from './indicator/trade/tradeVisualization'
 
 export default class KLineChartPro implements ChartPro {
   constructor (options: ChartProOptions) {
@@ -78,60 +79,50 @@ export default class KLineChartPro implements ChartPro {
 
     this._datafeed = options.datafeed
 
-    // 指标图形点击检测：先检查元素是否已存在，否则用 MutationObserver
-    if (options.onIndicatorClick) {
+    // 指标图形点击检测（TradeVis 标签）
+    // 直接绑定到 container（最外层），使用模块级 hitTargets（draw 每帧更新）
+    {
       const onIndClick = options.onIndicatorClick
-      const detector = this._clickDetector
-      const container = this._container!
+      this._clickTarget = this._container!
+      this._clickHandler = (e: Event) => {
+        const me = e as MouseEvent
+        // hitTargets 的 x/y 是 pane canvas 内部坐标（xAxis/yAxis.convertToPixel）
+        // 用 event.target（canvas）的 rect 匹配坐标系
+        const target = me.target as HTMLElement
+        const rect = target.getBoundingClientRect()
+        const clickX = me.clientX - rect.left
+        const clickY = me.clientY - rect.top
 
-      const self = this
-      const attachClickListener = (widgetEl: Element) => {
-        self._clickTarget = widgetEl
-        self._clickHandler = (e: Event) => {
-          const me = e as MouseEvent
-          // hitTargets 坐标是 candle_pane 内部坐标（由 draw 回调的 xAxis/yAxis.convertToPixel 生成）
-          // 需要用事件目标 canvas 的父容器（pane container）的 rect 来正确计算点击位置
-          const target = me.target as HTMLElement
-          // KLineChart DOM: pane container > canvas。找到 canvas 所在的 pane container
-          const paneContainer = target.tagName === 'CANVAS' ? target.parentElement : target
-          const rect = (paneContainer ?? widgetEl as HTMLElement).getBoundingClientRect()
-          const clickX = me.clientX - rect.left
-          const clickY = me.clientY - rect.top
-          const closest = detector.findClosest(clickX, clickY, 40)
-          if (closest) {
-            onIndClick({
-              indicatorName: 'TradeVis',
-              data: { ...closest.trade, type: closest.type },
-              x: clickX,
-              y: clickY,
-            })
+        // 从模块级 hitTargets 查找最近的交易标签
+        const hitTargets = getTradeVisHitTargets()
+        console.debug('[TradingChest] click:', {
+          tag: target.tagName,
+          x: Math.round(clickX),
+          y: Math.round(clickY),
+          targets: hitTargets.length,
+        })
+        let closest: { x: number; y: number; trade: TradeRecord; type: string } | null = null
+        let minDist = Infinity
+        for (const ht of hitTargets) {
+          const dx = clickX - ht.x
+          const dy = clickY - ht.y
+          const dist = Math.sqrt(dx * dx + dy * dy)
+          if (dist < 40 && dist < minDist) {
+            minDist = dist
+            closest = ht
           }
         }
-        widgetEl.addEventListener('click', self._clickHandler, true)
-      }
 
-      // Solid.js render() 是同步的，元素可能已存在
-      const existingEl = container.querySelector('.klinecharts-pro-widget')
-      if (existingEl) {
-        attachClickListener(existingEl)
-      } else {
-        this._observer = new MutationObserver(() => {
-          const widgetEl = container.querySelector('.klinecharts-pro-widget')
-          if (widgetEl) {
-            this._observer!.disconnect()
-            if (this._observerTimeoutId) {
-              clearTimeout(this._observerTimeoutId)
-              this._observerTimeoutId = null
-            }
-            attachClickListener(widgetEl)
-          }
-        })
-        this._observer.observe(container, { childList: true, subtree: true })
-        this._observerTimeoutId = setTimeout(() => {
-          this._observer?.disconnect()
-          this._observerTimeoutId = null
-        }, 3000)
+        if (closest && onIndClick) {
+          onIndClick({
+            indicatorName: 'TradeVis',
+            data: { ...closest.trade, type: closest.type },
+            x: clickX,
+            y: clickY,
+          })
+        }
       }
+      this._container!.addEventListener('click', this._clickHandler, true)
     }
 
     // 初始化报警管理器

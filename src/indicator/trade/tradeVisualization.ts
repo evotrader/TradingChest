@@ -28,6 +28,14 @@ export interface TradeVisExtendData {
   clickDetector?: import('../../core/indicatorClickDetector').IndicatorClickDetector
 }
 
+/** Module-level hit targets, updated every draw frame. Accessible via getTradeVisHitTargets(). */
+let _hitTargets: Array<{ x: number; y: number; trade: TradeRecord; type: 'entry' | 'exit' }> = []
+
+/** Get the latest visible trade marker positions (updated each draw frame). */
+export function getTradeVisHitTargets(): ReadonlyArray<{ x: number; y: number; trade: TradeRecord; type: string }> {
+  return _hitTargets
+}
+
 const tradeVisualization: IndicatorTemplate = {
   name: 'TradeVis',
   shortName: 'Trades',
@@ -173,6 +181,10 @@ const tradeVisualization: IndicatorTemplate = {
       }
     }
 
+    // Always update module-level targets (for KLineChartPro click detection)
+    _hitTargets = hitTargets
+
+    // Also update clickDetector if provided via extendData
     if (clickDetector) {
       clickDetector.clearTargets()
       for (const ht of hitTargets) {

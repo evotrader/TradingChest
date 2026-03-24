@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, Component, untrack, ErrorBoundary } from 'solid-js'
+import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, Component, ErrorBoundary } from 'solid-js'
 
 import {
   init, dispose, utils, Nullable, Chart, OverlayMode, Styles,
@@ -40,6 +40,8 @@ import { buildStyles } from './core/buildStyles'
 
 export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger'>> {
   ref: (chart: ChartPro) => void
+  /** 内部回调：实时数据到达时通知外层（用于报警检测） */
+  onPriceUpdate?: (price: number) => void
 }
 
 interface PrevSymbolPeriod {
@@ -77,6 +79,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   let priceUnitDom: HTMLElement
 
   const [loading, setLoading] = createSignal(false)
+  let fetchSeq = 0  // 单调递增的请求序号，用于丢弃过期响应
 
   const [theme, setTheme] = createSignal(props.theme)
   const [styles, setStyles] = createSignal(props.styles)
@@ -121,6 +124,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if (replayEngine || !widget) return
     const dataList = widget.getDataList()
     if (dataList.length === 0) return
+    // 暂停实时数据订阅，防止实时数据污染回放时间线
+    props.datafeed.unsubscribe(symbol(), period())
     const pos = startPosition ?? Math.floor(dataList.length * 0.5)
     replayEngine = new ReplayEngine({
       onDataChange: (data) => { widget?.applyNewData(data, data.length > 0) },
@@ -136,13 +141,18 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       replayEngine.dispose()
       replayEngine = null
       setReplayState(defaultReplayState)
-      // 重新加载原始数据
+      // 重新加载原始数据并恢复实时订阅
       const s = symbol()
       const p = period()
       const get = async () => {
         const [from, to] = adjustFromTo(p, new Date().getTime(), 500)
         const kLineDataList = await props.datafeed.getHistoryKLineData(s, p, from, to)
         widget?.applyNewData(kLineDataList, kLineDataList.length > 0)
+        // 恢复实时数据订阅
+        props.datafeed.subscribe(s, p, data => {
+          widget?.updateData(data)
+          props.onPriceUpdate?.(data.close)
+        })
       }
       get().catch(e => { console.warn('[TradingChest] replay data reload failed:', e) })
     }
@@ -152,7 +162,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     setTheme,
     getTheme: () => theme(),
     setStyles,
-    getStyles: () => widget!.getStyles(),
+    getStyles: () => widget?.getStyles() ?? {} as Styles,
     setLocale,
     getLocale: () => locale(),
     setTimezone: (timezone: string) => { setTimezone({ key: timezone, text: translateTimezone(props.timezone, locale()) }) },
@@ -339,38 +349,41 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   createEffect(() => {
     const s = symbol()
-    if (s?.priceCurrency) {
-      priceUnitDom.textContent = s?.priceCurrency.toLocaleUpperCase()
-      priceUnitDom.style.display = 'flex'
-    } else {
-      priceUnitDom.style.display = 'none'
+    if (priceUnitDom) {
+      if (s?.priceCurrency) {
+        priceUnitDom.textContent = s?.priceCurrency.toLocaleUpperCase()
+        priceUnitDom.style.display = 'flex'
+      } else {
+        priceUnitDom.style.display = 'none'
+      }
     }
     widget?.setPriceVolumePrecision(s?.pricePrecision ?? 2, s?.volumePrecision ?? 0)
   })
 
   createEffect((prev?: PrevSymbolPeriod) => {
-    if (!untrack(loading)) {
-      if (prev) {
-        props.datafeed.unsubscribe(prev.symbol, prev.period)
-      }
-      const s = symbol()
-      const p = period()
-      setLoading(true)
-      setLoadingVisible(true)
-      const get = async () => {
-        const [from, to] = adjustFromTo(p, new Date().getTime(), 500)
-        const kLineDataList = await props.datafeed.getHistoryKLineData(s, p, from, to)
-        widget?.applyNewData(kLineDataList, kLineDataList.length > 0)
-        props.datafeed.subscribe(s, p, data => {
-          widget?.updateData(data)
-        })
-      }
-      get()
-        .catch(e => { console.warn('[TradingChest] data fetch failed:', e) })
-        .finally(() => { setLoading(false); setLoadingVisible(false) })
-      return { symbol: s, period: p }
+    if (prev) {
+      props.datafeed.unsubscribe(prev.symbol, prev.period)
     }
-    return prev
+    const s = symbol()
+    const p = period()
+    const seq = ++fetchSeq  // 捕获当前序号
+    setLoading(true)
+    setLoadingVisible(true)
+    const get = async () => {
+      const [from, to] = adjustFromTo(p, new Date().getTime(), 500)
+      const kLineDataList = await props.datafeed.getHistoryKLineData(s, p, from, to)
+      // 如果在等待期间又发起了新请求，丢弃当前过期响应
+      if (seq !== fetchSeq) return
+      widget?.applyNewData(kLineDataList, kLineDataList.length > 0)
+      props.datafeed.subscribe(s, p, data => {
+        widget?.updateData(data)
+        props.onPriceUpdate?.(data.close)
+      })
+    }
+    get()
+      .catch(e => { console.warn('[TradingChest] data fetch failed:', e) })
+      .finally(() => { if (seq === fetchSeq) { setLoading(false); setLoadingVisible(false) } })
+    return { symbol: s, period: p }
   })
 
   createEffect(() => {

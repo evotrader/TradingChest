@@ -25,17 +25,20 @@ interface BarTradeInfo {
 /** extendData shape for TradeVis indicator */
 export interface TradeVisExtendData {
   trades: TradeRecord[]
+  /** 实例 ID，用于多图表隔离点击检测数据 */
+  _instanceId?: string
 }
 
-/** Module-level hit targets, updated every draw frame. Accessible via getTradeVisHitTargets(). */
-let _hitTargets: Array<{ x: number; y: number; trade: TradeRecord; type: 'entry' | 'exit' }> = []
+type HitTarget = { x: number; y: number; trade: TradeRecord; type: 'entry' | 'exit' }
+type BarIndex = { trade: TradeRecord; entryIdx: number; exitIdx: number }
 
-/** Pre-computed trade→barIndex mapping, set during calc, used by draw for rectangles. */
-let _tradeBarIndices: Array<{ trade: TradeRecord; entryIdx: number; exitIdx: number }> = []
+/** Per-instance hit targets and bar indices, keyed by _instanceId (default: '_default') */
+const _hitTargetsMap = new Map<string, HitTarget[]>()
+const _tradeBarIndicesMap = new Map<string, BarIndex[]>()
 
-/** Get the latest visible trade marker positions (updated each draw frame). */
-export function getTradeVisHitTargets(): ReadonlyArray<{ x: number; y: number; trade: TradeRecord; type: string }> {
-  return _hitTargets
+/** Get the latest visible trade marker positions for a specific instance. */
+export function getTradeVisHitTargets(instanceId?: string): ReadonlyArray<{ x: number; y: number; trade: TradeRecord; type: string }> {
+  return _hitTargetsMap.get(instanceId ?? '_default') ?? []
 }
 
 /**
@@ -69,8 +72,9 @@ const tradeVisualization: IndicatorTemplate = {
   calc: (dataList: KLineData[], indicator) => {
     const ext = indicator.extendData as TradeVisExtendData | TradeRecord[] | undefined
     const trades = Array.isArray(ext) ? ext : ext?.trades
+    const instanceId = (!Array.isArray(ext) && ext?._instanceId) || '_default'
     if (!trades || trades.length === 0) {
-      _tradeBarIndices = []
+      _tradeBarIndicesMap.set(instanceId, [])
       return dataList.map(() => ({}))
     }
 
@@ -103,7 +107,7 @@ const tradeVisualization: IndicatorTemplate = {
     }
 
     // Store for draw to use directly (avoids O(n*m) re-scan in draw)
-    _tradeBarIndices = barIndices
+    _tradeBarIndicesMap.set(instanceId, barIndices)
 
     return dataList.map((_, i) => {
       const info: BarTradeInfo = {}
@@ -121,10 +125,14 @@ const tradeVisualization: IndicatorTemplate = {
     const result = indicator.result as BarTradeInfo[]
     if (!result || result.length === 0) return false
 
+    const ext = indicator.extendData as TradeVisExtendData | TradeRecord[] | undefined
+    const instanceId = (!Array.isArray(ext) && ext?._instanceId) || '_default'
+
     ctx.save()
 
     // ── 第一遍：画持仓区间矩形（使用 calc 阶段预计算的 barIndices，O(trades) 而非 O(trades*bars)） ──
-    for (const { trade: t, entryIdx, exitIdx } of _tradeBarIndices) {
+    const tradeBarIndices = _tradeBarIndicesMap.get(instanceId) ?? []
+    for (const { trade: t, entryIdx, exitIdx } of tradeBarIndices) {
       const isProfit = t.pnl >= 0
       const bgColor = isProfit ? 'rgba(38, 166, 154, 0.12)' : 'rgba(239, 83, 80, 0.12)'
       const borderColor = isProfit ? 'rgba(38, 166, 154, 0.4)' : 'rgba(239, 83, 80, 0.4)'
@@ -180,8 +188,8 @@ const tradeVisualization: IndicatorTemplate = {
       }
     }
 
-    // Always update module-level targets (for KLineChartPro click detection)
-    _hitTargets = hitTargets
+    // Update per-instance targets (for KLineChartPro click detection)
+    _hitTargetsMap.set(instanceId, hitTargets)
 
     // Backwards compatibility: also expose on window for external click handlers
     ;(globalThis as Record<string, unknown>).__tradeVisHitTargets = hitTargets

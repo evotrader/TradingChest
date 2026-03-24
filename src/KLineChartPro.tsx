@@ -14,7 +14,7 @@
 
 import { render } from 'solid-js/web'
 
-import { utils, Nullable, DeepPartial, Styles, registerIndicator } from 'klinecharts'
+import { utils, Nullable, DeepPartial, Styles, registerIndicator, YAxisType } from 'klinecharts'
 import { normalizeToPercent } from './compare'
 
 import ChartProComponent from './ChartProComponent'
@@ -71,7 +71,8 @@ export default class KLineChartPro implements ChartPro {
           mainIndicators={options.mainIndicators ?? ['MA']}
           subIndicators={options.subIndicators ?? ['VOL']}
           datafeed={options.datafeed}
-          onIndicatorClick={options.onIndicatorClick ?? (() => {})}/>
+          onIndicatorClick={options.onIndicatorClick ?? (() => {})}
+          onPriceUpdate={(price: number) => { this._alertManager.checkPrice(price, Date.now()) }}/>
       ),
       this._container
     ) as unknown as (() => void)
@@ -92,14 +93,8 @@ export default class KLineChartPro implements ChartPro {
         const clickX = me.clientX - rect.left
         const clickY = me.clientY - rect.top
 
-        // 从模块级 hitTargets 查找最近的交易标签
-        const hitTargets = getTradeVisHitTargets()
-        console.debug('[TradingChest] click:', {
-          tag: target.tagName,
-          x: Math.round(clickX),
-          y: Math.round(clickY),
-          targets: hitTargets.length,
-        })
+        // 从实例级 hitTargets 查找最近的交易标签
+        const hitTargets = getTradeVisHitTargets(this._instanceId)
         let closest: { x: number; y: number; trade: TradeRecord; type: string } | null = null
         let minDist = Infinity
         for (const ht of hitTargets) {
@@ -132,7 +127,9 @@ export default class KLineChartPro implements ChartPro {
     // 初始化快捷键管理器
     this._shortcutManager = new KeyboardShortcutManager()
     this._shortcutManager.registerActions({
+      // 导航
       'nav:scrollToEnd': () => { this.getChart()?.scrollToRealTime() },
+      'nav:scrollToStart': () => { this.getChart()?.scrollToDataIndex(0) },
       'nav:zoomIn': () => {
         const chart = this.getChart()
         if (chart) {
@@ -147,8 +144,40 @@ export default class KLineChartPro implements ChartPro {
           chart.zoomAtCoordinate(0.8, { x: size?.width ? size.width / 2 : 400, y: 0 })
         }
       },
+      // 图表操作
       'chart:screenshot': () => { this.exportScreenshot() },
       'chart:cancelDraw': () => { this.getChart()?.removeOverlay() },
+      'chart:deleteSelected': () => { this.getChart()?.removeOverlay() },
+      // 绘图工具
+      'draw:straightLine': () => { this.getChart()?.createOverlay('straightLine') },
+      'draw:horizontalStraightLine': () => { this.getChart()?.createOverlay('horizontalStraightLine') },
+      'draw:verticalStraightLine': () => { this.getChart()?.createOverlay('verticalStraightLine') },
+      'draw:fibonacciLine': () => { this.getChart()?.createOverlay('fibonacciLine') },
+      'draw:rect': () => { this.getChart()?.createOverlay('rect') },
+      'draw:brush': () => { this.getChart()?.createOverlay('simpleAnnotation') },
+      'draw:dateAndPriceRange': () => { this.getChart()?.createOverlay('dateAndPriceRange') },
+      // 显示切换
+      'toggle:crosshair': () => {
+        const chart = this.getChart()
+        if (!chart) return
+        const s = chart.getStyles()
+        const show = s.crosshair?.show !== false
+        chart.setStyles({ crosshair: { show: !show } })
+      },
+      'toggle:grid': () => {
+        const chart = this.getChart()
+        if (!chart) return
+        const s = chart.getStyles()
+        const show = s.grid?.show !== false
+        chart.setStyles({ grid: { show: !show } })
+      },
+      'toggle:logScale': () => {
+        const chart = this.getChart()
+        if (!chart) return
+        const s = chart.getStyles()
+        const yAxisType = s.yAxis?.type === YAxisType.Log ? YAxisType.Normal : YAxisType.Log
+        chart.setStyles({ yAxis: { type: yAxisType } })
+      },
     })
     this._shortcutManager.bindTo(this._container!)
   }
@@ -164,6 +193,8 @@ export default class KLineChartPro implements ChartPro {
   private _datafeed: import('./types').Datafeed
 
   private _alertManager: AlertManager = new AlertManager()
+
+  private _instanceId = `tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
   private _solidDispose: (() => void) | null = null
   private _clickHandler: ((e: Event) => void) | null = null
@@ -251,7 +282,7 @@ export default class KLineChartPro implements ChartPro {
     if (!chart) return
     chart.createIndicator({
       name: 'TradeVis',
-      extendData: { trades }
+      extendData: { trades, _instanceId: this._instanceId }
     } as any, true, paneOptions ?? { id: 'candle_pane' })
   }
 

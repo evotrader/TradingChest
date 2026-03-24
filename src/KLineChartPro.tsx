@@ -89,7 +89,12 @@ export default class KLineChartPro implements ChartPro {
         self._clickTarget = widgetEl
         self._clickHandler = (e: Event) => {
           const me = e as MouseEvent
-          const rect = (widgetEl as HTMLElement).getBoundingClientRect()
+          // hitTargets 坐标是 candle_pane 内部坐标（由 draw 回调的 xAxis/yAxis.convertToPixel 生成）
+          // 需要用事件目标 canvas 的父容器（pane container）的 rect 来正确计算点击位置
+          const target = me.target as HTMLElement
+          // KLineChart DOM: pane container > canvas。找到 canvas 所在的 pane container
+          const paneContainer = target.tagName === 'CANVAS' ? target.parentElement : target
+          const rect = (paneContainer ?? widgetEl as HTMLElement).getBoundingClientRect()
           const clickX = me.clientX - rect.left
           const clickY = me.clientY - rect.top
           const closest = detector.findClosest(clickX, clickY, 40)

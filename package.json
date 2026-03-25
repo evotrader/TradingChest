@@ -1,6 +1,6 @@
 {
   "name": "trading-chest",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Professional trading chart for EvoTrader, based on KLineChart.",
   "type": "module",
   "main": "./dist/trading-chest.umd.js",

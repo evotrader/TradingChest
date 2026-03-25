@@ -18,13 +18,22 @@ import { Datafeed, SymbolInfo, Period, DatafeedSubscribeCallback } from './types
 import { ReconnectingWebSocket } from './datafeed/ReconnectingWebSocket'
 
 
+export type ConnectionState = 'connected' | 'disconnected' | 'reconnecting' | 'failed'
+
 /** Demo datafeed for Polygon.io. Production should proxy API calls through a backend to avoid exposing API keys. */
 export default class DefaultDatafeed implements Datafeed {
-  constructor (apiKey: string) {
+  constructor (apiKey: string, options?: {
+    onConnectionStateChange?: (state: ConnectionState, detail?: { attempt?: number, error?: unknown }) => void
+    fetchTimeout?: number
+  }) {
     this._apiKey = apiKey
+    this._onConnectionStateChange = options?.onConnectionStateChange ?? null
+    this._fetchTimeout = options?.fetchTimeout ?? 15000
   }
 
   private _apiKey: string
+  private _onConnectionStateChange: ((state: ConnectionState, detail?: { attempt?: number, error?: unknown }) => void) | null
+  private _fetchTimeout: number
 
   private _prevSymbolMarket?: string
   private _prevTicker?: string
@@ -35,7 +44,10 @@ export default class DefaultDatafeed implements Datafeed {
 
   async searchSymbols (search?: string): Promise<SymbolInfo[]> {
     try {
-      const response = await fetch(`https://api.polygon.io/v3/reference/tickers?apiKey=${this._apiKey}&active=true&search=${encodeURIComponent(search ?? '')}`)
+      const response = await fetch(
+        `https://api.polygon.io/v3/reference/tickers?apiKey=${this._apiKey}&active=true&search=${encodeURIComponent(search ?? '')}`,
+        { signal: AbortSignal.timeout(this._fetchTimeout) }
+      )
       if (!response.ok) {
         console.warn(`searchSymbols failed: ${response.status} ${response.statusText}`)
         return []
@@ -59,7 +71,10 @@ export default class DefaultDatafeed implements Datafeed {
 
   async getHistoryKLineData (symbol: SymbolInfo, period: Period, from: number, to: number): Promise<KLineData[]> {
     try {
-      const response = await fetch(`https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol.ticker)}/range/${period.multiplier}/${period.timespan}/${from}/${to}?apiKey=${this._apiKey}`)
+      const response = await fetch(
+        `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol.ticker)}/range/${period.multiplier}/${period.timespan}/${from}/${to}?apiKey=${this._apiKey}`,
+        { signal: AbortSignal.timeout(this._fetchTimeout) }
+      )
       if (!response.ok) {
         console.warn(`getHistoryKLineData failed: ${response.status} ${response.statusText}`)
         return []
@@ -92,6 +107,15 @@ export default class DefaultDatafeed implements Datafeed {
       this._ws.onopen = () => {
         this._ws?.send(JSON.stringify({ action: 'auth', params: this._apiKey }))
       }
+      this._ws.onerror = () => {
+        this._onConnectionStateChange?.('disconnected', { error: 'WebSocket error' })
+      }
+      this._ws.onclose = () => {
+        this._onConnectionStateChange?.('disconnected')
+      }
+      this._ws.onreconnect = (attempt) => {
+        this._onConnectionStateChange?.('reconnecting', { attempt })
+      }
       this._ws.onmessage = event => {
         let result: Array<Record<string, unknown>>
         try {
@@ -103,6 +127,7 @@ export default class DefaultDatafeed implements Datafeed {
         if (!Array.isArray(result) || result.length === 0) return
         if (result[0].ev === 'status') {
           if (result[0].status === 'auth_success') {
+            this._onConnectionStateChange?.('connected')
             this._ws?.send(JSON.stringify({ action: 'subscribe', params: `T.${symbol.ticker}`}))
           }
         } else {

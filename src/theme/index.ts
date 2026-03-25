@@ -6,32 +6,28 @@ import { DeepPartial, Styles } from 'klinecharts'
  */
 export interface ThemePreset {
   name: string
-  label_zh: string
-  label_en: string
+  labelKey: string
   styles: DeepPartial<Styles>
 }
 
 /** 暗色主题（默认） */
 const darkTheme: ThemePreset = {
   name: 'dark',
-  label_zh: '暗色',
-  label_en: 'Dark',
+  labelKey: 'theme_dark',
   styles: {}
 }
 
 /** 亮色主题 */
 const lightTheme: ThemePreset = {
   name: 'light',
-  label_zh: '亮色',
-  label_en: 'Light',
+  labelKey: 'theme_light',
   styles: {}
 }
 
 /** 午夜蓝主题 */
 const midnightTheme: ThemePreset = {
   name: 'midnight',
-  label_zh: '午夜蓝',
-  label_en: 'Midnight Blue',
+  labelKey: 'theme_midnight',
   styles: {
     grid: {
       horizontal: { color: 'rgba(44, 62, 80, 0.5)' },
@@ -80,8 +76,7 @@ const midnightTheme: ThemePreset = {
 /** 经典绿红主题（TradingView 风格） */
 const classicTheme: ThemePreset = {
   name: 'classic',
-  label_zh: '经典',
-  label_en: 'Classic',
+  labelKey: 'theme_classic',
   styles: {
     candle: {
       bar: {
@@ -110,8 +105,7 @@ const classicTheme: ThemePreset = {
 /** 高对比主题 */
 const highContrastTheme: ThemePreset = {
   name: 'highContrast',
-  label_zh: '高对比',
-  label_en: 'High Contrast',
+  labelKey: 'theme_high_contrast',
   styles: {
     grid: {
       horizontal: { color: 'rgba(255, 255, 255, 0.15)' },

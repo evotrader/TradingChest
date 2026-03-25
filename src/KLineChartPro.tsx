@@ -202,16 +202,27 @@ export default class KLineChartPro implements ChartPro {
 
   private _instanceId = `tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
+  private _disposed = false
   private _solidDispose: (() => void) | null = null
   private _clickHandler: ((e: Event) => void) | null = null
   private _clickTarget: Element | null = null
 
-  /** Throws if called before Solid.js render completes. */
+  /** Throws if called before Solid.js render completes or after dispose. */
   private _api(): ChartPro {
+    if (this._disposed) {
+      throw new Error('[TradingChest] Instance has been disposed. Create a new instance to continue.')
+    }
     if (!this._chartApi) {
       throw new Error('[TradingChest] Chart not initialized yet. Wait for render to complete before calling API methods.')
     }
     return this._chartApi
+  }
+
+  /** Throws if instance is disposed. For methods that don't need _chartApi. */
+  private _assertNotDisposed(): void {
+    if (this._disposed) {
+      throw new Error('[TradingChest] Instance has been disposed. Create a new instance to continue.')
+    }
   }
 
   setTheme (theme: string): void {
@@ -284,6 +295,7 @@ export default class KLineChartPro implements ChartPro {
   }
 
   createTradeVisualization (trades: TradeRecord[], paneOptions?: Record<string, unknown>): void {
+    this._assertNotDisposed()
     const chart = this.getChart()
     if (!chart) return
     chart.createIndicator({
@@ -293,6 +305,7 @@ export default class KLineChartPro implements ChartPro {
   }
 
   addAlert (config: AlertConfig): void {
+    this._assertNotDisposed()
     this._alertManager.addAlert(config)
     const chart = this.getChart()
     if (chart) {
@@ -307,6 +320,7 @@ export default class KLineChartPro implements ChartPro {
   }
 
   updateAlert (id: string, updates: Partial<Omit<AlertConfig, 'id'>>): boolean {
+    this._assertNotDisposed()
     const ok = this._alertManager.updateAlert(id, updates)
     if (ok && updates.price !== undefined) {
       // 更新 overlay 位置
@@ -329,19 +343,21 @@ export default class KLineChartPro implements ChartPro {
   }
 
   removeAlert (id: string): void {
+    this._assertNotDisposed()
     this._alertManager.removeAlert(id)
     this.getChart()?.removeOverlay({ id: `alert_${id}` })
   }
 
   getAlerts (): AlertConfig[] {
+    this._assertNotDisposed()
     return this._alertManager.getAlerts()
   }
 
   private _clearComparisons (): void {
-    const tickers = [...this._comparisons.keys()]
-    for (const ticker of tickers) {
-      try { this.removeComparison(ticker) } catch (_) { /* already disposing */ }
+    for (const [ticker, indicatorName] of this._comparisons) {
+      try { this.getChart()?.removeIndicator('candle_pane', indicatorName) } catch (_) { /* already disposing */ }
     }
+    this._comparisons.clear()
   }
 
   /**
@@ -349,6 +365,7 @@ export default class KLineChartPro implements ChartPro {
    * Known limitation: comparison data is fetched once and not updated with new ticks.
    */
   async addComparison (symbol: SymbolInfo): Promise<void> {
+    this._assertNotDisposed()
     // 防止重复添加同一品种（先移除旧的）
     if (this._comparisons.has(symbol.ticker)) {
       this.removeComparison(symbol.ticker)
@@ -405,6 +422,7 @@ export default class KLineChartPro implements ChartPro {
   }
 
   removeComparison (ticker: string): void {
+    this._assertNotDisposed()
     const indicatorName = this._comparisons.get(ticker)
     if (indicatorName) {
       this.getChart()?.removeIndicator('candle_pane', indicatorName)
@@ -425,18 +443,19 @@ export default class KLineChartPro implements ChartPro {
   }
 
   feedPrice (price: number): void {
+    if (this._disposed) return // feedPrice 静默忽略，不抛异常
     this._alertManager.checkPrice(price, Date.now())
   }
 
   dispose (): void {
+    if (this._disposed) return // 幂等：重复调用安全
+    this._disposed = true
     // 1. Stop replay (safe — ChartProComponent.onCleanup also handles this)
     if (this._chartApi) {
       try { this._chartApi.stopReplay() } catch (_) { /* already disposing */ }
     }
     // 2. Remove comparisons
-    for (const ticker of this._comparisons.keys()) {
-      try { this.removeComparison(ticker) } catch (_) { /* already disposing */ }
-    }
+    this._clearComparisons()
     // 3. Clear alerts & TradeVis instance data
     this._alertManager.clearAll()
     this._alertManager.onTrigger = null

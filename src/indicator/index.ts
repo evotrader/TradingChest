@@ -9,30 +9,26 @@ indicatorRegistry.setLoaders(indicatorLoaders)
 
 // 指标分类映射（用于 UI 分类显示）
 // 名称必须与 IndicatorTemplate.name 完全一致
-export const indicatorCategories: Record<string, { names: string[], label_zh: string, label_en: string }> = {
+// labelKey 对应 i18n key（如 'category_trend'）
+export const indicatorCategories: Record<string, { names: string[], labelKey: string }> = {
   trend: {
     names: ['MA', 'EMA', 'SMA', 'BOLL', 'SAR', 'BBI', 'ATR', 'SUPERTREND', 'ICHIMOKU', 'ALLIGATOR', 'DEMA', 'TEMA', 'WMA', 'HMA', 'KAMA', 'VWMA', 'ZLEMA', 'MCGINLEY', 'LINEARREGRESSION', 'ENVELOPES', 'T3'],
-    label_zh: '趋势',
-    label_en: 'Trend'
+    labelKey: 'category_trend'
   },
   volatility: {
     names: ['BOLL', 'KC', 'DC', 'HV', 'STDDEV', 'CV', 'MI', 'UI', 'BBW'],
-    label_zh: '波动率',
-    label_en: 'Volatility'
+    labelKey: 'category_volatility'
   },
   volume: {
     names: ['VOL', 'OBV', 'PVT', 'VR', 'VWAP', 'MFI', 'CMF', 'AD', 'VROC', 'KVO', 'FI', 'ELDER_RAY'],
-    label_zh: '成交量',
-    label_en: 'Volume'
+    labelKey: 'category_volume'
   },
   momentum: {
     names: ['MACD', 'KDJ', 'RSI', 'BIAS', 'BRAR', 'CCI', 'DMI', 'CR', 'PSY', 'DMA', 'TRIX', 'WR', 'MTM', 'EMV', 'ROC', 'AO', 'StochRSI', 'ADX', 'AROON', 'UO', 'FISHER', 'COPPOCK', 'PPO', 'DPO', 'KST', 'TMF'],
-    label_zh: '动量',
-    label_en: 'Momentum'
+    labelKey: 'category_momentum'
   },
   other: {
     names: ['PIVOTPOINTS', 'ZIGZAG'],
-    label_zh: '其他',
-    label_en: 'Other'
+    labelKey: 'category_other'
   }
 }

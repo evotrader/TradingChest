@@ -13,6 +13,7 @@
  */
 
 import { Component, createSignal, Show } from 'solid-js'
+import i18n from '../../i18n'
 
 export interface OverlayPropertyBarProps {
   locale: string
@@ -57,10 +58,10 @@ const PALETTE_COLORS = [
 ]
 
 const LINE_WIDTHS = [1, 2, 3, 4]
-const LINE_STYLES: { key: string, label_zh: string, label_en: string }[] = [
-  { key: 'solid', label_zh: '实线', label_en: 'Solid' },
-  { key: 'dashed', label_zh: '虚线', label_en: 'Dashed' },
-  { key: 'dotted', label_zh: '点线', label_en: 'Dotted' },
+const LINE_STYLES: { key: string, labelKey: string }[] = [
+  { key: 'solid', labelKey: 'line_style_solid' },
+  { key: 'dashed', labelKey: 'line_style_dashed' },
+  { key: 'dotted', labelKey: 'line_style_dotted' },
 ]
 
 const OverlayPropertyBar: Component<OverlayPropertyBarProps> = props => {
@@ -182,7 +183,7 @@ const OverlayPropertyBar: Component<OverlayPropertyBarProps> = props => {
                     <line x1="4" y1="7" x2="36" y2="7" stroke="currentColor" stroke-width="2"
                       stroke-dasharray={s.key === 'dashed' ? '6,4' : s.key === 'dotted' ? '2,4' : 'none'} />
                   </svg>
-                  <span>{props.locale === 'zh-CN' ? s.label_zh : s.label_en}</span>
+                  <span>{i18n(s.labelKey, props.locale)}</span>
                 </div>
               ))}
             </div>
@@ -195,7 +196,7 @@ const OverlayPropertyBar: Component<OverlayPropertyBarProps> = props => {
         <div
           class={`klinecharts-pro-overlay-property-bar-item${props.locked ? ' active' : ''}`}
           onClick={() => props.onLockChange(!props.locked)}
-          title={props.locale === 'zh-CN' ? '锁定' : 'Lock'}>
+          title={i18n('lock', props.locale)}>
           <svg width="16" height="16" viewBox="0 0 16 16">
             {props.locked
               ? <path d="M11,7V5A3,3,0,0,0,5,5V7a2,2,0,0,0-2,2v4a2,2,0,0,0,2,2h6a2,2,0,0,0,2-2V9A2,2,0,0,0,11,7ZM6,5A2,2,0,0,1,10,5V7H6ZM12,13a1,1,0,0,1-1,1H5a1,1,0,0,1-1-1V9A1,1,0,0,1,5,8h6a1,1,0,0,1,1,1Z" fill="currentColor"/>
@@ -208,7 +209,7 @@ const OverlayPropertyBar: Component<OverlayPropertyBarProps> = props => {
         <div
           class="klinecharts-pro-overlay-property-bar-item danger"
           onClick={() => props.onDelete()}
-          title={props.locale === 'zh-CN' ? '删除' : 'Delete'}>
+          title={i18n('delete_overlay', props.locale)}>
           <svg width="16" height="16" viewBox="0 0 16 16">
             <path d="M11,3H8.5l-.5-1h-3l-.5,1H2v1h1v9a1,1,0,0,0,1,1h7a1,1,0,0,0,1-1V4h1V3ZM11,13H4V4h7Zm-5-2V6H7v5Zm3,0V6h1v5Z" fill="currentColor"/>
           </svg>

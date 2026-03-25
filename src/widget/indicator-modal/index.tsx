@@ -102,10 +102,10 @@ const IndicatorModal: Component<IndicatorModalProps> = props => {
 
   const getCategoryLabel = (key: string): string => {
     if (key === 'all') {
-      return props.locale === 'zh-CN' ? '全部' : 'All'
+      return i18n('all_categories', props.locale)
     }
     const cat = indicatorCategories[key]
-    return props.locale === 'zh-CN' ? cat?.label_zh ?? key : cat?.label_en ?? key
+    return cat ? i18n(cat.labelKey, props.locale) : key
   }
 
   return (

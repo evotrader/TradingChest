@@ -16,7 +16,8 @@ import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, 
 
 import {
   init, dispose, utils, Nullable, Chart, OverlayMode, Styles,
-  TooltipIconPosition, ActionType, PaneOptions, Indicator, DomPosition, FormatDateType
+  TooltipIconPosition, ActionType, PaneOptions, Indicator, DomPosition, FormatDateType,
+  type Overlay
 } from 'klinecharts'
 
 import { deepSet } from './core/deepSet'
@@ -37,6 +38,7 @@ import { SymbolInfo, Period, ChartProOptions, ChartPro } from './types'
 import { indicatorRegistry } from './indicator'
 import { adjustFromTo } from './core/adjustFromTo'
 import { buildStyles } from './core/buildStyles'
+import type { OverlayLifecycleEvent, OverlayLifecycleSource } from './types'
 
 export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onError'>> {
   ref: (chart: ChartPro) => void
@@ -74,6 +76,19 @@ async function createIndicator (widget: Nullable<Chart>, indicatorName: string, 
       return { icons }
     }
   } as any, isStack, paneOptions) ?? null
+}
+
+function snapshotOverlay (overlay: Overlay): OverlayLifecycleEvent['overlay'] {
+  return {
+    id: overlay.id,
+    groupId: overlay.groupId,
+    name: overlay.name,
+    points: (overlay.points ?? []).map(point => ({ ...point })),
+    extendData: overlay.extendData,
+    styles: overlay.styles,
+    lock: overlay.lock,
+    visible: overlay.visible
+  }
 }
 
 const ChartProComponent: Component<ChartProComponentProps> = props => {
@@ -118,6 +133,72 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     id: string, x: number, y: number,
     color: string, fillColor?: string, lineWidth: number, lineStyle: string, locked: boolean
   } | null>(null)
+
+  const notifyOverlay = (source: OverlayLifecycleSource, overlay: Overlay, kind: 'create' | 'update' | 'delete') => {
+    const event = { overlay: snapshotOverlay(overlay), source }
+    if (kind === 'create') {
+      props.onOverlayCreate?.(event)
+    } else if (kind === 'update') {
+      props.onOverlayUpdate?.(event)
+    } else {
+      props.onOverlayDelete?.(event)
+    }
+  }
+
+  const promptTextOverlay = (overlay: Overlay) => {
+    if (overlay.name !== 'textAnnotation' && overlay.name !== 'note') return
+    const fallback = overlay.name === 'note' ? 'Note' : 'Text'
+    const current = typeof overlay.extendData === 'string' && overlay.extendData.trim().length > 0
+      ? overlay.extendData
+      : fallback
+    const label = overlay.name === 'note'
+      ? '输入便签内容 / Enter note:'
+      : '输入标注文字 / Enter text:'
+    const input = window.prompt(label, current)
+    if (input !== null && input.trim() !== '') {
+      overlay.extendData = input.trim()
+    }
+  }
+
+  const markSelectedOverlay = (overlay: Overlay) => {
+    if (overlay.id) {
+      const points = overlay.points ?? []
+      let x = 0, y = 0
+      if (points.length > 0 && widget) {
+        const pixel = widget.convertToPixel(
+          { timestamp: points[0].timestamp, value: points[0].value },
+          { paneId: 'candle_pane' }
+        ) as any
+        x = (pixel?.x ?? 200) + 52
+        y = (pixel?.y ?? 100) - 50
+      }
+      const fillOverlays = [
+        'rect', 'circle', 'triangle', 'parallelogram',
+        'gannBox', 'regressionChannel', 'xabcd',
+        'positionRange', 'longPosition', 'shortPosition',
+        'dateAndPriceRange', 'dateRange', 'priceRange',
+        'fibonacciCircle',
+      ]
+      const hasFill = fillOverlays.includes(overlay.name ?? '')
+      setSelectedOverlay({
+        id: overlay.id,
+        x: Math.max(100, x),
+        y: Math.max(10, y),
+        color: '#1677ff',
+        fillColor: hasFill ? 'rgba(22, 119, 255, 0.15)' : undefined,
+        lineWidth: 1,
+        lineStyle: 'solid',
+        locked: overlay.lock ?? false
+      })
+    }
+  }
+
+  const notifySelectedOverlayUpdate = (source: OverlayLifecycleSource, overlayId: string) => {
+    const overlay = widget?.getOverlayById(overlayId)
+    if (overlay) {
+      notifyOverlay(source, overlay, 'update')
+    }
+  }
 
   // 回放状态
   const defaultReplayState: ReplayState = { active: false, playing: false, speed: 1, position: 0, totalBars: 0 }
@@ -641,51 +722,27 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           <DrawingBar
             locale={props.locale}
             onDrawingItemClick={overlay => {
-              const id = widget?.createOverlay({
+              widget?.createOverlay({
                 ...overlay,
+                onDrawEnd: (event) => {
+                  promptTextOverlay(event.overlay)
+                  notifyOverlay('drawing-bar', event.overlay, 'create')
+                  return true
+                },
+                onPressedMoveEnd: (event) => {
+                  notifyOverlay('drawing-bar', event.overlay, 'update')
+                  return true
+                },
                 onSelected: (event) => {
-                  // overlay 被选中时显示浮动属性工具栏
-                  const { overlay: ov } = event
-                  if (ov.id) {
-                    const rect = (widgetRef as HTMLDivElement | undefined)?.getBoundingClientRect()
-                    // 使用第一个锚点的坐标定位工具栏
-                    const points = ov.points ?? []
-                    let x = 0, y = 0
-                    if (points.length > 0 && widget) {
-                      const pixel = widget.convertToPixel(
-                        { timestamp: points[0].timestamp, value: points[0].value },
-                        { paneId: 'candle_pane' }
-                      ) as any
-                      x = (pixel?.x ?? 200) + 52 // offset for drawing bar width
-                      y = (pixel?.y ?? 100) - 50 // above the point
-                    }
-                    // 检测是否为有填充的图形（含 polygon 的 overlay）
-                    const fillOverlays = [
-                      'rect', 'circle', 'triangle', 'parallelogram',
-                      'gannBox', 'regressionChannel', 'xabcd',
-                      'positionRange', 'longPosition', 'shortPosition',
-                      'dateAndPriceRange', 'dateRange', 'priceRange',
-                      'fibonacciCircle',
-                    ]
-                    const hasFill = fillOverlays.includes(ov.name ?? '')
-                    setSelectedOverlay({
-                      id: ov.id,
-                      x: Math.max(100, x),
-                      y: Math.max(10, y),
-                      color: '#1677ff',
-                      fillColor: hasFill ? 'rgba(22, 119, 255, 0.15)' : undefined,
-                      lineWidth: 1,
-                      lineStyle: 'solid',
-                      locked: ov.lock ?? false
-                    })
-                  }
+                  markSelectedOverlay(event.overlay)
                   return true
                 },
                 onDeselected: () => {
                   setSelectedOverlay(null)
                   return true
                 },
-                onRemoved: () => {
+                onRemoved: (event) => {
+                  notifyOverlay('drawing-bar', event.overlay, 'delete')
                   setSelectedOverlay(null)
                   return true
                 }
@@ -717,6 +774,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
               const next = { ...info, color }
               widget.overrideOverlay({ id: info.id, styles: buildStyles(next) })
               setSelectedOverlay(next)
+              notifySelectedOverlayUpdate('property-bar', info.id)
             }
           }}
           onFillColorChange={(fillColor) => {
@@ -725,6 +783,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
               const next = { ...info, fillColor: fillColor === 'transparent' ? 'rgba(0,0,0,0)' : fillColor }
               widget.overrideOverlay({ id: info.id, styles: buildStyles(next) })
               setSelectedOverlay(next)
+              notifySelectedOverlayUpdate('property-bar', info.id)
             }
           }}
           onLineWidthChange={(width) => {
@@ -733,6 +792,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
               const next = { ...info, lineWidth: width }
               widget.overrideOverlay({ id: info.id, styles: buildStyles(next) })
               setSelectedOverlay(next)
+              notifySelectedOverlayUpdate('property-bar', info.id)
             }
           }}
           onLineStyleChange={(style) => {
@@ -741,6 +801,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
               const next = { ...info, lineStyle: style }
               widget.overrideOverlay({ id: info.id, styles: buildStyles(next) })
               setSelectedOverlay(next)
+              notifySelectedOverlayUpdate('property-bar', info.id)
             }
           }}
           onLockChange={(locked) => {
@@ -748,6 +809,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             if (info && widget) {
               widget.overrideOverlay({ id: info.id, lock: locked })
               setSelectedOverlay({ ...info, locked })
+              notifySelectedOverlayUpdate('property-bar', info.id)
             }
           }}
           onDelete={() => {

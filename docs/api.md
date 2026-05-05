@@ -17,6 +17,9 @@ new KLineChartPro(
     mainIndicators?: string[];
     subIndicators?: string[];
     datafeed: Datafeed;
+    onOverlayCreate?: (event: OverlayLifecycleEvent) => void;
+    onOverlayUpdate?: (event: OverlayLifecycleEvent) => void;
+    onOverlayDelete?: (event: OverlayLifecycleEvent) => void;
   }
 ) => KLineChartPro
 ```
@@ -33,6 +36,9 @@ new KLineChartPro(
 + `mainIndicators` 主图指标
 + `subIndicators` 副图指标
 + `datafeed` 数据接入api实现
++ `onOverlayCreate` 绘图 overlay 创建完成回调，event 包含 overlay 快照和来源
++ `onOverlayUpdate` 绘图 overlay 拖动或属性变更回调
++ `onOverlayDelete` 绘图 overlay 删除回调
 
 ## 图表API
 ### setTheme(theme)

@@ -72,6 +72,9 @@ export default class KLineChartPro implements ChartPro {
           subIndicators={options.subIndicators ?? ['VOL']}
           datafeed={options.datafeed}
           onIndicatorClick={options.onIndicatorClick ?? (() => {})}
+          onOverlayCreate={options.onOverlayCreate ?? (() => {})}
+          onOverlayUpdate={options.onOverlayUpdate ?? (() => {})}
+          onOverlayDelete={options.onOverlayDelete ?? (() => {})}
           onPriceUpdate={(price: number) => { this._alertManager.checkPrice(price, Date.now()) }}
           onDataReset={() => {
             this._alertManager.resetPrevPrice()

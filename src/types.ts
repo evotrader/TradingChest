@@ -13,6 +13,7 @@
  */
 
 import { KLineData, Styles, DeepPartial } from 'klinecharts'
+import type { Overlay } from 'klinecharts'
 import type KeyboardShortcutManager from './shortcut'
 
 export interface SymbolInfo {
@@ -56,6 +57,22 @@ export interface IndicatorClickEvent {
   y: number
 }
 
+export type OverlayLifecycleSource =
+  | 'drawing-bar'
+  | 'property-bar'
+  | 'keyboard'
+  | 'programmatic'
+
+export type OverlaySnapshot = Pick<
+  Overlay,
+  'id' | 'groupId' | 'name' | 'points' | 'extendData' | 'styles' | 'lock' | 'visible'
+>
+
+export interface OverlayLifecycleEvent {
+  overlay: OverlaySnapshot
+  source: OverlayLifecycleSource
+}
+
 export interface ChartProOptions {
   container: string | HTMLElement
   styles?: DeepPartial<Styles>
@@ -72,6 +89,12 @@ export interface ChartProOptions {
   datafeed: Datafeed
   /** 指标图形被点击时的回调 */
   onIndicatorClick?: (event: IndicatorClickEvent) => void
+  /** 绘图 overlay 创建完成时的回调 */
+  onOverlayCreate?: (event: OverlayLifecycleEvent) => void
+  /** 绘图 overlay 被移动或属性变更时的回调 */
+  onOverlayUpdate?: (event: OverlayLifecycleEvent) => void
+  /** 绘图 overlay 被删除时的回调 */
+  onOverlayDelete?: (event: OverlayLifecycleEvent) => void
   /** 报警触发时的回调 */
   onAlertTrigger?: (event: import('./alert/types').AlertEvent) => void
   /** 内部错误回调（数据加载失败、指标初始化失败等） */

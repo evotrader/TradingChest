@@ -9,7 +9,7 @@ export default defineConfig({
     cssTarget: 'chrome61',
     sourcemap: false,
     rollupOptions: {
-      external: ['klinecharts'],
+      external: ['klinecharts', 'react'],
       output: {
         assetFileNames: (chunkInfo) => {
           if (chunkInfo.name === 'style.css') {
@@ -17,7 +17,8 @@ export default defineConfig({
           }
         },
         globals: {
-          klinecharts: 'klinecharts'
+          klinecharts: 'klinecharts',
+          react: 'React'
         },
       },
     },

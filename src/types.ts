@@ -87,6 +87,8 @@ export interface ChartProOptions {
   mainIndicators?: string[]
   subIndicators?: string[]
   datafeed: Datafeed
+  /** 周期切换回调 */
+  onPeriodChange?: (period: Period) => void
   /** 指标图形被点击时的回调 */
   onIndicatorClick?: (event: IndicatorClickEvent) => void
   /** 绘图 overlay 创建完成时的回调 */

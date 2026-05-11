@@ -71,6 +71,7 @@ export default class KLineChartPro implements ChartPro {
           mainIndicators={options.mainIndicators ?? ['MA']}
           subIndicators={options.subIndicators ?? ['VOL']}
           datafeed={options.datafeed}
+          onPeriodChange={options.onPeriodChange ?? (() => {})}
           onIndicatorClick={options.onIndicatorClick ?? (() => {})}
           onOverlayCreate={options.onOverlayCreate ?? (() => {})}
           onOverlayUpdate={options.onOverlayUpdate ?? (() => {})}

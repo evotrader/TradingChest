@@ -205,6 +205,12 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const [replayState, setReplayState] = createSignal<ReplayState>(defaultReplayState)
   let replayEngine: ReplayEngine | null = null
 
+  const setChartPeriod = (nextPeriod: Period) => {
+    if (replayEngine) return
+    setPeriod(nextPeriod)
+    props.onPeriodChange?.(nextPeriod)
+  }
+
   const startReplay = (startPosition?: number) => {
     if (replayEngine || !widget) return
     const dataList = widget.getDataList()
@@ -256,7 +262,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     getTimezone: () => timezone().key,
     setSymbol: (s: SymbolInfo) => { if (!replayEngine) setSymbol(s) },
     getSymbol: () => symbol(),
-    setPeriod: (p: Period) => { if (!replayEngine) setPeriod(p) },
+    setPeriod: setChartPeriod,
     getPeriod: () => period(),
     getChart: () => widget,
     // 以下方法由 KLineChartPro 直接实现，不经过 _chartApi 代理
@@ -694,7 +700,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           } catch (e) { console.warn('[TradingChest] toggle drawing bar failed:', e) }
         }}
         onSymbolClick={() => { setSymbolSearchModalVisible(!symbolSearchModalVisible()) }}
-        onPeriodChange={setPeriod}
+        onPeriodChange={setChartPeriod}
         onIndicatorClick={() => { setIndicatorModalVisible((visible => !visible)) }}
         onTimezoneClick={() => { setTimezoneModalVisible((visible => !visible)) }}
         onSettingClick={() => { setSettingModalVisible((visible => !visible)) }}

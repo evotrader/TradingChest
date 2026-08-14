@@ -10,11 +10,11 @@ export default defineConfig({
   },
   test: {
     // Default to 'node' for pure-logic tests.
-    // Use `// @vitest-environment jsdom` per-file for component tests.
+    // Use `// @vitest-environment jsdom` per-file for Solid component tests.
     environment: 'node',
-    include: ['src/**/__tests__/**/*.test.ts'],
+    include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
     coverage: {
-      include: ['src/**/*.ts'],
+      include: ['src/**/*.{ts,tsx}'],
       exclude: ['src/**/__tests__/**', 'src/index.ts', 'src/**/*.d.ts']
     }
   }

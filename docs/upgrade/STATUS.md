@@ -52,3 +52,10 @@ Reproduce: npm ci; npm test; npm run build. For browser checks install Playwrigh
 - Browser drawing checks now explicitly wait for the fullscreen loading mask to disappear before interacting. Await a real-browser rerun of this change before claiming drawing acceptance.
 - EvoTrader consumer branch fix/trading-chest-stage1 contains the reactive bridge, chart disposal and associated tests. Commit a016d392 regenerates the stale frontend lock using npm and pins fd36ab39. Clean installation with ignore-scripts passed in the root workspace; full consumer installation, typecheck, tests and build are being independently checked.
 - Neither repository has been merged to main. No publication or live trading is part of these checks.
+
+## Accepted checkpoint: 2026-10-14 05:43 UTC
+- Product source at 7a8abbd5 passed 299 tests and complete build. At 9d695644 only the browser test changed: distinct drawing clicks are spaced beyond the engine's 500 ms double-click window; product source is identical.
+- Both browser scripts now pass: three real drawings, Escape preservation, selected drawing deletion, editable input protection, system overlay preservation, lifecycle/replay isolation and built-bundle widget updates. Test executor reported clean tracked files and stopped Vite.
+- EvoTrader d3d76296 passed clean frontend npm ci, separate submodule npm ci/build, three Node build-gate tests, typecheck, 22 targeted tests and full frontend build (37 static pages). The initial Babel dependency-resolution failure was resolved by the documented separate submodule install; preserve that install step.
+- This is an accepted incremental batch, not completion of the entire upgrade. Remaining: legacy global click migration, symbol scoping of alerts, repeated/multi-chart and performance coverage, and the later packaging/data-contract/session-VWAP stages.
+- No live trading or npm publication performed.

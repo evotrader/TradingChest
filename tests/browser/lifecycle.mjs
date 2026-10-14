@@ -28,6 +28,25 @@ try {
   assert.equal(replay.disposals, 1)
   await open(); await page.evaluate(() => setup())
   await page.waitForFunction(() => test.state.subscriptions === 1)
+  const alertIsolation = await page.evaluate(() => {
+    test.chart.addAlert({id:'replay-only',price:12,condition:'above'})
+    test.chart.startReplay(2)
+    test.chart.feedPrice(999)
+    test.chart.getReplayEngine().stepForward()
+    test.chart.getReplayEngine().stepBackward()
+    const afterSeek = test.state.replayAlerts.length
+    test.chart.getReplayEngine().stepForward()
+    const result = {live:test.state.alerts.length, replay:test.state.replayAlerts.length, afterSeek,
+      timestamp:test.state.replayAlerts[0]?.timestamp, expected:test.bars[2].timestamp,
+      liveTriggered:test.chart.getAlerts()[0].triggered}
+    test.chart.dispose()
+    return result
+  })
+  assert.equal(alertIsolation.live,0); assert.equal(alertIsolation.replay,2)
+  assert.equal(alertIsolation.afterSeek,1); assert.equal(alertIsolation.liveTriggered,false)
+  assert.equal(alertIsolation.timestamp,alertIsolation.expected)
+  await open(); await page.evaluate(() => setup())
+  await page.waitForFunction(() => test.state.subscriptions === 1)
   const widget = page.locator('.klinecharts-pro-widget')
   const box = await widget.boundingBox()
   assert.ok(box)
@@ -38,7 +57,7 @@ try {
     await page.waitForFunction(n => test.state.created.length === n, i + 1)
   }
   await page.evaluate(() => {
-    test.chart.addAlert({id:'system',price:20,condition:'cross_above',enabled:true})
+    test.chart.addAlert({id:'system',price:20,condition:'above'})
     test.chart.getChart().createOverlay({name:'horizontalStraightLine',id:'system-order',points:[{value:22}],lock:true})
   })
   await widget.dispatchEvent('keydown', {key:'Escape',bubbles:true})

@@ -1,6 +1,7 @@
 /**
  * VWAP - 成交量加权平均价格
- * 基于交易时段内的累计典型价格乘以成交量除以累计成交量
+ * 从已加载数据首根开始累计，不按交易时段重置。
+ * 这是 OHLCV 典型价格近似，不是成交额 / 成交量计算的精确会话 VWAP。
  * 典型价格 = (最高价 + 最低价 + 收盘价) / 3
  */
 import { IndicatorTemplate, KLineData } from 'klinecharts'

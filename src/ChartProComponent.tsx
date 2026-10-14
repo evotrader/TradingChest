@@ -46,10 +46,13 @@ export interface ChartComponentApi extends ChartPro {
   createDrawing: (overlay: OverlayCreate) => void
 }
 
-export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onError'>> {
+export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError'>> {
   ref: (chart: ChartComponentApi) => void
   /** 内部回调：实时数据到达时通知外层（用于报警检测） */
-  onPriceUpdate?: (price: number) => void
+  onPriceUpdate?: (price: number, timestamp: number) => void
+  onReplayPriceUpdate?: (price: number, timestamp: number) => void
+  onReplayReset?: (price: number | undefined, timestamp: number | undefined) => void
+  onReplayActiveChange?: (active: boolean) => void
   /** 内部回调：品种/周期切换时通知外层（用于重置报警状态等） */
   onDataReset?: () => void
   /** 内部错误回调 */
@@ -231,9 +234,16 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     // 暂停实时数据订阅，防止实时数据污染回放时间线
     props.datafeed.unsubscribe(symbol(), period())
     const pos = startPosition ?? Math.floor(dataList.length * 0.5)
+    props.onReplayActiveChange?.(true)
     replayEngine = new ReplayEngine({
-      onDataChange: (data) => { widget?.applyNewData(data, data.length > 0) },
-      onBarUpdate: (bar) => { widget?.updateData(bar) },
+      onDataChange: (data) => {
+        props.onReplayReset?.(data.at(-1)?.close, data.at(-1)?.timestamp)
+        widget?.applyNewData(data, data.length > 0)
+      },
+      onBarUpdate: (bar) => {
+        widget?.updateData(bar)
+        props.onReplayPriceUpdate?.(bar.close, bar.timestamp)
+      },
       onStateChange: (state) => { setReplayState(state) },
     })
     replayEngine.start(dataList, pos)
@@ -246,6 +256,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       replayEngine.dispose()
       replayEngine = null
       setReplayState(defaultReplayState)
+      props.onReplayActiveChange?.(false)
       // 重新加载原始数据并恢复实时订阅（受 fetchSeq 保护，防止与品种切换竞态）
       const s = symbol()
       const p = period()
@@ -260,7 +271,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         props.datafeed.subscribe(s, p, data => {
           if (disposed || replayEngine || generation !== liveGeneration) return
           widget?.updateData(data)
-          props.onPriceUpdate?.(data.close)
+          props.onPriceUpdate?.(data.close, data.timestamp)
         })
       }
       get().catch(e => { props.onError?.({ type: 'replay-reload', message: 'replay data reload failed', raw: e }) })
@@ -564,7 +575,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       props.datafeed.subscribe(s, p, data => {
         if (disposed || replayEngine || generation !== liveGeneration) return
         widget?.updateData(data)
-        props.onPriceUpdate?.(data.close)
+        props.onPriceUpdate?.(data.close, data.timestamp)
       })
     }
     get()

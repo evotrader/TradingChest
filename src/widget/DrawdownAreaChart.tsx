@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react'
+import { splitSeriesSegments, linePath as segmentPath } from './shared/seriesPaths'
 
 export interface DrawdownPoint {
   timestamp: string
@@ -22,10 +23,6 @@ const finite = (value: number | null | undefined): value is number => (
   typeof value === 'number' && Number.isFinite(value)
 )
 
-const pathFromPoints = (points: ReadonlyArray<[number, number]>): string => (
-  points.map(([x, y], index) => `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`).join(' ')
-)
-
 export function DrawdownAreaChart (props: DrawdownAreaChartProps): React.ReactElement {
   const height = props.height ?? DEFAULT_HEIGHT
   const usableWidth = WIDTH - PAD_X * 2
@@ -41,17 +38,20 @@ export function DrawdownAreaChart (props: DrawdownAreaChartProps): React.ReactEl
     }
     return PAD_X + index / (props.series.length - 1) * usableWidth
   }
-  const points = props.series
+  const samples = props.series
     .map((point, index): [number, number] | null => (
       finite(point.drawdown_pct) ? [xFor(index), yFor(point.drawdown_pct)] : null
     ))
-    .filter((point): point is [number, number] => point !== null)
+
+  const segments = splitSeriesSegments(samples)
+  const points = segments.flat()
   const zeroY = yFor(0)
-  const linePath = points.length > 0 ? pathFromPoints(points) : ''
-  const areaPath = points.length > 0
-    ? `${linePath} L ${points[points.length - 1][0].toFixed(2)} ${zeroY.toFixed(2)} L ${points[0][0].toFixed(2)} ${zeroY.toFixed(2)} Z`
-    : ''
-  const latest = values.at(-1)
+  const linePath = segments.map(segmentPath).join(' ')
+  const areaPath = segments.map(points =>
+    `${segmentPath(points)} L ${points[points.length - 1][0].toFixed(2)} ${zeroY.toFixed(2)} L ${points[0][0].toFixed(2)} ${zeroY.toFixed(2)} Z`
+  ).join(' ')
+  const lastValue = props.series.at(-1)?.drawdown_pct
+  const latest = finite(lastValue) ? lastValue : undefined
 
   return React.createElement(
     'div',
@@ -134,7 +134,7 @@ export function DrawdownAreaChart (props: DrawdownAreaChartProps): React.ReactEl
           fontSize: 13
         }, '暂无 drawdown 数据'),
       points.map(([x, y], index) => React.createElement('circle', {
-        key: `${props.series[index]?.timestamp ?? index}-${index}`,
+        key: `${x}-${index}`,
         cx: x,
         cy: y,
         r: 3.5,

@@ -76,7 +76,22 @@ export default class KLineChartPro implements ChartPro {
           onOverlayCreate={options.onOverlayCreate ?? (() => {})}
           onOverlayUpdate={options.onOverlayUpdate ?? (() => {})}
           onOverlayDelete={options.onOverlayDelete ?? (() => {})}
-          onPriceUpdate={(price: number) => { this._alertManager.checkPrice(price, Date.now()) }}
+          onPriceUpdate={(price: number, timestamp: number) => {
+            if (!this._disposed && !this._replayActive) this._alertManager.checkPrice(price, timestamp)
+          }}
+          onReplayActiveChange={(active: boolean) => {
+            this._replayActive = active
+            if (!active) this._alertManager.resetPrevPrice()
+          }}
+          onReplayReset={(price, timestamp) => {
+            this._replayAlertManager.clearAll()
+            this._replayAlertManager.resetPrevPrice()
+            for (const alert of this._alertManager.getAlerts()) this._replayAlertManager.addAlert(alert)
+            if (price !== undefined && timestamp !== undefined) this._replayAlertManager.checkPrice(price, timestamp)
+          }}
+          onReplayPriceUpdate={(price: number, timestamp: number) => {
+            if (!this._disposed && this._replayActive) this._replayAlertManager.checkPrice(price, timestamp)
+          }}
           onDataReset={() => {
             this._alertManager.resetPrevPrice()
             // 品种/周期切换时清理比较指标（旧数据时间戳不再对齐）
@@ -133,6 +148,8 @@ export default class KLineChartPro implements ChartPro {
     if (options.onAlertTrigger) {
       this._alertManager.onTrigger = options.onAlertTrigger
     }
+
+    this._replayAlertManager.onTrigger = event => options.onReplayAlertTrigger?.({ ...event, mode: 'replay' })
 
     // 初始化快捷键管理器
     this._shortcutManager = new KeyboardShortcutManager()
@@ -203,6 +220,8 @@ export default class KLineChartPro implements ChartPro {
   private _datafeed: import('./types').Datafeed
 
   private _alertManager: AlertManager = new AlertManager()
+  private _replayAlertManager: AlertManager = new AlertManager()
+  private _replayActive = false
 
   private _instanceId = `tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
@@ -311,6 +330,7 @@ export default class KLineChartPro implements ChartPro {
   addAlert (config: AlertConfig): void {
     this._assertNotDisposed()
     this._alertManager.addAlert(config)
+    if (this._replayActive) this._replayAlertManager.addAlert(config)
     const chart = this.getChart()
     if (chart) {
       chart.createOverlay({
@@ -326,6 +346,7 @@ export default class KLineChartPro implements ChartPro {
   updateAlert (id: string, updates: Partial<Omit<AlertConfig, 'id'>>): boolean {
     this._assertNotDisposed()
     const ok = this._alertManager.updateAlert(id, updates)
+    if (this._replayActive) this._replayAlertManager.updateAlert(id, updates)
     if (ok && updates.price !== undefined) {
       // 更新 overlay 位置
       const chart = this.getChart()
@@ -349,6 +370,7 @@ export default class KLineChartPro implements ChartPro {
   removeAlert (id: string): void {
     this._assertNotDisposed()
     this._alertManager.removeAlert(id)
+    this._replayAlertManager.removeAlert(id)
     this.getChart()?.removeOverlay({ id: `alert_${id}` })
   }
 
@@ -447,7 +469,7 @@ export default class KLineChartPro implements ChartPro {
   }
 
   feedPrice (price: number): void {
-    if (this._disposed) return // feedPrice 静默忽略，不抛异常
+    if (this._disposed || this._replayActive) return // feedPrice 静默忽略，不抛异常
     this._alertManager.checkPrice(price, Date.now())
   }
 
@@ -460,6 +482,8 @@ export default class KLineChartPro implements ChartPro {
     // 3. Clear alerts & TradeVis instance data
     this._alertManager.clearAll()
     this._alertManager.onTrigger = null
+    this._replayAlertManager.clearAll()
+    this._replayAlertManager.onTrigger = null
     cleanupTradeVisInstance(this._instanceId)
     // 4. Unbind shortcuts
     this._shortcutManager.unbind()

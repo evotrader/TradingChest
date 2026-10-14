@@ -37,3 +37,11 @@ Reproduce: npm ci; npm test; npm run build. For browser checks install Playwrigh
 - Added bundle-owned mountAnalyticalWidget API, so non-Solid hosts can replace a complete props snapshot and callbacks without remounting or mixing Solid runtimes.
 - Local widget mounting tests pass; total 293 tests and complete build pass. A built-bundle browser widget test is provided; awaiting execution.
 - Consumer patch is being prepared separately: use the new mount API; dispose the main chart and its polling timer on unmount. No consumer acceptance or merge claimed yet.
+
+## Batch 4: replay and metric semantics (pending browser acceptance)
+- Replay alerts use onReplayAlertTrigger with mode=replay and historical bar timestamps. They never invoke the live callback or change live trigger flags. feedPrice is ignored while replay is active.
+- Start, seek and backward movement seed the replay detector at the visible last close without emitting alerts; subsequent forward steps may trigger again in that replay segment. This is close-sample crossing, not inferred intrabar order.
+- Live data callbacks carry provider bar timestamps; non-finite prices/timestamps cannot poison the detector.
+- LiveSharpe chooses one metric for the entire series, with explicit ratio/sharpe mode; it no longer fills a ratio gap with absolute Sharpe. The existing 0.7 default threshold remains unchanged; Sharpe mode labels it as a threshold, not the ratio M+1 rule.
+- Drawdown line and area split at missing observations; current-value labels no longer substitute earlier finite samples for a missing last observation.
+- Legacy VWAP is documented as loaded-range OHLCV typical-price approximation, not session-reset exact turnover/volume VWAP.

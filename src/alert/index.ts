@@ -37,6 +37,7 @@ export class AlertManager {
   }
 
   checkPrice(currentPrice: number, timestamp: number): void {
+    if (!Number.isFinite(currentPrice) || !Number.isFinite(timestamp)) return
     if (this._prevPrice === null) {
       this._prevPrice = currentPrice
       return

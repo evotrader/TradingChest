@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, fireEvent } from '@solidjs/testing-library'
 import ChartProComponent from '../../ChartProComponent'
+import KLineChartPro from '../../KLineChartPro'
 import type { ChartComponentApi as ChartPro } from '../../ChartProComponent'
 
 const mock = vi.hoisted(() => ({ chart: null as any, loadMore: null as any }))
@@ -77,7 +78,7 @@ describe('chart lifecycle isolation', () => {
     callback(bars[0])
     expect(host.price).not.toHaveBeenCalled()
     host.feed.subscribe.mock.calls.at(-1)![2](bars[1])
-    expect(host.price).toHaveBeenCalledWith(bars[1].close)
+    expect(host.price).toHaveBeenCalledWith(bars[1].close, bars[1].timestamp)
   })
   it('does not resume subscriptions after unmount during replay reload', async () => {
     const pending = deferred()
@@ -120,6 +121,37 @@ describe('chart lifecycle isolation', () => {
     host.api.cancelDrawing()
     expect([...overlays.keys()]).toEqual(['alert', 'order', 'a', 'c'])
     expect(host.chart.removeOverlay.mock.calls.every(([arg]: any[]) => typeof arg?.id === 'string')).toBe(true)
+  })
+
+  it('keeps replay alerts separate, uses bar time, and re-seeds silently on seek', async () => {
+    // Reuse the same mocked engine surface, but exercise the real outer chart class.
+    const seed = mount(); await tick(); seed.unmount()
+    const data = bars.map((bar, i) => ({...bar, close: [10, 11, 13, 14][i]}))
+    mock.chart.getDataList = () => data
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const live = vi.fn(), replay = vi.fn()
+    const chart = new KLineChartPro({container:el, symbol:{ticker:'TEST'},
+      period:{multiplier:1,timespan:'minute',text:'1m'}, mainIndicators:[], subIndicators:[],
+      datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async()=>data,subscribe:vi.fn(),unsubscribe:vi.fn()},
+      onAlertTrigger:live,onReplayAlertTrigger:replay,
+    })
+    try {
+      await tick()
+      chart.addAlert({id:'a',price:12,condition:'above'})
+      chart.startReplay(2)
+      chart.feedPrice(100)
+      expect(live).not.toHaveBeenCalled()
+      chart.getReplayEngine()!.stepForward()
+      expect(replay).toHaveBeenCalledTimes(1)
+      expect(replay.mock.calls[0][0]).toMatchObject({mode:'replay',timestamp:data[2].timestamp,triggerPrice:13})
+      expect(chart.getAlerts()[0].triggered).toBe(false)
+      chart.getReplayEngine()!.stepBackward()
+      expect(replay).toHaveBeenCalledTimes(1)
+      chart.getReplayEngine()!.stepForward()
+      expect(replay).toHaveBeenCalledTimes(2)
+      expect(live).not.toHaveBeenCalled()
+    } finally { chart.dispose(); el.remove() }
   })
 
 })

@@ -99,6 +99,8 @@ export interface ChartProOptions {
   onOverlayDelete?: (event: OverlayLifecycleEvent) => void
   /** 报警触发时的回调 */
   onAlertTrigger?: (event: import('./alert/types').AlertEvent) => void
+  /** Historical close-price alerts, isolated from the live callback and trigger state. */
+  onReplayAlertTrigger?: (event: import('./alert/types').AlertEvent & { mode: 'replay' }) => void
   /** 内部错误回调（数据加载失败、指标初始化失败等） */
   onError?: (error: { type: string, message: string, raw?: unknown }) => void
 }

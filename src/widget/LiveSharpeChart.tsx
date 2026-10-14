@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react'
+import { splitSeriesSegments, linePath as segmentPath } from './shared/seriesPaths'
 
 export interface LiveSharpePoint {
   timestamp: string
@@ -12,6 +13,8 @@ export interface LiveSharpePoint {
 
 export interface LiveSharpeChartProps {
   series: ReadonlyArray<LiveSharpePoint>
+  /** Choose one metric for the whole series. If omitted, prefer ratio when available. */
+  mode?: 'ratio' | 'sharpe'
   threshold?: number
   height?: number
   className?: string
@@ -28,18 +31,16 @@ const finite = (value: number | null | undefined): value is number => (
 
 const formatValue = (value: number): string => value.toFixed(2)
 
-const pathFromPoints = (points: ReadonlyArray<[number, number]>): string => (
-  points.map(([x, y], index) => `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`).join(' ')
-)
-
 export function LiveSharpeChart (props: LiveSharpeChartProps): React.ReactElement {
   // charter D-03 + L-25 — DO NOT change the default M+1 threshold to mask bad live evidence.
   const threshold = props.threshold ?? 0.7
+  const mode = props.mode ?? (props.series.some(point => finite(point.ratio)) ? 'ratio' : 'sharpe')
+  const valueFor = (point: LiveSharpePoint) => mode === 'ratio' ? point.ratio : point.live_sharpe
   const height = props.height ?? DEFAULT_HEIGHT
   const usableWidth = WIDTH - PAD_X * 2
   const usableHeight = height - PAD_Y * 2
   const values = props.series
-    .map(point => point.ratio ?? point.live_sharpe)
+    .map(valueFor)
     .filter(finite)
   const minValue = Math.min(threshold, ...values, 0)
   const maxValue = Math.max(threshold, ...values, 1)
@@ -51,15 +52,17 @@ export function LiveSharpeChart (props: LiveSharpeChartProps): React.ReactElemen
     }
     return PAD_X + index / (props.series.length - 1) * usableWidth
   }
-  const points = props.series
+  const samples = props.series
     .map((point, index): [number, number] | null => {
-      const value = point.ratio ?? point.live_sharpe
+      const value = valueFor(point)
       return finite(value) ? [xFor(index), yFor(value)] : null
     })
-    .filter((point): point is [number, number] => point !== null)
-  const linePath = points.length > 0 ? pathFromPoints(points) : ''
+  const segments = splitSeriesSegments(samples)
+  const points = segments.flat()
+  const linePath = segments.map(segmentPath).join(' ')
   const thresholdY = yFor(threshold)
-  const latest = values.at(-1)
+  const lastValue = props.series.length ? valueFor(props.series[props.series.length - 1]) : undefined
+  const latest = finite(lastValue) ? lastValue : undefined
 
   return React.createElement(
     'div',
@@ -85,7 +88,7 @@ export function LiveSharpeChart (props: LiveSharpeChartProps): React.ReactElemen
           marginBottom: 8
         }
       },
-      React.createElement('strong', { style: { fontSize: 14, color: '#172033' } }, 'Rolling 60D Sharpe / Ratio'),
+      React.createElement('strong', { style: { fontSize: 14, color: '#172033' } }, mode === 'ratio' ? 'Rolling 60D Sharpe Ratio (Live / Backtest)' : 'Rolling 60D Live Sharpe'),
       React.createElement(
         'span',
         { style: { fontSize: 12, color: latest !== undefined && latest >= threshold ? '#0f766e' : '#b42318' } },
@@ -96,7 +99,7 @@ export function LiveSharpeChart (props: LiveSharpeChartProps): React.ReactElemen
       'svg',
       {
         role: 'img',
-        'aria-label': 'rolling 60 day sharpe ratio chart',
+        'aria-label': mode === 'ratio' ? 'rolling 60 day live to backtest sharpe ratio chart' : 'rolling 60 day live sharpe chart',
         viewBox: `0 0 ${WIDTH} ${height}`,
         width: '100%',
         height,
@@ -125,7 +128,7 @@ export function LiveSharpeChart (props: LiveSharpeChartProps): React.ReactElemen
         textAnchor: 'end',
         fill: '#b42318',
         fontSize: 12
-      }, `M+1 ${formatValue(threshold)}`),
+      }, `${mode === 'ratio' ? 'M+1' : 'Threshold'} ${formatValue(threshold)}`),
       linePath
         ? React.createElement('path', {
           d: linePath,
@@ -143,7 +146,7 @@ export function LiveSharpeChart (props: LiveSharpeChartProps): React.ReactElemen
           fontSize: 13
         }, '暂无 LIVE 观察数据'),
       points.map(([x, y], index) => React.createElement('circle', {
-        key: `${props.series[index]?.timestamp ?? index}-${index}`,
+        key: `${x}-${index}`,
         cx: x,
         cy: y,
         r: 3.5,

@@ -59,6 +59,23 @@ try {
   })
   assert.deepEqual(await page.evaluate(() => [firstChart.state.alerts.length,test.state.alerts.length]), [1,0])
   await page.evaluate(() => {
+    for (const host of [firstChart, test]) host.chart.createTradeVisualization([
+      {entryTs:host.bars[5].timestamp,exitTs:host.bars[12].timestamp,
+        entryPrice:16,exitPrice:23,direction:'long',pnl:7},
+    ])
+  })
+  await page.waitForFunction(() => tradeTargets(firstChart.chart).length > 0 && tradeTargets(test.chart).length > 0)
+  const clickPoint = await page.evaluate(() => {
+    const target = tradeTargets(firstChart.chart).find(t => t.type === 'entry')
+    const pane = firstChart.chart.getChart().getDom('candle_pane', 'main')
+    const rect = pane.getBoundingClientRect()
+    return {x:rect.left + target.x,y:rect.top + target.y}
+  })
+  await page.mouse.click(clickPoint.x, clickPoint.y)
+  assert.deepEqual(await page.evaluate(() => [firstChart.state.indicatorClicks.length,test.state.indicatorClicks.length]), [1,0])
+  await page.evaluate(() => firstChart.chart.createTradeVisualization([]))
+  assert.equal(await page.evaluate(() => tradeTargets(firstChart.chart).length), 0)
+  await page.evaluate(() => {
     firstChart.chart.dispose()
     test.chart.feedPrice(19); test.chart.feedPrice(21)
   })

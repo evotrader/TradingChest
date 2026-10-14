@@ -454,10 +454,7 @@ export default class KLineChartPro implements ChartPro {
   dispose (): void {
     if (this._disposed) return // 幂等：重复调用安全
     this._disposed = true
-    // 1. Stop replay (safe — ChartProComponent.onCleanup also handles this)
-    if (this._chartApi) {
-      try { this._chartApi.stopReplay() } catch (_) { /* already disposing */ }
-    }
+    // Unmount below stops replay without reloading history or resubscribing.
     // 2. Remove comparisons
     this._clearComparisons()
     // 3. Clear alerts & TradeVis instance data

@@ -55,8 +55,9 @@ interface PrevSymbolPeriod {
   period: Period
 }
 
-async function createIndicator (widget: Nullable<Chart>, indicatorName: string, isStack?: boolean, paneOptions?: PaneOptions): Promise<Nullable<string>> {
+async function createIndicator (widget: Nullable<Chart>, indicatorName: string, isStack?: boolean, paneOptions?: PaneOptions, isActive: () => boolean = () => true): Promise<Nullable<string>> {
   await indicatorRegistry.ensureRegistered(indicatorName)
+  if (!isActive()) return null
   if (indicatorName === 'VOL') {
     paneOptions = { gap: { bottom: 2 }, ...paneOptions }
   }
@@ -98,6 +99,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   let priceUnitDom: HTMLElement
 
   const [loading, setLoading] = createSignal(false)
+  let disposed = false
+  let liveGeneration = 0
   let fetchSeq = 0  // 单调递增的请求序号，用于丢弃过期响应
 
   const [theme, setTheme] = createSignal(props.theme)
@@ -212,9 +215,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
 
   const startReplay = (startPosition?: number) => {
-    if (replayEngine || !widget) return
+    if (disposed || replayEngine || !widget) return
     const dataList = widget.getDataList()
     if (dataList.length === 0) return
+    ++fetchSeq
+    ++liveGeneration
+    setLoading(false)
+    setLoadingVisible(false)
     // 暂停实时数据订阅，防止实时数据污染回放时间线
     props.datafeed.unsubscribe(symbol(), period())
     const pos = startPosition ?? Math.floor(dataList.length * 0.5)
@@ -227,6 +234,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
 
   const stopReplay = () => {
+    if (disposed) return
     if (replayEngine) {
       replayEngine.stop()
       replayEngine.dispose()
@@ -236,13 +244,15 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       const s = symbol()
       const p = period()
       const seq = ++fetchSeq
+      const generation = ++liveGeneration
       const get = async () => {
         const [from, to] = adjustFromTo(p, new Date().getTime(), 500)
         const kLineDataList = await props.datafeed.getHistoryKLineData(s, p, from, to)
-        if (seq !== fetchSeq) return  // 品种/周期已切换，丢弃过期响应
+        if (disposed || seq !== fetchSeq) return  // 品种/周期已切换，丢弃过期响应
         widget?.applyNewData(kLineDataList, kLineDataList.length > 0)
         // 恢复实时数据订阅
         props.datafeed.subscribe(s, p, data => {
+          if (disposed || replayEngine || generation !== liveGeneration) return
           widget?.updateData(data)
           props.onPriceUpdate?.(data.close)
         })
@@ -370,16 +380,16 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
     ;(async () => {
       for (const indicator of mainIndicators()) {
-        await createIndicator(widget, indicator, true, { id: 'candle_pane' })
+        await createIndicator(widget, indicator, true, { id: 'candle_pane' }, () => !disposed)
       }
       const subIndicatorMap: Record<string, string> = {}
       for (const indicator of props.subIndicators!) {
-        const paneId = await createIndicator(widget, indicator, true)
+        const paneId = await createIndicator(widget, indicator, true, undefined, () => !disposed)
         if (paneId) {
           subIndicatorMap[indicator] = paneId
         }
       }
-      setSubIndicators(subIndicatorMap)
+      if (!disposed) setSubIndicators(subIndicatorMap)
     })().catch(e => { props.onError?.({ type: 'indicator-init', message: 'indicator init failed', raw: e }) })
     widget?.loadMore(timestamp => {
       if (replayEngine) return  // 回放模式下不从 datafeed 拉取数据
@@ -390,7 +400,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         const [to] = adjustFromTo(p, timestamp!, 1)
         const [from] = adjustFromTo(p, to, 500)
         const kLineDataList = await props.datafeed.getHistoryKLineData(symbol(), p, from, to)
-        if (seq !== fetchSeq) return
+        if (disposed || seq !== fetchSeq) return
         widget?.applyMoreData(kLineDataList, kLineDataList.length > 0)
       }
       get().catch(e => { props.onError?.({ type: 'load-more', message: 'loadMore failed', raw: e }) }).finally(() => { if (seq === fetchSeq) setLoading(false) })
@@ -437,6 +447,9 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   })
 
   onCleanup(() => {
+    disposed = true
+    ++fetchSeq
+    ++liveGeneration
     window.removeEventListener('resize', documentResize)
     widgetRef!.removeEventListener('keydown', handleKeyDown)
     // 取消实时数据订阅，防止组件卸载后幽灵回调
@@ -447,6 +460,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       replayEngine = null
     }
     dispose(widgetRef!)
+    widget = null
   })
 
   createEffect(() => {
@@ -463,6 +477,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   })
 
   createEffect((prev?: PrevSymbolPeriod) => {
+    const generation = ++liveGeneration
     if (prev) {
       props.datafeed.unsubscribe(prev.symbol, prev.period)
     }
@@ -479,9 +494,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       const [from, to] = adjustFromTo(p, new Date().getTime(), 500)
       const kLineDataList = await props.datafeed.getHistoryKLineData(s, p, from, to)
       // 如果在等待期间又发起了新请求，丢弃当前过期响应
-      if (seq !== fetchSeq) return
+      if (disposed || seq !== fetchSeq) return
       widget?.applyNewData(kLineDataList, kLineDataList.length > 0)
       props.datafeed.subscribe(s, p, data => {
+        if (disposed || replayEngine || generation !== liveGeneration) return
         widget?.updateData(data)
         props.onPriceUpdate?.(data.close)
       })

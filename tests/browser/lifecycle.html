@@ -1,0 +1,20 @@
+<!doctype html><html><body><div id="chart" style="width:800px;height:500px"></div>
+<script type="module">
+import { KLineChartPro } from '/src/index.ts'
+const bars = Array.from({length: 20}, (_, i) => ({timestamp: 1700000000000 + i*60000, open: 10+i, high: 12+i, low: 9+i, close: 11+i, volume: 20}))
+window.setup = (pending = false) => {
+  let resolveHistory
+  const history = pending ? new Promise(resolve => { resolveHistory = resolve }) : Promise.resolve(bars)
+  const state = { histories: 0, subscriptions: 0, unsubscribes: 0, feedDisposals: 0, alerts: [] }
+  const feed = {
+    searchSymbols: async () => [],
+    getHistoryKLineData: () => { state.histories++; return history },
+    subscribe: (_s, _p, callback) => { state.subscriptions++; state.tick = callback },
+    unsubscribe: () => { state.unsubscribes++ },
+    dispose: () => { state.feedDisposals++ },
+  }
+  const chart = new KLineChartPro({container: document.querySelector('#chart'), symbol: {ticker:'TEST'}, period: {multiplier:1,timespan:'minute',text:'1m'}, mainIndicators:[], subIndicators:[], datafeed:feed, onAlertTrigger: a => state.alerts.push(a)})
+  window.test = {chart, state, bars, resolveHistory: () => resolveHistory?.(bars)}
+}
+window.ready = true
+</script></body></html>

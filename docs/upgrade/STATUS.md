@@ -1,3 +1,32 @@
+# Current accepted checkpoint — 2026-10-14
+
+Stage-one correctness and consumer integration changes are implemented and locally verified. This is not completion of stages two and three, an npm release, or a measured latency guarantee.
+
+## Current evidence
+- Product source f3e1491: 29 test files / 300 tests, complete JS and declaration build; both browser scripts passed on macOS / Chrome 154.0.8037.99, Node 24.15.0.
+- Additional test-only commit 897038d2: real first-chart TradeVis click produces callback counts [1, 0] across two charts; clearing trades removes its hit cache. The full lifecycle script passed.
+- EvoTrader consumer be0fce77: matching submodule, typecheck, two target files / 23 tests, full frontend build passed. Earlier clean npm ci, separate submodule npm ci and three stale-build gate tests passed. No cloud CI dependency or live account access was used.
+- Consumer and library were checked together in independent clean clones; no test executor changes to tracked files. Code and test changes were authored by the root assistant. Test servers were stopped; logs remain available.
+
+## Delivered
+Reactive widget prop/callback updates; explicit chart disposal and stale async guards; independent pagination sequence; scoped Escape/Delete behavior; historical replay alerts separate from live alerts; alerts isolated by market/exchange/ticker/currency with trigger-state restoration; missing-value gaps and explicit Sharpe mode; honest legacy VWAP description; strict stale-dist rejection; consumer instance-owned trade visualization and removal of global click polling.
+
+## Reproduce
+Library: npm ci; npm test; npm run build. Start the existing Vite browser fixture and execute tests/browser/lifecycle.mjs and tests/browser/widgets.mjs with Playwright and Chrome available. Fixtures use synthetic data only.
+Consumer: git submodule update --init frontend/packages/TradingChest; npm --prefix frontend ci; npm --prefix frontend/packages/TradingChest ci; then, in frontend, npm run build:trading-chest, node --test scripts/ensure-trading-chest-dist.test.mjs, the existing typecheck command, the two TradingChart/widget target tests and npm run build. Separate submodule installation avoids conflicting hoisted Babel dependencies.
+
+## Remaining / boundaries
+- Stage two: data-session contracts and default-provider protocol fixes, framework subentries and packed artifact React 18/19 tests, persistence version migration, explicit session VWAP.
+- Stage three: calendar/trade/chart navigation, synchronized multi-chart layouts, undo/redo and realtime comparisons.
+- Formal cold/warm performance and extended mount/unmount stress measurements are not yet performed. No sub-second performance claim follows from correctness tests.
+- Git branch and clone cleanup is not claimed complete. Both accepted commits remain recoverable from main; no unmerged product changes are intentionally left behind.
+- Roll back library reference and matching consumer adaptation together. No storage format migration was introduced.
+
+---
+
+# Historical implementation log
+The entries below describe earlier checkpoints and blockers; the current accepted checkpoint above supersedes their pending statuses.
+
 # TradingChest stage 1 upgrade
 
 Implementation authorized 2026-10-14. Baseline: TradingChest 7171080; consumer EvoTrader 5cb3d9d. Recheck refs before integration.

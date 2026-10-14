@@ -8,12 +8,20 @@ window.setup = (pending = false) => {
   const state = { histories: 0, subscriptions: 0, unsubscribes: 0, feedDisposals: 0, alerts: [], replayAlerts: [], created: [], deleted: [] }
   const feed = {
     searchSymbols: async () => [],
-    getHistoryKLineData: () => { state.histories++; return history },
+    getHistoryKLineData: (_s, _p, _from, to) => { state.histories++; return to < bars[0].timestamp ? Promise.resolve([]) : history },
     subscribe: (_s, _p, callback) => { state.subscriptions++; state.tick = callback },
     unsubscribe: () => { state.unsubscribes++ },
     dispose: () => { state.feedDisposals++ },
   }
   const chart = new KLineChartPro({container: document.querySelector('#chart'), symbol: {ticker:'TEST'}, period: {multiplier:1,timespan:'minute',text:'1m'}, mainIndicators:[], subIndicators:[], datafeed:feed, onAlertTrigger: a => state.alerts.push(a), onReplayAlertTrigger: a => state.replayAlerts.push(a), onOverlayCreate: e => state.created.push(e.overlay.id), onOverlayDelete: e => state.deleted.push(e.overlay.id)})
+  const engine = chart.getChart()
+  const createOverlay = engine.createOverlay.bind(engine)
+  state.overlayIds = []
+  engine.createOverlay = (...args) => {
+    const result = createOverlay(...args)
+    state.overlayIds.push(result)
+    return result
+  }
   window.test = {chart, state, bars, resolveHistory: () => resolveHistory?.(bars)}
 }
 window.ready = true

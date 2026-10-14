@@ -49,12 +49,24 @@ try {
   await page.waitForFunction(() => test.state.subscriptions === 1)
   const widget = page.locator('.klinecharts-pro-widget')
   const box = await widget.boundingBox()
-  assert.ok(box)
+  assert.ok(box && box.width > 300 && box.height > 200, `invalid widget geometry: ${JSON.stringify(box)}`)
   for (let i = 0; i < 3; i++) {
     await widget.dispatchEvent('keydown', {key:'r', altKey:true, bubbles:true})
     await page.mouse.click(box.x + 100 + i * 40, box.y + 80 + i * 20)
     await page.mouse.click(box.x + 160 + i * 40, box.y + 140 + i * 20)
-    await page.waitForFunction(n => test.state.created.length === n, i + 1)
+    try {
+      await page.waitForFunction(n => test.state.created.length === n, i + 1)
+    } catch (error) {
+      console.error('Drawing diagnostic', await page.evaluate(() => ({
+        created:test.state.created, histories:test.state.histories,
+        widget:document.querySelector('.klinecharts-pro-widget').getBoundingClientRect().toJSON(),
+        overlays:test.state.overlayIds.map(id => {
+          const o = test.chart.getChart().getOverlayById(id)
+          return {id,name:o?.name,step:o?.currentStep,points:o?.points}
+        }),
+      })))
+      throw error
+    }
   }
   await page.evaluate(() => {
     test.chart.addAlert({id:'system',price:20,condition:'above'})

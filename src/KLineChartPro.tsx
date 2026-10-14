@@ -42,6 +42,9 @@ export default class KLineChartPro implements ChartPro {
     this._container.classList.add('klinecharts-pro')
     this._container.setAttribute('data-theme', options.theme ?? 'light')
 
+    this._alertSymbolKey = this._symbolKey(options.symbol)
+    this._symbolAlerts.set(this._alertSymbolKey, this._alertManager)
+
     this._solidDispose = render(
       () => (
         <ChartProComponent
@@ -92,7 +95,8 @@ export default class KLineChartPro implements ChartPro {
           onReplayPriceUpdate={(price: number, timestamp: number) => {
             if (!this._disposed && this._replayActive) this._replayAlertManager.checkPrice(price, timestamp)
           }}
-          onDataReset={() => {
+          onDataReset={(symbol) => {
+            this._activateAlertSymbol(symbol)
             this._alertManager.resetPrevPrice()
             // 品种/周期切换时清理比较指标（旧数据时间戳不再对齐）
             this._clearComparisons()
@@ -220,6 +224,8 @@ export default class KLineChartPro implements ChartPro {
   private _datafeed: import('./types').Datafeed
 
   private _alertManager: AlertManager = new AlertManager()
+  private _symbolAlerts = new Map<string, AlertManager>()
+  private _alertSymbolKey = ''
   private _replayAlertManager: AlertManager = new AlertManager()
   private _replayActive = false
 
@@ -325,6 +331,29 @@ export default class KLineChartPro implements ChartPro {
       name: 'TradeVis',
       extendData: { trades, _instanceId: this._instanceId }
     } as any, true, paneOptions ?? { id: 'candle_pane' })
+  }
+
+  private _symbolKey (symbol: SymbolInfo): string {
+    return JSON.stringify([symbol.market ?? '', symbol.exchange ?? '', symbol.ticker, symbol.priceCurrency ?? ''])
+  }
+
+  private _activateAlertSymbol (symbol: SymbolInfo): void {
+    const key = this._symbolKey(symbol)
+    if (key === this._alertSymbolKey) return
+    const chart = this.getChart()
+    for (const alert of this._alertManager.getAlerts()) chart?.removeOverlay({ id: `alert_${alert.id}` })
+    const onTrigger = this._alertManager.onTrigger
+    this._alertManager = this._symbolAlerts.get(key) ?? new AlertManager()
+    this._alertManager.onTrigger = onTrigger
+    this._symbolAlerts.set(key, this._alertManager)
+    this._alertSymbolKey = key
+    this._alertManager.resetPrevPrice()
+    this._replayAlertManager.clearAll()
+    this._replayAlertManager.resetPrevPrice()
+    for (const alert of this._alertManager.getAlerts()) {
+      chart?.createOverlay({ name: 'alertLine', id: `alert_${alert.id}`,
+        points: [{ value: alert.price }], styles: { line: { color: alert.color ?? '#ff9800' } }, lock: true })
+    }
   }
 
   addAlert (config: AlertConfig): void {
@@ -480,6 +509,8 @@ export default class KLineChartPro implements ChartPro {
     // 2. Remove comparisons
     this._clearComparisons()
     // 3. Clear alerts & TradeVis instance data
+    for (const manager of this._symbolAlerts.values()) manager.clearAll()
+    this._symbolAlerts.clear()
     this._alertManager.clearAll()
     this._alertManager.onTrigger = null
     this._replayAlertManager.clearAll()

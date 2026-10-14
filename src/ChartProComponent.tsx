@@ -54,7 +54,7 @@ export interface ChartProComponentProps extends Required<Omit<ChartProOptions, '
   onReplayReset?: (price: number | undefined, timestamp: number | undefined) => void
   onReplayActiveChange?: (active: boolean) => void
   /** 内部回调：品种/周期切换时通知外层（用于重置报警状态等） */
-  onDataReset?: () => void
+  onDataReset?: (symbol: SymbolInfo) => void
   /** 内部错误回调 */
   onError?: (error: { type: string, message: string, raw?: unknown }) => void
 }
@@ -563,7 +563,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     const p = period()
     // 品种/周期切换，通知外层重置状态（如报警 prevPrice）
     if (prev) {
-      props.onDataReset?.()
+      props.onDataReset?.(s)
     }
     const seq = ++fetchSeq  // 捕获当前序号
     setLoading(true)

@@ -163,4 +163,33 @@ describe('chart lifecycle isolation', () => {
     expect(host.feed.subscribe).toHaveBeenCalledTimes(1)
   })
 
+  it('scopes alerts by symbol and exchange and preserves state when returning', async () => {
+    const seed = mount(); await tick(); seed.unmount()
+    const el = document.createElement('div'); document.body.appendChild(el)
+    const live = vi.fn()
+    const chart = new KLineChartPro({container:el, symbol:{ticker:'SAME',exchange:'A'},
+      period:{multiplier:1,timespan:'minute',text:'1m'}, mainIndicators:[],subIndicators:[],
+      datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async()=>bars,subscribe:vi.fn(),unsubscribe:vi.fn()},
+      onAlertTrigger:live})
+    try {
+      await tick()
+      chart.addAlert({id:'same-id',price:12,condition:'above'})
+      chart.feedPrice(10); chart.feedPrice(13)
+      expect(live).toHaveBeenCalledTimes(1)
+      chart.setSymbol({ticker:'SAME',exchange:'B'}); await tick()
+      expect(chart.getAlerts()).toEqual([])
+      chart.feedPrice(10); chart.feedPrice(13)
+      expect(live).toHaveBeenCalledTimes(1)
+      chart.addAlert({id:'same-id',price:20,condition:'above'})
+      chart.setSymbol({ticker:'SAME',exchange:'A'}); await tick()
+      expect(chart.getAlerts()).toEqual([expect.objectContaining({id:'same-id',price:12,triggered:true})])
+      chart.feedPrice(10); chart.feedPrice(13)
+      expect(live).toHaveBeenCalledTimes(1)
+      chart.setSymbol({ticker:'SAME',exchange:'B'}); await tick()
+      expect(chart.getAlerts()[0].price).toBe(20)
+      chart.feedPrice(19); chart.feedPrice(21)
+      expect(live).toHaveBeenCalledTimes(2)
+    } finally { chart.dispose(); el.remove() }
+  })
+
 })

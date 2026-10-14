@@ -103,7 +103,7 @@ Candle Solid, Candle Hollow, Up Hollow, Down Hollow, OHLC, Area, **Heikin Ashi**
 ## Install
 
 ```bash
-npm install trading-chest klinecharts
+npm install trading-chest klinecharts@^9.8.12
 ```
 
 ## Usage

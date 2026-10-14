@@ -104,7 +104,7 @@
 ## 安装
 
 ```bash
-npm install trading-chest klinecharts
+npm install trading-chest klinecharts@^9.8.12
 ```
 
 ## 使用
@@ -267,8 +267,10 @@ import {
 
 ## 构建
 
+开发与测试使用 Node.js 22.22.2+（22.x）或 24.15.0+（24.x），与 jsdom 的运行要求保持一致。
+
 ```bash
-npm install
+npm ci
 npm run build       # 完整构建（JS + CSS + .d.ts）
 npm run test        # 运行测试
 ```

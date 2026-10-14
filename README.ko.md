@@ -103,7 +103,7 @@
 ## 설치
 
 ```bash
-npm install trading-chest klinecharts
+npm install trading-chest klinecharts@^9.8.12
 ```
 
 ## 사용법

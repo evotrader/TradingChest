@@ -17,7 +17,7 @@ import { render } from 'solid-js/web'
 import { utils, Nullable, DeepPartial, Styles, registerIndicator, YAxisType } from 'klinecharts'
 import { normalizeToPercent } from './compare'
 
-import ChartProComponent from './ChartProComponent'
+import ChartProComponent, { type ChartComponentApi } from './ChartProComponent'
 
 import { SymbolInfo, Period, ChartPro, ChartProOptions } from './types'
 
@@ -45,7 +45,7 @@ export default class KLineChartPro implements ChartPro {
     this._solidDispose = render(
       () => (
         <ChartProComponent
-          ref={(chart: ChartPro) => { this._chartApi = chart }}
+          ref={(chart: ChartComponentApi) => { this._chartApi = chart }}
           styles={options.styles ?? {}}
           watermark={options.watermark ?? ''}
           theme={options.theme ?? 'light'}
@@ -156,16 +156,16 @@ export default class KLineChartPro implements ChartPro {
       },
       // 图表操作
       'chart:screenshot': () => { this.exportScreenshot() },
-      'chart:cancelDraw': () => { this.getChart()?.removeOverlay() },
-      'chart:deleteSelected': () => { this.getChart()?.removeOverlay() },
+      'chart:cancelDraw': () => { this._chartApi?.cancelDrawing() },
+      'chart:deleteSelected': () => { this._chartApi?.deleteSelectedDrawing() },
       // 绘图工具
-      'draw:straightLine': () => { this.getChart()?.createOverlay('straightLine') },
-      'draw:horizontalStraightLine': () => { this.getChart()?.createOverlay('horizontalStraightLine') },
-      'draw:verticalStraightLine': () => { this.getChart()?.createOverlay('verticalStraightLine') },
-      'draw:fibonacciLine': () => { this.getChart()?.createOverlay('fibonacciLine') },
-      'draw:rect': () => { this.getChart()?.createOverlay('rect') },
-      'draw:brush': () => { this.getChart()?.createOverlay('simpleAnnotation') },
-      'draw:dateAndPriceRange': () => { this.getChart()?.createOverlay('dateAndPriceRange') },
+      'draw:straightLine': () => { this._chartApi?.createDrawing({ name: 'straightLine' }) },
+      'draw:horizontalStraightLine': () => { this._chartApi?.createDrawing({ name: 'horizontalStraightLine' }) },
+      'draw:verticalStraightLine': () => { this._chartApi?.createDrawing({ name: 'verticalStraightLine' }) },
+      'draw:fibonacciLine': () => { this._chartApi?.createDrawing({ name: 'fibonacciLine' }) },
+      'draw:rect': () => { this._chartApi?.createDrawing({ name: 'rect' }) },
+      'draw:brush': () => { this._chartApi?.createDrawing({ name: 'simpleAnnotation' }) },
+      'draw:dateAndPriceRange': () => { this._chartApi?.createDrawing({ name: 'dateAndPriceRange' }) },
       // 显示切换
       'toggle:crosshair': () => {
         const chart = this.getChart()
@@ -194,7 +194,7 @@ export default class KLineChartPro implements ChartPro {
 
   private _container: Nullable<HTMLElement>
 
-  private _chartApi: Nullable<ChartPro> = null
+  private _chartApi: Nullable<ChartComponentApi> = null
 
   private _shortcutManager: KeyboardShortcutManager
 

@@ -17,7 +17,7 @@ import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, 
 import {
   init, dispose, utils, Nullable, Chart, OverlayMode, Styles,
   TooltipIconPosition, ActionType, PaneOptions, Indicator, DomPosition, FormatDateType,
-  type Overlay
+  type Overlay, type OverlayCreate
 } from 'klinecharts'
 
 import { deepSet } from './core/deepSet'
@@ -40,8 +40,14 @@ import { adjustFromTo } from './core/adjustFromTo'
 import { buildStyles } from './core/buildStyles'
 import type { OverlayLifecycleEvent, OverlayLifecycleSource } from './types'
 
+export interface ChartComponentApi extends ChartPro {
+  cancelDrawing: () => void
+  deleteSelectedDrawing: () => void
+  createDrawing: (overlay: OverlayCreate) => void
+}
+
 export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onError'>> {
-  ref: (chart: ChartPro) => void
+  ref: (chart: ChartComponentApi) => void
   /** 内部回调：实时数据到达时通知外层（用于报警检测） */
   onPriceUpdate?: (price: number) => void
   /** 内部回调：品种/周期切换时通知外层（用于重置报警状态等） */
@@ -261,7 +267,65 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     }
   }
 
+  // Only drawings created through this instance's UI belong to its shortcuts.
+  const ownedDrawingIds = new Set<string>()
+  const completedDrawingIds = new Set<string>()
+  let activeDrawingId: string | null = null
+  const cancelDrawing = () => {
+    if (activeDrawingId) widget?.removeOverlay({ id: activeDrawingId })
+    activeDrawingId = null
+    setSelectedOverlay(null)
+  }
+  const deleteSelectedDrawing = () => {
+    const info = selectedOverlay()
+    if (info && ownedDrawingIds.has(info.id) && !info.locked) {
+      widget?.removeOverlay({ id: info.id })
+      setSelectedOverlay(null)
+    }
+  }
+  const createDrawing = (overlay: OverlayCreate) => {
+    if (disposed) return
+    cancelDrawing()
+    const id = widget?.createOverlay({
+      ...overlay,
+      onDrawEnd: (event) => {
+        activeDrawingId = null
+        completedDrawingIds.add(event.overlay.id)
+        promptTextOverlay(event.overlay)
+        notifyOverlay('drawing-bar', event.overlay, 'create')
+        return true
+      },
+      onPressedMoveEnd: (event) => {
+        notifyOverlay('drawing-bar', event.overlay, 'update')
+        return true
+      },
+      onSelected: (event) => {
+        markSelectedOverlay(event.overlay)
+        return true
+      },
+      onDeselected: () => {
+        setSelectedOverlay(null)
+        return true
+      },
+      onRemoved: (event) => {
+        if (activeDrawingId === event.overlay.id) activeDrawingId = null
+        ownedDrawingIds.delete(event.overlay.id)
+        if (completedDrawingIds.delete(event.overlay.id)) {
+          notifyOverlay('drawing-bar', event.overlay, 'delete')
+        }
+        setSelectedOverlay(null)
+        return true
+      }
+    })
+    if (typeof id === 'string') {
+      ownedDrawingIds.add(id)
+      const drawing = widget?.getOverlayById(id)
+      if (drawing && drawing.currentStep !== -1) activeDrawingId = id
+    }
+  }
+
   props.ref({
+    cancelDrawing, deleteSelectedDrawing, createDrawing,
     setTheme,
     getTheme: () => theme(),
     setStyles,
@@ -301,16 +365,17 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   // Backspace/Delete 删除选中的绘图
   const handleKeyDown = (e: KeyboardEvent) => {
+    const target = e.target as HTMLElement
+    if (target.closest?.('input, textarea, select, [contenteditable="true"], [contenteditable=""]')) return
+    if (e.ctrlKey || e.metaKey || e.altKey) return
     if (e.key === 'Backspace' || e.key === 'Delete') {
-      const info = selectedOverlay()
-      if (info && widget) {
-        widget.removeOverlay({ id: info.id })
-        setSelectedOverlay(null)
-        e.preventDefault()
-      }
-    }
-    if (e.key === 'Escape') {
-      setSelectedOverlay(null)
+      deleteSelectedDrawing()
+      e.preventDefault()
+      e.stopPropagation()
+    } else if (e.key === 'Escape') {
+      cancelDrawing()
+      e.preventDefault()
+      e.stopPropagation()
     }
   }
 
@@ -744,31 +809,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           <DrawingBar
             locale={props.locale}
             onDrawingItemClick={overlay => {
-              widget?.createOverlay({
-                ...overlay,
-                onDrawEnd: (event) => {
-                  promptTextOverlay(event.overlay)
-                  notifyOverlay('drawing-bar', event.overlay, 'create')
-                  return true
-                },
-                onPressedMoveEnd: (event) => {
-                  notifyOverlay('drawing-bar', event.overlay, 'update')
-                  return true
-                },
-                onSelected: (event) => {
-                  markSelectedOverlay(event.overlay)
-                  return true
-                },
-                onDeselected: () => {
-                  setSelectedOverlay(null)
-                  return true
-                },
-                onRemoved: (event) => {
-                  notifyOverlay('drawing-bar', event.overlay, 'delete')
-                  setSelectedOverlay(null)
-                  return true
-                }
-              })
+              createDrawing(overlay)
             }}
             onModeChange={mode => { widget?.overrideOverlay({ mode: mode as OverlayMode }) }}
             onLockChange={lock => { widget?.overrideOverlay({ lock }) }}

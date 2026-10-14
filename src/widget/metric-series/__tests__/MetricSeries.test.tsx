@@ -40,4 +40,18 @@ describe('MetricSeries', () => {
     expect(onPointSelect.mock.calls[0][0]).toBe(points[0])
     expect(onPointSelect.mock.calls[0][0].id).toBe('p1')
   })
+  it('preserves real zero but renders missing and non-finite values as gaps', () => {
+    const points = [0, NaN, 2, Infinity, -Infinity, 3].map((y, i) => ({ id: `p${i}`, x: String(i), y }))
+    const { getAllByTestId, container } = render(() => <MetricSeries viewState={{ status: 'ready' }} points={points} />)
+    expect(getAllByTestId('series-point').map(p => p.getAttribute('data-point-id'))).toEqual(['p0', 'p2', 'p5'])
+    const path = container.querySelector('path')!.getAttribute('d')!
+    expect(path.match(/M /g)).toHaveLength(3)
+    expect(path).not.toContain('L ')
+    expect(path).not.toMatch(/NaN|Infinity/)
+  })
+  it('shows no selectable marks when every point is invalid', () => {
+    const { queryAllByTestId } = render(() => <MetricSeries viewState={{ status: 'ready' }} points={[{ id: 'missing', x: 'x', y: NaN }]} />)
+    expect(queryAllByTestId('series-point')).toHaveLength(0)
+  })
+
 })

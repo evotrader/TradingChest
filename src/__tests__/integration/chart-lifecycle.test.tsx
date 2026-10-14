@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render } from '@solidjs/testing-library'
+import { cleanup, render, fireEvent } from '@solidjs/testing-library'
 import ChartProComponent from '../../ChartProComponent'
-import type { ChartPro } from '../../types'
+import type { ChartComponentApi as ChartPro } from '../../ChartProComponent'
 
 const mock = vi.hoisted(() => ({ chart: null as any, loadMore: null as any }))
 vi.mock('klinecharts', async importOriginal => {
@@ -85,6 +85,41 @@ describe('chart lifecycle isolation', () => {
     host.api.startReplay(2); host.api.stopReplay(); host.unmount()
     pending.resolve(bars); await tick()
     expect(host.feed.subscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('targets only selected owned drawings; Escape preserves completed and system overlays', async () => {
+    const host = mount(); await tick()
+    const overlays = new Map<string, any>([['alert', {}], ['order', {}]])
+    host.chart.createOverlay.mockImplementation((options: any) => {
+      overlays.set(options.id, { ...options, currentStep: 1, points: [] })
+      return options.id
+    })
+    host.chart.getOverlayById.mockImplementation((id: string) => overlays.get(id))
+    host.chart.removeOverlay.mockImplementation(({ id }: { id: string }) => {
+      const overlay = overlays.get(id)
+      overlays.delete(id)
+      overlay?.onRemoved?.({ overlay })
+    })
+    for (const id of ['a', 'b', 'c']) {
+      host.api.createDrawing({ name: 'rect', id })
+      const overlay = overlays.get(id)
+      overlay.currentStep = -1
+      overlay.onDrawEnd({ overlay })
+    }
+    host.api.cancelDrawing()
+    expect([...overlays.keys()]).toEqual(['alert', 'order', 'a', 'b', 'c'])
+    overlays.get('b').onSelected({ overlay: overlays.get('b') })
+    const widget = host.container.querySelector('.klinecharts-pro-widget')!
+    const input = document.createElement('input')
+    widget.appendChild(input)
+    fireEvent.keyDown(input, { key: 'Delete' })
+    expect(overlays.has('b')).toBe(true)
+    fireEvent.keyDown(widget, { key: 'Delete' })
+    expect([...overlays.keys()]).toEqual(['alert', 'order', 'a', 'c'])
+    host.api.createDrawing({ name: 'rect', id: 'draft' })
+    host.api.cancelDrawing()
+    expect([...overlays.keys()]).toEqual(['alert', 'order', 'a', 'c'])
+    expect(host.chart.removeOverlay.mock.calls.every(([arg]: any[]) => typeof arg?.id === 'string')).toBe(true)
   })
 
 })

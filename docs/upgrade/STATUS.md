@@ -20,3 +20,13 @@ Reproduce: npm ci; npm test; npm run build. For browser checks install Playwrigh
 - Drawing deletion safety; replay alert semantics; missing-data display.
 - Real browser and consumer build acceptance before main-branch merge.
 - No npm publication or trading execution is authorized by this change.
+
+## Batch 2: drawing safety and missing-data display
+- Route drawing keyboard actions through per-instance owned drawing IDs; remove the unscoped removeOverlay() shortcut calls.
+- Escape cancels an unfinished drawing and clears selection; completed drawings and system overlays are preserved.
+- Delete targets an unlocked selected UI drawing; input/editable targets are ignored. Shortcut-created drawings use the same lifecycle callbacks as drawing-bar drawings.
+- Cancelled unfinished drawings do not emit a persisted-drawing delete callback.
+- MetricSeries keeps real zero, omits non-finite marks and breaks the line at missing points instead of fabricating zero or connecting the gap.
+- Tests: metric regressions failed before the fix and pass afterwards. Full suite now 27 files / 291 tests passes.
+- Remaining gate: real browser verification plus full EvoTrader consumer build. Direct private-repo clone lacks credentials; connector reads work. No consumer source has been modified.
+- Remaining work: reactive consumer bridge, consumer chart disposal, replay alert semantics, explicit Sharpe display mode and subsequent stages. No claim that stage 1 or the full upgrade is complete.

@@ -60,14 +60,21 @@ export const MetricSeries: Component<MetricSeriesProps> = (props) => {
     const xFor = (i: number) =>
       pts.length <= 1 ? PAD_X + usableW / 2 : PAD_X + (i / (pts.length - 1)) * usableW
     const yFor = (v: number) => PAD_Y + ((maxY - v) / range) * usableH
-    const coords = pts.map((point, i) => ({
-      point,
-      x: xFor(i),
-      y: Number.isFinite(point.y) ? yFor(point.y) : yFor(0),
-    }))
-    const path = coords
-      .map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(2)} ${c.y.toFixed(2)}`)
-      .join(' ')
+    const coords: Array<{ point: MetricSeriesPoint, x: number, y: number }> = []
+    const commands: string[] = []
+    let connected = false
+    pts.forEach((point, i) => {
+      if (!Number.isFinite(point.y)) {
+        connected = false
+        return
+      }
+      const x = xFor(i)
+      const y = yFor(point.y)
+      coords.push({ point, x, y })
+      commands.push(`${connected ? 'L' : 'M'} ${x.toFixed(2)} ${y.toFixed(2)}`)
+      connected = true
+    })
+    const path = commands.join(' ')
     return { coords, path }
   })
 
@@ -88,7 +95,7 @@ export const MetricSeries: Component<MetricSeriesProps> = (props) => {
         fallback={<WidgetState viewState={props.viewState} />}
       >
         <Show
-          when={props.points.length > 0}
+          when={layout().coords.length > 0}
           fallback={
             <div role="status" style={{ color: STATUS_TOKEN.muted, 'text-align': 'center', padding: '16px' }}>
               暂无数据

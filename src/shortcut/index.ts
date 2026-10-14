@@ -95,7 +95,7 @@ export class KeyboardShortcutManager {
 
       // 如果焦点在 input/textarea 上，忽略快捷键
       const target = e.target as HTMLElement
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
+      if (target.isContentEditable || target.closest?.('input, textarea, select, [contenteditable="true"], [contenteditable=""]')) return
 
       const combo = this.eventToCombo(e)
       if (!combo) return

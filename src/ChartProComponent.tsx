@@ -17,7 +17,7 @@ import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, 
 import {
   init, dispose, utils, Nullable, Chart, OverlayMode, Styles,
   TooltipIconPosition, ActionType, PaneOptions, Indicator, DomPosition, FormatDateType,
-  type Overlay, type OverlayCreate
+  type Overlay, type OverlayCreate, type KLineData
 } from 'klinecharts'
 
 import { deepSet } from './core/deepSet'
@@ -124,6 +124,16 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     return historyController
   }
 
+
+  const applyLiveData = (data: KLineData) => {
+    const latest = widget?.getDataList().at(-1)
+    if (latest && data.timestamp < latest.timestamp) {
+      props.onError?.({type:'historical-revision',message:'Historical correction requires reload; it was not appended or sent to live alerts',raw:data})
+      return
+    }
+    widget?.updateData(data)
+    props.onPriceUpdate?.(data.close, data.timestamp)
+  }
 
   const [theme, setTheme] = createSignal(props.theme)
   const [styles, setStyles] = createSignal(props.styles)
@@ -285,8 +295,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         // 恢复实时数据订阅
         props.datafeed.subscribe(s, p, data => {
           if (disposed || replayEngine || generation !== liveGeneration) return
-          widget?.updateData(data)
-          props.onPriceUpdate?.(data.close, data.timestamp)
+          applyLiveData(data)
         })
       }
       get().catch(e => { if (!disposed && !request.signal.aborted && seq === fetchSeq) props.onError?.({ type: 'replay-reload', message: 'replay data reload failed', raw: e }) })
@@ -595,8 +604,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       widget?.applyNewData(kLineDataList, kLineDataList.length > 0)
       props.datafeed.subscribe(s, p, data => {
         if (disposed || replayEngine || generation !== liveGeneration) return
-        widget?.updateData(data)
-        props.onPriceUpdate?.(data.close, data.timestamp)
+        applyLiveData(data)
       })
     }
     get()

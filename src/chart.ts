@@ -83,3 +83,11 @@ export type { TradeRecord, TradeVisExtendData } from './indicator/trade/tradeVis
 export type { ConnectionState } from './DefaultDatafeed'
 
 export type { DatafeedRequestContext } from './types'
+
+export { calculateSessionVwap } from './indicator/volume/sessionVwap'
+export type { BarSession, SessionKLineData, SessionVwapMethod, SessionVwapPoint } from './indicator/volume/sessionVwap'
+
+export { saveLayoutV2, loadLayoutV2, migrateLayoutV1, isChartLayoutV2 } from './persistence/v2'
+export type { ChartLayoutV2, LayoutIndicator, LayoutPane, LayoutOverlay, LayoutJson } from './persistence/v2'
+export { createSessionDatafeed, seriesIdentityKey } from './datafeed/session'
+export type { SeriesIdentity, HistoryBatch, SessionUpdate, DataSession, SessionProvider, DataSessionStatus } from './datafeed/session'

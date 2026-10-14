@@ -25,15 +25,22 @@ export default class DefaultDatafeed implements Datafeed {
   constructor (apiKey: string, options?: {
     onConnectionStateChange?: (state: ConnectionState, detail?: { attempt?: number, error?: unknown }) => void
     fetchTimeout?: number
+    /** Preserve historical split-adjusted default; raw one-minute streaming requires false. */
+    adjusted?: boolean
   }) {
     this._apiKey = apiKey
     this._onConnectionStateChange = options?.onConnectionStateChange ?? null
     this._fetchTimeout = options?.fetchTimeout ?? 15000
+    this._adjusted = options?.adjusted ?? true
   }
 
   private _apiKey: string
   private _onConnectionStateChange: ((state: ConnectionState, detail?: { attempt?: number, error?: unknown }) => void) | null
   private _fetchTimeout: number
+
+  private _adjusted: boolean
+  private _authenticated = false
+  private _disposed = false
 
   private _prevSymbolMarket?: string
   private _prevTicker?: string
@@ -70,6 +77,8 @@ export default class DefaultDatafeed implements Datafeed {
   }
 
   async getHistoryKLineData (symbol: SymbolInfo, period: Period, from: number, to: number, context?: DatafeedRequestContext): Promise<KLineData[]> {
+    if (this._disposed) throw new Error('Datafeed disposed')
+    context?.signal.throwIfAborted()
     const controller = new AbortController()
     const abort = () => controller.abort(context?.signal.reason)
     if (context?.signal.aborted) abort()
@@ -77,27 +86,32 @@ export default class DefaultDatafeed implements Datafeed {
     const timeout = setTimeout(() => controller.abort(new DOMException('History request timed out', 'TimeoutError')), this._fetchTimeout)
     try {
       const response = await fetch(
-        `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol.ticker)}/range/${period.multiplier}/${period.timespan}/${from}/${to}?apiKey=${this._apiKey}`,
+        `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol.ticker)}/range/${period.multiplier}/${period.timespan}/${from}/${to}?adjusted=${this._adjusted}&sort=asc&apiKey=${this._apiKey}`,
         { signal: controller.signal }
       )
       if (!response.ok) {
-        console.warn(`getHistoryKLineData failed: ${response.status} ${response.statusText}`)
-        return []
+        throw new Error(`Historical data HTTP ${response.status}`)
       }
       const result = await response.json()
-      return (result.results || []).map((data: Record<string, number>) => ({
+      if (!result || result.results === undefined && result.status !== 'OK' || result.status === 'ERROR' || result.status === 'NOT_AUTHORIZED' ||
+          result.results !== undefined && !Array.isArray(result.results)) throw new Error('Invalid historical data response')
+      if (result.next_url) throw new Error('History response is paginated; narrow the range or use a paginating provider')
+      const bars = (result.results ?? []).map((data: Record<string, number>) => ({
         timestamp: data.t,
         open: data.o,
         high: data.h,
         low: data.l,
         close: data.c,
         volume: data.v,
-        turnover: data.vw
+        // Provider VWAP is a price, not turnover. Never mislabel it as traded amount.
+        providerVwap: Number.isFinite(data.vw) ? data.vw : undefined
       }))
+      if (bars.some((bar: KLineData) => ![bar.timestamp,bar.open,bar.high,bar.low,bar.close].every(Number.isFinite) ||
+          bar.high < Math.max(bar.open,bar.close,bar.low) || bar.low > Math.min(bar.open,bar.close) ||
+          bar.volume !== undefined && (!Number.isFinite(bar.volume) || bar.volume < 0))) throw new Error('Invalid historical OHLCV')
+      return [...new Map<number,KLineData>(bars.map((bar: KLineData) => [bar.timestamp,bar])).values()].sort((a,b)=>a.timestamp-b.timestamp)
     } catch (e) {
-      if (context?.signal.aborted) throw e
-      console.warn('getHistoryKLineData error:', e)
-      return []
+      throw e
     } finally {
       clearTimeout(timeout)
       context?.signal.removeEventListener('abort', abort)
@@ -105,86 +119,83 @@ export default class DefaultDatafeed implements Datafeed {
   }
 
   subscribe (symbol: SymbolInfo, period: Period, callback: DatafeedSubscribeCallback): void {
-    // 始终更新回调引用，确保切换 ticker 后新回调生效
-    this._callback = callback
-    if (this._prevSymbolMarket !== symbol.market) {
+    if (this._disposed) throw new Error('Datafeed disposed')
+    // This demo has no multi-period/calendar aggregator. Refuse to mix raw minute bars into other series.
+    if (symbol.market !== 'stocks' || period.timespan !== 'minute' || period.multiplier !== 1 || this._adjusted) {
+      this._callback = undefined
       this._ws?.close()
-      this._ws = new ReconnectingWebSocket(
-        `wss://delayed.polygon.io/${symbol.market}`,
-        { maxRetries: 5, baseDelay: 1000, maxDelay: 30000 }
-      )
-      this._ws.onopen = () => {
-        this._ws?.send(JSON.stringify({ action: 'auth', params: this._apiKey }))
-      }
-      this._ws.onerror = () => {
-        this._onConnectionStateChange?.('disconnected', { error: 'WebSocket error' })
-      }
-      this._ws.onclose = () => {
-        this._onConnectionStateChange?.('disconnected')
-      }
-      this._ws.onreconnect = (attempt) => {
-        this._onConnectionStateChange?.('reconnecting', { attempt })
-      }
-      this._ws.onmessage = event => {
-        let result: Array<Record<string, unknown>>
-        try {
-          result = JSON.parse(event.data)
-        } catch {
-          console.warn('[TradingChest] WebSocket: invalid JSON received')
-          return
-        }
-        if (!Array.isArray(result) || result.length === 0) return
-        if (result[0].ev === 'status') {
-          if (result[0].status === 'auth_success') {
-            this._onConnectionStateChange?.('connected')
-            this._ws?.send(JSON.stringify({ action: 'subscribe', params: `T.${symbol.ticker}`}))
-          }
-        } else {
-          if ('sym' in result[0]) {
-            const d = result[0]
-            if (typeof d.s === 'number' && typeof d.o === 'number' &&
-                typeof d.h === 'number' && typeof d.l === 'number' &&
-                typeof d.c === 'number') {
-              // 通过间接引用调用最新 callback，避免闭包捕获旧引用
-              this._callback?.({
-                timestamp: d.s,
-                open: d.o,
-                high: d.h,
-                low: d.l,
-                close: d.c,
-                volume: typeof d.v === 'number' ? d.v : 0,
-                turnover: typeof d.vw === 'number' ? d.vw : undefined
-              })
-            }
-          }
-        }
-      }
-    } else {
-      // 同市场换品种时，先 unsubscribe 旧 ticker
-      if (this._prevTicker && this._prevTicker !== symbol.ticker) {
-        try { this._ws?.send(JSON.stringify({ action: 'unsubscribe', params: `T.${this._prevTicker}` })) } catch { /* ws may be closed */ }
-      }
-      this._ws?.send(JSON.stringify({ action: 'subscribe', params: `T.${symbol.ticker}`}))
+      this._ws = undefined
+      this._authenticated = false
+      this._onConnectionStateChange?.('failed', {error:'Streaming supports only stocks / 1 minute / adjusted:false; other series remain history-only'})
+      return
     }
+    const oldTicker = this._prevTicker
     this._prevSymbolMarket = symbol.market
     this._prevTicker = symbol.ticker
-  }
-
-  unsubscribe(symbol: SymbolInfo, period: Period): void {
-    this._callback = undefined
+    this._callback = callback
     if (this._ws) {
-      try {
-        this._ws.send(JSON.stringify({ action: 'unsubscribe', params: `T.${symbol.ticker}` }))
-      } catch {
-        // WebSocket may already be closed
+      if (this._authenticated) {
+        if (oldTicker && oldTicker !== symbol.ticker) this._ws.send(JSON.stringify({action:'unsubscribe',params:`AM.${oldTicker}`}))
+        this._ws.send(JSON.stringify({action:'subscribe',params:`AM.${symbol.ticker}`}))
+      }
+      return
+    }
+    const socket = new ReconnectingWebSocket('wss://delayed.polygon.io/stocks', {maxRetries:5,baseDelay:1000,maxDelay:30000})
+    this._ws = socket
+    socket.onopen = () => {
+      if (this._ws !== socket || this._disposed) return
+      this._authenticated = false
+      socket.send(JSON.stringify({action:'auth',params:this._apiKey}))
+    }
+    socket.onerror = () => { if (this._ws === socket) this._onConnectionStateChange?.('disconnected',{error:'WebSocket error'}) }
+    socket.onclose = () => {
+      if (this._ws !== socket) return
+      this._authenticated = false
+      this._onConnectionStateChange?.('disconnected')
+    }
+    socket.onreconnect = attempt => { if (this._ws === socket) this._onConnectionStateChange?.('reconnecting',{attempt}) }
+    socket.onmessage = event => {
+      if (this._ws !== socket || this._disposed) return
+      let messages: unknown
+      try { messages = JSON.parse(event.data) } catch { this._onConnectionStateChange?.('failed',{error:'Invalid stream JSON'}); return }
+      if (!Array.isArray(messages)) return
+      for (const d of messages) {
+        if (!d || typeof d !== 'object') continue
+        if (d.ev === 'status') {
+          if (d.status === 'auth_success') {
+            this._authenticated = true
+            this._onConnectionStateChange?.('connected')
+            if (this._callback && this._prevTicker) socket.send(JSON.stringify({action:'subscribe',params:`AM.${this._prevTicker}`}))
+          } else if (d.status === 'auth_failed' || d.status === 'error') {
+            this._authenticated = false
+            this._onConnectionStateChange?.('failed',{error:d.message ?? d.status})
+          }
+          continue
+        }
+        if (!this._authenticated || d.ev !== 'AM' || d.sym !== this._prevTicker) continue
+        if (![d.s,d.o,d.h,d.l,d.c,d.v].every(Number.isFinite) || d.v < 0 ||
+            d.h < Math.max(d.o,d.c,d.l) || d.l > Math.min(d.o,d.c)) {
+          this._onConnectionStateChange?.('failed',{error:'Invalid stream OHLCV'})
+          continue
+        }
+        this._callback?.({timestamp:d.s,open:d.o,high:d.h,low:d.l,close:d.c,volume:d.v,
+          providerVwap:Number.isFinite(d.vw)?d.vw:undefined})
       }
     }
+  }
+
+  unsubscribe(symbol: SymbolInfo, _period: Period): void {
+    if (symbol.ticker !== this._prevTicker || symbol.market !== this._prevSymbolMarket) return
+    this._callback = undefined
+    if (this._authenticated) this._ws?.send(JSON.stringify({action:'unsubscribe',params:`AM.${symbol.ticker}`}))
   }
 
   dispose(): void {
-    if (this._ws) {
-      this._ws.close()
-      this._ws = undefined
-    }
+    this._disposed = true
+    this._callback = undefined
+    this._authenticated = false
+    const socket = this._ws
+    this._ws = undefined
+    socket?.close()
   }
 }

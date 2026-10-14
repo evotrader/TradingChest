@@ -30,6 +30,8 @@ export const indicatorLoaders: Record<string, IndicatorLoader> = {
   BBW:    () => import('./volatility/bollingerBandWidth').then(m => m.default),
   // Volume
   VWAP:      () => import('./volume/vwap').then(m => m.default),
+  SESSION_VWAP: () => import('./volume/sessionVwap').then(m => m.sessionVwap),
+  SESSION_VWAP_APPROX: () => import('./volume/sessionVwap').then(m => m.sessionVwapApprox),
   MFI:       () => import('./volume/mfi').then(m => m.default),
   CMF:       () => import('./volume/chaikinMoneyFlow').then(m => m.default),
   AD:        () => import('./volume/adLine').then(m => m.default),

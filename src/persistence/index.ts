@@ -80,6 +80,7 @@ export function listLayouts(): Array<{ key: string, timestamp: number }> {
     if (storageKey?.startsWith(STORAGE_KEY_PREFIX)) {
       try {
         const data = JSON.parse(localStorage.getItem(storageKey)!) as ChartLayout
+        if (data.version !== 1 || !Number.isFinite(data.timestamp)) continue
         result.push({
           key: storageKey.replace(STORAGE_KEY_PREFIX, ''),
           timestamp: data.timestamp

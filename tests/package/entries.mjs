@@ -33,7 +33,7 @@ const dispose = render(() => createComponent(MetricSeries, {get viewState(){retu
 const before = host.textContent;
 setState({status:'error',message:'host-runtime-updated'});
 assert.notEqual(host.textContent, before, 'Solid host signals did not update packed widget');
-assert.ok(host.textContent.includes('host-runtime-updated')); 
+assert.ok(host.textContent.includes('host-runtime-updated'));
 dispose();
 assert.equal(host.childNodes.length, 0);
 console.log('chart-without-React and shared-Solid-runtime PASS');

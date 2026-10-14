@@ -1,0 +1,86 @@
+import { describe, expect, it, vi } from 'vitest'
+import { createSessionDatafeed, seriesIdentityKey, type HistoryBatch, type SessionUpdate, type SeriesIdentity } from '../session'
+const symbol={ticker:'TEST',market:'stocks',exchange:'X',priceCurrency:'USD'}
+const period={multiplier:1,timespan:'minute',text:'1m'}
+const identity:SeriesIdentity={source:'fixture',ticker:'TEST',market:'stocks',exchange:'X',currency:'USD',multiplier:1,timespan:'minute',adjustment:'raw',sessionFilter:'regular',timezone:'America/New_York'}
+const bar=(timestamp:number,close=10)=>({timestamp,open:10,high:20,low:1,close,volume:2})
+function fixture(batch: Partial<HistoryBatch> = {}) {
+  const listeners:Array<(update:SessionUpdate)=>void>=[]
+  const stop=vi.fn(),dispose=vi.fn(),history=vi.fn(async()=>({identity,bars:[bar(1),bar(2)],state:'ready' as const,sourceTimestamp:100,...batch}))
+  const provider={searchSymbols:vi.fn(async()=>[symbol]),openSession:vi.fn(()=>({identity,getHistory:history,subscribe:(callback:(update:SessionUpdate)=>void)=>{listeners.push(callback);return stop},dispose}))}
+  const status=vi.fn(),revision=vi.fn()
+  const feed=createSessionDatafeed(provider,{onStatus:status,onRevisionRequired:revision})
+  return {feed,provider,listeners,stop,dispose,history,status,revision}
+}
+describe('opt-in session-to-legacy adapter',()=>{
+  it('preserves legacy four-argument calls and deduplicates only within the full identity',async()=>{
+    const f=fixture({bars:[bar(3),bar(1),bar(3,15)]})
+    expect((await f.feed.getHistoryKLineData(symbol,period,0,10)).map(b=>[b.timestamp,b.close])).toEqual([[1,10],[3,15]])
+    expect(f.status).toHaveBeenLastCalledWith(expect.objectContaining({state:'ready',sourceTimestamp:100}))
+  })
+  it('rejects mismatched adjustment/currency/period instead of mixing data',async()=>{
+    for(const changed of [{adjustment:'split'},{currency:'CNY'},{multiplier:5}]){
+      const f=fixture({identity:{...identity,...changed}})
+      await expect(f.feed.getHistoryKLineData(symbol,period,0,10)).rejects.toThrow('identity mismatch')
+    }
+  })
+  it('distinguishes explicit empty/partial states from failure',async()=>{
+    const f=fixture({state:'partial',bars:[],delayMs:1000})
+    await expect(f.feed.getHistoryKLineData(symbol,period,0,10)).resolves.toEqual([])
+    expect(f.status).toHaveBeenLastCalledWith(expect.objectContaining({state:'partial',delayMs:1000}))
+    const bad=fixture({state:'ready',bars:[]})
+    await expect(bad.feed.getHistoryKLineData(symbol,period,0,10)).rejects.toThrow('Invalid history batch')
+  })
+  it('forwards caller cancellation and rejects a late history result after close',async()=>{
+    const f=fixture();const controller=new AbortController()
+    const context={signal:controller.signal,reason:'initial' as const}
+    await f.feed.getHistoryKLineData(symbol,period,0,10,context)
+    expect(f.history).toHaveBeenCalledWith(0,10,context)
+    let resolve!:(batch:HistoryBatch)=>void
+    f.history.mockImplementationOnce(()=>new Promise(r=>{resolve=r}))
+    const pending=f.feed.getHistoryKLineData(symbol,period,0,10)
+    f.feed.unsubscribe(symbol,period)
+    resolve({identity,bars:[bar(1)],state:'ready',sourceTimestamp:100})
+    await expect(pending).rejects.toMatchObject({name:'AbortError'})
+  })
+  it('routes historical revisions separately and never emits them as new prices',async()=>{
+    const f=fixture();await f.feed.getHistoryKLineData(symbol,period,0,10)
+    const price=vi.fn();f.feed.subscribe(symbol,period,price)
+    f.listeners[0]({identity,bar:bar(1,15),kind:'update'})
+    f.listeners[0]({identity,bar:bar(2,15),kind:'revision'})
+    expect(price).not.toHaveBeenCalled();expect(f.revision).toHaveBeenCalledTimes(2)
+    f.listeners[0]({identity,bar:bar(2,12),kind:'update'})
+    f.listeners[0]({identity,bar:bar(3,12),kind:'update'})
+    expect(price).toHaveBeenCalledTimes(2)
+  })
+  it('rejects wrong-series stream bars and malformed OHLC',async()=>{
+    const f=fixture();const price=vi.fn();f.feed.subscribe(symbol,period,price)
+    f.listeners[0]({identity:{...identity,currency:'CNY'},bar:bar(3),kind:'update'})
+    f.listeners[0]({identity,bar:{...bar(3),close:100},kind:'update'})
+    expect(price).not.toHaveBeenCalled();expect(f.status).toHaveBeenLastCalledWith(expect.objectContaining({state:'error'}))
+  })
+  it('isolates two chart adapters and suppresses late callbacks after unsubscribe',()=>{
+    const f=fixture();const other=createSessionDatafeed(f.provider)
+    const a=vi.fn(),b=vi.fn();f.feed.subscribe(symbol,period,a);other.subscribe(symbol,period,b)
+    f.feed.unsubscribe(symbol,period)
+    for(const listener of f.listeners)listener({identity,bar:bar(3),kind:'update'})
+    expect(a).not.toHaveBeenCalled();expect(b).toHaveBeenCalledTimes(1)
+    expect(f.stop).toHaveBeenCalledTimes(1);other.dispose?.()
+  })
+  it('invalidates the previous subscription generation even for the same session',()=>{
+    const f=fixture();const a=vi.fn(),b=vi.fn();f.feed.subscribe(symbol,period,a);f.feed.subscribe(symbol,period,b)
+    for(const listener of f.listeners)listener({identity,bar:bar(3),kind:'update'})
+    expect(a).not.toHaveBeenCalled();expect(b).toHaveBeenCalledTimes(1)
+  })
+  it('cleans a synchronously disposed subscription once subscribe returns',()=>{
+    const f=fixture()
+    f.provider.openSession.mockImplementationOnce(()=>({identity,getHistory:f.history,subscribe:callback=>{callback({identity,bar:bar(3),kind:'update'});return f.stop},dispose:f.dispose}))
+    f.feed.subscribe(symbol,period,()=>f.feed.dispose?.())
+    expect(f.stop).toHaveBeenCalledTimes(1)
+  })
+  it('requires complete identity and rejects calls after disposal',async()=>{
+    expect(()=>seriesIdentityKey({...identity,adjustment:''})).toThrow()
+    const f=fixture();f.feed.dispose?.()
+    await expect(f.feed.getHistoryKLineData(symbol,period,0,10)).rejects.toThrow('disposed')
+  })
+})

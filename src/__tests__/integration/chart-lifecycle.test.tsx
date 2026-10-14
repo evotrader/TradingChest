@@ -68,8 +68,18 @@ describe('chart lifecycle isolation', () => {
   it('keeps current live ticks valid during ordinary load-more', async () => {
     const host = mount(); await tick()
     const callback = host.feed.subscribe.mock.calls[0][2]
-    mock.loadMore(bars[0].timestamp); await tick(); callback(bars[0])
-    expect(host.chart.updateData).toHaveBeenCalledWith(bars[0])
+    mock.loadMore(bars[0].timestamp); await tick(); callback(bars[3])
+    expect(host.chart.updateData).toHaveBeenCalledWith(bars[3])
+  })
+  it('does not send a historical correction to new-bar rendering or live price alerts', async () => {
+    const host = mount(); await tick()
+    const callback = host.feed.subscribe.mock.calls[0][2]
+    callback({...bars[0],close:12})
+    expect(host.chart.updateData).not.toHaveBeenCalled()
+    expect(host.price).not.toHaveBeenCalled()
+    callback({...bars[3],close:12})
+    expect(host.chart.updateData).toHaveBeenCalledTimes(1)
+    expect(host.price).toHaveBeenCalledWith(12,bars[3].timestamp)
   })
   it('ignores old symbol callbacks after switching symbols', async () => {
     const host = mount(); await tick()
@@ -77,8 +87,8 @@ describe('chart lifecycle isolation', () => {
     host.api.setSymbol({ ticker: 'OTHER' } as any); await tick()
     callback(bars[0])
     expect(host.price).not.toHaveBeenCalled()
-    host.feed.subscribe.mock.calls.at(-1)![2](bars[1])
-    expect(host.price).toHaveBeenCalledWith(bars[1].close, bars[1].timestamp)
+    host.feed.subscribe.mock.calls.at(-1)![2](bars[3])
+    expect(host.price).toHaveBeenCalledWith(bars[3].close, bars[3].timestamp)
   })
   it('does not resume subscriptions after unmount during replay reload', async () => {
     const pending = deferred()

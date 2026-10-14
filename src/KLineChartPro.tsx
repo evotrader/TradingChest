@@ -327,6 +327,11 @@ export default class KLineChartPro implements ChartPro {
     this._assertNotDisposed()
     const chart = this.getChart()
     if (!chart) return
+    cleanupTradeVisInstance(this._instanceId)
+    if (trades.length === 0) {
+      chart.removeIndicator('candle_pane', 'TradeVis')
+      return
+    }
     chart.createIndicator({
       name: 'TradeVis',
       extendData: { trades, _instanceId: this._instanceId }

@@ -173,6 +173,8 @@ describe('chart lifecycle isolation', () => {
       onAlertTrigger:live})
     try {
       await tick()
+      chart.createTradeVisualization([])
+      expect(mock.chart.removeIndicator).toHaveBeenCalledWith('candle_pane', 'TradeVis')
       chart.addAlert({id:'same-id',price:12,condition:'above'})
       chart.feedPrice(10); chart.feedPrice(13)
       expect(live).toHaveBeenCalledTimes(1)

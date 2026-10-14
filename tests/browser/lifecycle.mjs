@@ -45,6 +45,26 @@ try {
   assert.equal(alertIsolation.live,0); assert.equal(alertIsolation.replay,2)
   assert.equal(alertIsolation.afterSeek,1); assert.equal(alertIsolation.liveTriggered,false)
   assert.equal(alertIsolation.timestamp,alertIsolation.expected)
+  await open(); await page.evaluate(() => {
+    setup(); window.firstChart = test
+    const second = document.createElement('div')
+    second.style.cssText = 'width:800px;height:500px'
+    document.body.appendChild(second); setup(false, second)
+  })
+  await page.waitForFunction(() => firstChart.state.subscriptions === 1 && test.state.subscriptions === 1)
+  await page.evaluate(() => {
+    firstChart.chart.addAlert({id:'shared-id',price:12,condition:'above'})
+    test.chart.addAlert({id:'shared-id',price:20,condition:'above'})
+    firstChart.chart.feedPrice(10); firstChart.chart.feedPrice(13)
+  })
+  assert.deepEqual(await page.evaluate(() => [firstChart.state.alerts.length,test.state.alerts.length]), [1,0])
+  await page.evaluate(() => {
+    firstChart.chart.dispose()
+    test.chart.feedPrice(19); test.chart.feedPrice(21)
+  })
+  assert.equal(await page.evaluate(() => test.state.alerts.length), 1)
+  assert.equal(await page.locator('.klinecharts-pro-widget').count(), 1)
+  await page.evaluate(() => test.chart.dispose())
   await open(); await page.evaluate(() => setup())
   await page.waitForFunction(() => test.state.subscriptions === 1)
   await page.evaluate(() => {

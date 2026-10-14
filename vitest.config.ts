@@ -4,11 +4,14 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 
 const solidRoot = dirname(createRequire(import.meta.url).resolve('solid-js/package.json'))
+const klineRoot = dirname(createRequire(import.meta.url).resolve('klinecharts/package.json'))
 
 export default defineConfig({
   plugins: [solidPlugin()],
   // Component tests and their hoisted testing-library share the browser runtime.
   resolve: { conditions: ['browser', 'development'], alias: [
+    // Exercise the browser entry instead of the 9.x CommonJS-to-UMD loader.
+    { find: /^klinecharts$/, replacement: join(klineRoot, 'dist/index.esm.js') },
     { find: /^solid-js\/web$/, replacement: join(solidRoot, 'web/dist/dev.js') },
     { find: /^solid-js$/, replacement: join(solidRoot, 'dist/dev.js') },
   ] },

@@ -42,6 +42,7 @@
   "devDependencies": {
     "@solidjs/testing-library": "^0.8.0",
     "@testing-library/jest-dom": "^6.9.1",
+    "@types/react": "^18.3.31",
     "@typescript-eslint/eslint-plugin": "^5.54.0",
     "babel-preset-solid": "^1.9.0",
     "dts-bundle-generator": "^9.5.0",

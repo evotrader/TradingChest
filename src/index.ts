@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { registerOverlay, registerIndicator } from 'klinecharts'
+import { registerOverlay, registerIndicator, registerFigure } from 'klinecharts'
 
 import overlays from './extension'
 import chartTypes from './chartType'
@@ -27,7 +27,9 @@ import { Datafeed, SymbolInfo, Period, DatafeedSubscribeCallback, ChartProOption
 import './index.less'
 
 import tradeVisualization from './indicator/trade/tradeVisualization'
+import rectText from './extension/rectText'
 
+registerFigure(rectText)
 overlays.forEach(o => { registerOverlay(o) })
 chartTypes.forEach(ct => { registerIndicator(ct) })
 registerIndicator(tradeVisualization)

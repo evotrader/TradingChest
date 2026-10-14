@@ -173,6 +173,33 @@ describe('chart lifecycle isolation', () => {
     expect(host.feed.subscribe).toHaveBeenCalledTimes(1)
   })
 
+  it('locates only ready source timestamps and invalidates navigation during reload/replay', async () => {
+    const seed = mount(); await tick(); seed.unmount()
+    const el = document.createElement('div'); document.body.appendChild(el)
+    const pending = deferred()
+    const ready = vi.fn()
+    const period = {multiplier:1,timespan:'minute',text:'1m'}
+    const chart = new KLineChartPro({container:el, symbol:{ticker:'TEST'}, period, mainIndicators:[],subIndicators:[],
+      datafeed:{searchSymbols:async()=>[],getHistoryKLineData:vi.fn().mockResolvedValueOnce(bars).mockReturnValue(pending.promise),subscribe:vi.fn(),unsubscribe:vi.fn()}, onDataReady:ready})
+    const request = {ticker:'TEST',period,timestamp:bars[1].timestamp+1000}
+    try {
+      expect(chart.locateTimestamp(request).reason).toBe('not-ready')
+      await tick()
+      expect(ready).toHaveBeenCalledTimes(1)
+      expect(chart.locateTimestamp(request).status).toBe('reference-window')
+      expect(mock.chart.scrollToDataIndex).toHaveBeenLastCalledWith(1,0)
+      chart.startReplay(2)
+      expect(chart.locateTimestamp(request).reason).toBe('not-ready')
+      chart.stopReplay()
+      expect(chart.locateTimestamp(request).reason).toBe('not-ready')
+      pending.resolve(bars); await tick()
+      expect(chart.locateTimestamp(request).status).toBe('reference-window')
+      chart.setSymbol({ticker:'OTHER'}); await tick()
+      expect(chart.locateTimestamp(request).reason).toBe('identity-mismatch')
+    } finally { chart.dispose(); el.remove() }
+    expect(chart.locateTimestamp(request).reason).toBe('disposed')
+  })
+
   it('scopes alerts by symbol and exchange and preserves state when returning', async () => {
     const seed = mount(); await tick(); seed.unmount()
     const el = document.createElement('div'); document.body.appendChild(el)

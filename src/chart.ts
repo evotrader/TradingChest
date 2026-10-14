@@ -91,3 +91,5 @@ export { saveLayoutV2, loadLayoutV2, migrateLayoutV1, isChartLayoutV2 } from './
 export type { ChartLayoutV2, LayoutIndicator, LayoutPane, LayoutOverlay, LayoutJson } from './persistence/v2'
 export { createSessionDatafeed, seriesIdentityKey } from './datafeed/session'
 export type { SeriesIdentity, HistoryBatch, SessionUpdate, DataSession, SessionProvider, DataSessionStatus } from './datafeed/session'
+
+export type { TimestampLocation } from './core/locateTimestamp'

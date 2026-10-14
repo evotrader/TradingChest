@@ -1,3 +1,7 @@
+# Active candidate — stage-three navigation
+
+Stage two below remains the accepted baseline. Stage-three navigation is implemented but awaiting local frontend/browser and real backend acceptance. See [STAGE3-NAVIGATION.md](./STAGE3-NAVIGATION.md). Do not treat candidate unit tests as full product acceptance.
+
 # Current accepted checkpoint — 2026-10-14, stage two
 
 Stage-two library capabilities and the bounded EvoTrader integration have passed acceptance. See [STAGE2.md](./STAGE2.md) for API contracts, exact test evidence and rollout boundaries. No npm release or live financial action was performed.

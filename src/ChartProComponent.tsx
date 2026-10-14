@@ -46,7 +46,8 @@ export interface ChartComponentApi extends ChartPro {
   createDrawing: (overlay: OverlayCreate) => void
 }
 
-export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError'>> {
+export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady'>> {
+  onDataReady?: ChartProOptions['onDataReady']
   ref: (chart: ChartComponentApi) => void
   /** 内部回调：实时数据到达时通知外层（用于报警检测） */
   onPriceUpdate?: (price: number, timestamp: number) => void
@@ -297,6 +298,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           if (disposed || replayEngine || generation !== liveGeneration) return
           applyLiveData(data)
         })
+        if (!disposed && seq === fetchSeq && generation === liveGeneration) props.onDataReady?.({ symbol: s, period: p })
       }
       get().catch(e => { if (!disposed && !request.signal.aborted && seq === fetchSeq) props.onError?.({ type: 'replay-reload', message: 'replay data reload failed', raw: e }) })
     }
@@ -360,6 +362,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
 
   props.ref({
+    locateTimestamp: () => { throw new Error('[TradingChest] locateTimestamp must be called on KLineChartPro instance') },
     cancelDrawing, deleteSelectedDrawing, createDrawing,
     setTheme,
     getTheme: () => theme(),
@@ -606,6 +609,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         if (disposed || replayEngine || generation !== liveGeneration) return
         applyLiveData(data)
       })
+      if (!disposed && seq === fetchSeq && generation === liveGeneration) props.onDataReady?.({ symbol: s, period: p })
     }
     get()
       .catch(e => { if (!disposed && !request.signal.aborted && seq === fetchSeq) props.onError?.({ type: 'data-fetch', message: 'data fetch failed', raw: e }) })

@@ -16,6 +16,7 @@ import { render } from 'solid-js/web'
 
 import { utils, Nullable, DeepPartial, Styles, registerIndicator, YAxisType } from 'klinecharts'
 import { normalizeToPercent } from './compare'
+import { locateDataTimestamp, type TimestampLocation } from './core/locateTimestamp'
 
 import ChartProComponent, { type ChartComponentApi } from './ChartProComponent'
 
@@ -83,6 +84,7 @@ export default class KLineChartPro implements ChartPro {
             if (!this._disposed && !this._replayActive) this._alertManager.checkPrice(price, timestamp)
           }}
           onReplayActiveChange={(active: boolean) => {
+            this._historyReady = false
             this._replayActive = active
             if (!active) this._alertManager.resetPrevPrice()
           }}
@@ -95,7 +97,13 @@ export default class KLineChartPro implements ChartPro {
           onReplayPriceUpdate={(price: number, timestamp: number) => {
             if (!this._disposed && this._replayActive) this._replayAlertManager.checkPrice(price, timestamp)
           }}
+          onDataReady={(context) => {
+            if (this._disposed) return
+            this._historyReady = true
+            options.onDataReady?.(context)
+          }}
           onDataReset={(symbol) => {
+            this._historyReady = false
             this._activateAlertSymbol(symbol)
             this._alertManager.resetPrevPrice()
             // 品种/周期切换时清理比较指标（旧数据时间戳不再对齐）
@@ -301,6 +309,25 @@ export default class KLineChartPro implements ChartPro {
 
   getPeriod (): Period {
     return this._api().getPeriod()
+  }
+
+  private _historyReady = false
+
+  locateTimestamp (target: { ticker: string, period: Period, timestamp: number }): TimestampLocation {
+    const unavailable = (reason: string): TimestampLocation => ({
+      status: 'unavailable', reason, requestedTimestamp: target.timestamp,
+      ticker: target.ticker, period: { ...target.period }
+    })
+    if (this._disposed) return unavailable('disposed')
+    if (!this._historyReady || this._replayActive) return unavailable('not-ready')
+    const current = this.getPeriod()
+    if (this.getSymbol().ticker !== target.ticker || current.multiplier !== target.period.multiplier || current.timespan !== target.period.timespan) {
+      return unavailable('identity-mismatch')
+    }
+    const chart = this.getChart()
+    const location = locateDataTimestamp(chart?.getDataList() ?? [], target.ticker, current, target.timestamp)
+    if (location.status !== 'unavailable' && location.dataIndex !== undefined) chart?.scrollToDataIndex(location.dataIndex, 0)
+    return location
   }
 
   getChart () {

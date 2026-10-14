@@ -83,6 +83,8 @@ export interface OverlayLifecycleEvent {
 }
 
 export interface ChartProOptions {
+  /** Initial history was applied for this exact symbol/period. */
+  onDataReady?: (context: { symbol: SymbolInfo, period: Period }) => void
   container: string | HTMLElement
   styles?: DeepPartial<Styles>
   watermark?: string | Node
@@ -115,6 +117,8 @@ export interface ChartProOptions {
 }
 
 export interface ChartPro {
+  /** Navigate existing source time points only; never snap across missing data. */
+  locateTimestamp(target: { ticker: string, period: Period, timestamp: number }): import('./core/locateTimestamp').TimestampLocation
   setTheme(theme: string): void
   getTheme(): string
   setStyles(styles: DeepPartial<Styles>): void

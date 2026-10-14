@@ -215,3 +215,17 @@ describe('ProfitCalendar P&L semantics and accessibility', () => {
     expect(getByTestId('month-summary-unavailable').textContent).toBe('缺最终交易日')
   })
 })
+
+it('renders a real weekend capture error before the missing-snapshot chrome and retains its reason', () => {
+  const onCellSelect = vi.fn()
+  const cell = makeCell({ id: 'weekend-error', sessionDate: '2026-10-11',
+    sessionStatus: 'closed_no_snapshot', calculationStatus: 'error', value: null,
+    unavailableReason: 'SESSION_CAPTURE_FAILED · 检查原估值任务后刷新' })
+  const { getByTestId, getByRole } = render(() => (
+    <ProfitCalendar viewState={{ status: 'ready' }} cells={[cell]} columns={7} onCellSelect={onCellSelect} />
+  ))
+  expect(getByTestId('calendar-cell-value').textContent).toBe('错误')
+  expect(getByTestId('calendar-cell-unavailable').textContent).toContain('SESSION_CAPTURE_FAILED')
+  fireEvent.click(getByTestId('calendar-cell'))
+  expect(onCellSelect).toHaveBeenCalledWith(cell)
+})

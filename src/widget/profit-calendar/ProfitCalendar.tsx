@@ -36,11 +36,11 @@ const SESSION_STATUS_LABEL: Record<SessionStatus, string> = {
 }
 
 function cellDisplayText (cell: ProfitCalendarCell): string {
+  if (cell.calculationStatus === 'error') return '错误'
   if (cell.sessionStatus === 'holiday') return '休市'
   if (cell.sessionStatus === 'future') return '—'
   if (cell.sessionStatus === 'closed_no_snapshot') return '无快照'
   if (cell.calculationStatus === 'unavailable') return '不可用'
-  if (cell.calculationStatus === 'error') return '错误'
   if (cell.displayValue != null && cell.displayValue !== '') return cell.displayValue
   if (cell.value !== null && cell.value !== undefined && Number.isFinite(cell.value)) {
     return formatSignedNumber(cell.value)
@@ -80,6 +80,7 @@ function cellBackground (
   cell: ProfitCalendarCell,
   convention: 'cn_market' | 'global'
 ): string {
+  if (cell.calculationStatus === 'error') return `${STATUS_TOKEN.error}22`
   // Status chrome never follows P&L convention.
   if (
     cell.sessionStatus === 'holiday'
@@ -106,6 +107,7 @@ function cellTextColor (
   cell: ProfitCalendarCell,
   convention: 'cn_market' | 'global'
 ): string {
+  if (cell.calculationStatus === 'error') return STATUS_TOKEN.error
   if (
     cell.sessionStatus === 'holiday'
     || cell.sessionStatus === 'future'
@@ -114,7 +116,6 @@ function cellTextColor (
     return sessionStatusColor(cell.sessionStatus)
   }
   if (cell.calculationStatus === 'unavailable') return STATUS_TOKEN.unavailable
-  if (cell.calculationStatus === 'error') return STATUS_TOKEN.error
   if (cell.sessionStatus === 'provisional' && (cell.value === null || cell.value === undefined)) {
     return STATUS_TOKEN.provisional
   }
@@ -324,7 +325,7 @@ export const ProfitCalendar: Component<ProfitCalendarProps> = (props) => {
                               进行中
                             </span>
                           </Show>
-                          <Show when={cell.calculationStatus === 'unavailable'}>
+                          <Show when={cell.calculationStatus === 'unavailable' || cell.calculationStatus === 'error'}>
                             <span data-testid="calendar-cell-unavailable" style={{ 'font-size': '11px' }}>
                               {cell.unavailableReason ?? '不可用'}
                               <Show when={!!cell.resolvingHref}>

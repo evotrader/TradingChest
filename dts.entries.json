@@ -1,0 +1,64 @@
+{
+  "entries": [
+    {
+      "filePath": "src/index.ts",
+      "outFile": "dist/index.d.ts",
+      "libraries": {
+        "importedLibraries": [
+          "react",
+          "klinecharts",
+          "solid-js"
+        ]
+      },
+      "output": {
+        "noBanner": true,
+        "umdModuleName": "klinechartspro"
+      }
+    },
+    {
+      "filePath": "src/chart.ts",
+      "outFile": "dist/entries/chart.d.ts",
+      "libraries": {
+        "importedLibraries": [
+          "react",
+          "klinecharts",
+          "solid-js"
+        ]
+      },
+      "output": {
+        "noBanner": true
+      }
+    },
+    {
+      "filePath": "src/solid.ts",
+      "outFile": "dist/entries/solid.d.ts",
+      "libraries": {
+        "importedLibraries": [
+          "react",
+          "klinecharts",
+          "solid-js"
+        ]
+      },
+      "output": {
+        "noBanner": true
+      }
+    },
+    {
+      "filePath": "src/react.ts",
+      "outFile": "dist/entries/react.d.ts",
+      "libraries": {
+        "importedLibraries": [
+          "react",
+          "klinecharts",
+          "solid-js"
+        ]
+      },
+      "output": {
+        "noBanner": true
+      }
+    }
+  ],
+  "compilationOptions": {
+    "preferredConfigPath": "tsconfig.json"
+  }
+}

@@ -1,4 +1,4 @@
-# 第三阶段：只读成交复盘导航（候选，未完成验收）
+# 第三阶段：只读成交复盘导航（库已验收，消费者链路待后端验收）
 
 2026-10-14。基线 TradingChest 3bd1d403 / EvoTrader 1104162d。
 
@@ -20,8 +20,12 @@ PerformanceRow 新增可空 review_cursor_from_exclusive 与 review_cursor_to_in
 
 ## 已验证和待验收
 
-根环境库全量 35 文件 / 363 测试通过；完整 JS / 声明构建通过。消费者新增三个单元测试文件共 19 测试通过，覆盖分页、身份、取消、重试及图表就绪。Python 语法编译通过。PerformanceRow 类型块从实际模型 OpenAPI 生成；完整后端导出一致性仍待检验。
+TradingChest 产品 f7d1bf89：Mac 与根环境全量 35 文件 / 363 测试、完整 JS / 声明构建通过；Mac 原始 Chrome lifecycle.mjs 与 widgets.mjs 通过，包含新增导航断言。库 API 可独立接受；消费者主分支仍保持原 gitlink。
 
-待完成：Mac 全量前端类型检查／构建及真实 Chrome 库导航脚本；真实项目 Python 环境内 Paper 财务测试及后端驱动浏览器链路。当前 Mac 没有项目虚拟环境和定制 nautilus_trader==1.230.0+evotrader.1，不能以纯前端夹具代替后端验收。本候选不得标记整阶段完成。
+EvoTrader 产品候选 3ccefe4f：Mac 完整 37 页面构建、类型检查、6 项 Node 构建门禁通过。9 个目标文件首次 59 通过、1 个 widget mock 测试失败；同 SHA 隔离诊断及原批次一次复验 60 项通过。保留原失败，不声称间歇性测试问题根因已修复。
+
+Next 编译会把外置 Solid 的 chart 子入口解析到服务端条件；消费者采用既有 bundled 根运行时入口并对齐实例类型，通过 next/dynamic 禁用 SSR。未扩大全局别名或更换依赖。
+
+Python 仅语法编译通过。PerformanceRow 类型块从实际模型 OpenAPI 生成；完整后端导出一致性待检验。真实 Paper 财务测试及真实后端驱动的浏览器链路仍未执行。当前 Mac 没有项目虚拟环境和定制 nautilus_trader==1.230.0+evotrader.1，需要接入完整项目环境，不能以纯前端夹具代替后端验收。消费者候选不合主分支、不标记整阶段完成。
 
 同步布局、撤销／重做、实时比较及延迟预算仍不在本批完成范围。回退采用上述基线代码和消费者 gitlink 配对；无数据迁移或持久账户状态变更。

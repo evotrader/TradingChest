@@ -1,6 +1,6 @@
-# Active candidate — stage-three navigation
+# Current checkpoint — stage-three library navigation accepted
 
-Stage two below remains the accepted baseline. Stage-three navigation is implemented but awaiting local frontend/browser and real backend acceptance. See [STAGE3-NAVIGATION.md](./STAGE3-NAVIGATION.md). Do not treat candidate unit tests as full product acceptance.
+TradingChest navigation product f7d1bf89 passed 363 tests, full build and both real Chrome fixtures. EvoTrader candidate 3ccefe4f passed frontend build/typecheck and 60 targeted tests on rerun, with one prior intermittent widget-test failure retained. Real backend financial/UI acceptance remains blocked by the missing project environment; consumer main stays at stage two. See [STAGE3-NAVIGATION.md](./STAGE3-NAVIGATION.md).
 
 # Current accepted checkpoint — 2026-10-14, stage two
 

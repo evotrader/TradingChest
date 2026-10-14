@@ -45,3 +45,10 @@ Reproduce: npm ci; npm test; npm run build. For browser checks install Playwrigh
 - LiveSharpe chooses one metric for the entire series, with explicit ratio/sharpe mode; it no longer fills a ratio gap with absolute Sharpe. The existing 0.7 default threshold remains unchanged; Sharpe mode labels it as a threshold, not the ratio M+1 rule.
 - Drawdown line and area split at missing observations; current-value labels no longer substitute earlier finite samples for a missing last observation.
 - Legacy VWAP is documented as loaded-range OHLCV typical-price approximation, not session-reset exact turnover/volume VWAP.
+
+## 2026-10-14 acceptance checkpoint and loading-mask regression
+- The fixed fd36ab39 snapshot passed 298 tests, complete build and built-bundle widget browser checks on the test-only macOS executor. Lifecycle and replay-alert isolation checks passed before the drawing test timed out; Escape/Delete browser acceptance remains pending.
+- Reproduced an initial-load race: applyNewData may synchronously request more history, and sharing fetchSeq invalidated the initial request's loading-mask cleanup. Pagination now has its own sequence and also checks the current main-load generation. Added a regression that fails before this fix and passes afterwards; full suite is 299 tests.
+- Browser drawing checks now explicitly wait for the fullscreen loading mask to disappear before interacting. Await a real-browser rerun of this change before claiming drawing acceptance.
+- EvoTrader consumer branch fix/trading-chest-stage1 contains the reactive bridge, chart disposal and associated tests. Commit a016d392 regenerates the stale frontend lock using npm and pins fd36ab39. Clean installation with ignore-scripts passed in the root workspace; full consumer installation, typecheck, tests and build are being independently checked.
+- Neither repository has been merged to main. No publication or live trading is part of these checks.

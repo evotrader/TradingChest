@@ -110,6 +110,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const [loading, setLoading] = createSignal(false)
   let disposed = false
   let liveGeneration = 0
+  let loadMoreSeq = 0
   let fetchSeq = 0  // 单调递增的请求序号，用于丢弃过期响应
 
   const [theme, setTheme] = createSignal(props.theme)
@@ -469,17 +470,18 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     })().catch(e => { props.onError?.({ type: 'indicator-init', message: 'indicator init failed', raw: e }) })
     widget?.loadMore(timestamp => {
       if (replayEngine) return  // 回放模式下不从 datafeed 拉取数据
-      const seq = ++fetchSeq  // 复用 fetchSeq 防止 loadMore 与主加载/品种切换竞态
+      const generation = fetchSeq
+      const seq = ++loadMoreSeq  // Pagination must not invalidate initial-load cleanup.
       setLoading(true)
       const get = async () => {
         const p = period()
         const [to] = adjustFromTo(p, timestamp!, 1)
         const [from] = adjustFromTo(p, to, 500)
         const kLineDataList = await props.datafeed.getHistoryKLineData(symbol(), p, from, to)
-        if (disposed || seq !== fetchSeq) return
+        if (disposed || generation !== fetchSeq || seq !== loadMoreSeq) return
         widget?.applyMoreData(kLineDataList, kLineDataList.length > 0)
       }
-      get().catch(e => { props.onError?.({ type: 'load-more', message: 'loadMore failed', raw: e }) }).finally(() => { if (seq === fetchSeq) setLoading(false) })
+      get().catch(e => { props.onError?.({ type: 'load-more', message: 'loadMore failed', raw: e }) }).finally(() => { if (!disposed && generation === fetchSeq && seq === loadMoreSeq) setLoading(false) })
     })
     widget?.subscribeAction(ActionType.OnTooltipIconClick, (data) => {
       if (data.indicatorName) {

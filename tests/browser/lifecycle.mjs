@@ -48,6 +48,7 @@ try {
   await open(); await page.evaluate(() => setup())
   await page.waitForFunction(() => test.state.subscriptions === 1)
   const widget = page.locator('.klinecharts-pro-widget')
+  await page.waitForFunction(() => !document.querySelector('.klinecharts-pro-loading'))
   const box = await widget.boundingBox()
   assert.ok(box && box.width > 300 && box.height > 200, `invalid widget geometry: ${JSON.stringify(box)}`)
   for (let i = 0; i < 3; i++) {

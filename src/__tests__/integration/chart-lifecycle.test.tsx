@@ -154,4 +154,13 @@ describe('chart lifecycle isolation', () => {
     } finally { chart.dispose(); el.remove() }
   })
 
+  it('clears the initial loading mask when the engine immediately asks for older bars', async () => {
+    const pending = deferred()
+    const host = mount(vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue([]))
+    host.chart.applyNewData.mockImplementationOnce(() => mock.loadMore(bars[0].timestamp))
+    pending.resolve(bars); await tick(); await tick()
+    expect(host.container.querySelector('.klinecharts-pro-loading')).toBeNull()
+    expect(host.feed.subscribe).toHaveBeenCalledTimes(1)
+  })
+
 })

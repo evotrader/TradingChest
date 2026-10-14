@@ -5,7 +5,7 @@
 
 Symbol/period changes, replay entry and disposal abort old work. Pagination has a separate controller so it does not invalidate initial-load cleanup. Cancellation/stale errors are not reported as new current-request failures. The default example adapter links request cancellation to its existing timeout and removes timer/listener resources on completion. Its protocol/error-state changes are described below.
 
-## Framework subentries (acceptance pending)
+## Framework subentries
 - `trading-chest/chart`: chart engine wrapper, datafeed, replay, alerts, export and layout utilities; no React import.
 - `trading-chest/solid`: analytical Solid widgets and mounting helper. Subentries externalize Solid so host signals and widgets use the same resolved runtime. Avoid bundling a second incompatible Solid copy.
 - `trading-chest/react`: the two existing React analytical components.
@@ -46,4 +46,10 @@ Protocol references checked 2026-10-14:
 - https://massive.com/knowledge-base/article/how-can-i-connect-to-a-massive-websocket
 
 ## Acceptance and remaining rollout
-Root unit checks for sessions, v2 migration, session VWAP and default protocol now pass individually; full-library build, actual packaged consumers and EvoTrader integration acceptance must still pass at the final fixed commits before merge. No npm release has been published. Performance budgets are still unmeasured candidates. Rich backend provenance/session adoption and automatic layout capture/restore are not silently enabled by these opt-in utilities.
+Verified on 2026-10-14 at product commit `0b8b150146bc001b5a6bdce26caf7370d24f84a8`:
+- Clean library installation, all 351 tests across 34 files, and complete JS/declaration build passed.
+- Actual online `npm pack` installation acceptance passed using the test-only correction `7f1db90405c8be342ffff6f151ad3e6f2acf93a2`: browser-bundled ESM/CJS chart consumers without React, shared Solid updates, declaration resolution, React 18.3.1 and 19.2.3 rendering, legacy browser UMD and CSS paths.
+- The initial raw Node chart import failed in the upstream KLineCharts packaging path. Raw Node chart imports remain explicitly unsupported; browser bundling and UMD are the supported chart execution paths.
+- Final local Chrome lifecycle and widget scripts passed (09:17:45 / 09:17:39 UTC). EvoTrader consumer `042077a90ba070ed053d7f1e9d45dd17cced4c56`, pinned to the product commit above, passed clean frontend and submodule installations, six build-gate tests, five target files / 34 tests, typecheck and full build (37 pages, completed 09:18:35 UTC). All exit codes were zero.
+- Local environment: macOS, Chrome 154.0.8037.99, Node 24.15.0. Both independent clones and the consumer submodule remained clean; test Vite was stopped. The final package fixture was verified separately by the root assistant, not rerun locally. Final documentation/gitlink-only commits do not change tested product code.
+ No npm release has been published. Performance budgets are still unmeasured candidates. Rich backend provenance/session adoption and automatic layout capture/restore are not silently enabled by these opt-in utilities.

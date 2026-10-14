@@ -1,3 +1,36 @@
+# Current accepted checkpoint — 2026-10-14, stage two
+
+Stage-two library capabilities and the bounded EvoTrader integration have passed acceptance. See [STAGE2.md](./STAGE2.md) for API contracts, exact test evidence and rollout boundaries. No npm release or live financial action was performed.
+
+## Evidence
+- Library product `0b8b150146bc001b5a6bdce26caf7370d24f84a8`; package-fixture correction `7f1db90405c8be342ffff6f151ad3e6f2acf93a2`: clean install, 34 files / 351 tests, complete JS/declaration build, both real Chrome scripts passed.
+- Real npm tarball installation passed: browser-bundled ESM/CJS chart without React, shared Solid updates, declarations, React 18.3.1 and 19.2.3, legacy UMD/CSS. Raw Node chart imports remain unsupported because of the upstream KLineCharts 9.8.12 packaging path.
+- EvoTrader product `042077a90ba070ed053d7f1e9d45dd17cced4c56`: matching library product, clean two-level install, 6 build-gate tests, five target files / 34 tests, typecheck and full 37-page build passed.
+- Local acceptance finished 09:18:35 UTC; independent read-only log review confirmed the results. Test executors made no tracked source, test or lock changes. Test Vite stopped. Root assistant authored all product/test changes.
+
+## Delivered and adoption limits
+- Abortable chart history and consumer GET transport, preserving legacy providers and stale-result guards.
+- Browser framework subentries and actual packed-artifact compatibility checks.
+- Opt-in immutable session identity, explicit history states and historical-revision reporting; corrected narrow default-provider protocol.
+- Opt-in validated layout v2 with read-only v1 migration and retained rollback keys.
+- Separate exact and approximate session VWAP requiring explicit provider coverage and session metadata.
+- EvoTrader adopts transport cancellation, strengthened distribution checks and the React-only widget entry. It does not fabricate backend provenance, enable exact session VWAP or automatically persist layouts. Backend annotations retain their existing ownership.
+
+## Reproduce
+Library: npm ci; npm test; npm run build; npm run test:package. Start the existing Vite fixture and run tests/browser/lifecycle.mjs and tests/browser/widgets.mjs with Playwright and Chrome available. Synthetic test data only.
+Consumer: initialize the pinned submodule; install frontend and submodule dependencies separately; build TradingChest; run scripts/ensure-trading-chest-dist.test.mjs, the five targeted test files listed in the consumer review document, typecheck and full frontend build. Do not run typecheck concurrently with Next's generated-type build.
+
+## Remaining / rollback
+- Verified backend session/provenance integration and complete automatic layout capture/restore remain future adoption work.
+- Stage three navigation, synchronized layouts, undo/redo and realtime comparisons remain undelivered.
+- Cold/warm performance and prolonged mount/unmount stress budgets remain unmeasured. Correctness checks do not establish sub-second latency.
+- Rollback pair: EvoTrader `820ec82d2048c242938ad1daec8d4d8ce8cec6c4` with TradingChest `b2efcc17792d804cdbbba0a7ed752df098e24e62`. Revert consumer adaptation and gitlink together; preserve v1 saved layouts.
+- No claim that every clone or remote feature branch has been cleaned. Preserve acceptance logs and verify branch ancestry before cleanup.
+
+---
+
+# Historical stage-one acceptance
+
 # Current accepted checkpoint — 2026-10-14
 
 Stage-one correctness and consumer integration changes are implemented and locally verified. This is not completion of stages two and three, an npm release, or a measured latency guarantee.

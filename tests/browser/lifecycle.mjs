@@ -26,6 +26,41 @@ try {
   assert.ok(!replay.timestamps.includes(1900000000000))
   assert.equal(replay.after, replay.before, 'dispose initiated history reload')
   assert.equal(replay.disposals, 1)
+  await open(); await page.evaluate(() => setup())
+  await page.waitForFunction(() => test.state.subscriptions === 1)
+  const widget = page.locator('.klinecharts-pro-widget')
+  const box = await widget.boundingBox()
+  assert.ok(box)
+  for (let i = 0; i < 3; i++) {
+    await widget.dispatchEvent('keydown', {key:'r', altKey:true, bubbles:true})
+    await page.mouse.click(box.x + 100 + i * 40, box.y + 80 + i * 20)
+    await page.mouse.click(box.x + 160 + i * 40, box.y + 140 + i * 20)
+    await page.waitForFunction(n => test.state.created.length === n, i + 1)
+  }
+  await page.evaluate(() => {
+    test.chart.addAlert({id:'system',price:20,condition:'cross_above',enabled:true})
+    test.chart.getChart().createOverlay({name:'horizontalStraightLine',id:'system-order',points:[{value:22}],lock:true})
+  })
+  await widget.dispatchEvent('keydown', {key:'Escape',bubbles:true})
+  assert.equal(await page.evaluate(() => test.state.created.filter(id => test.chart.getChart().getOverlayById(id)).length), 3)
+  await page.evaluate(() => {
+    const overlay = test.chart.getChart().getOverlayById(test.state.created[1])
+    overlay.onSelected({overlay})
+    const input = document.createElement('input')
+    document.querySelector('.klinecharts-pro-widget').appendChild(input)
+    input.dispatchEvent(new KeyboardEvent('keydown', {key:'Delete',bubbles:true}))
+    input.remove()
+  })
+  assert.equal(await page.evaluate(() => test.state.deleted.length), 0)
+  await widget.dispatchEvent('keydown', {key:'Delete',bubbles:true})
+  const remaining = await page.evaluate(() => ({
+    count:test.state.created.filter(id => test.chart.getChart().getOverlayById(id)).length,
+    alerts:!!test.chart.getChart().getOverlayById('alert_system'),
+    order:!!test.chart.getChart().getOverlayById('system-order'),
+    deleted:test.state.deleted.length,
+  }))
+  assert.deepEqual(remaining, {count:2, alerts:true, order:true, deleted:1})
+  await page.evaluate(() => test.chart.dispose())
   assert.deepEqual(errors, [])
   console.log('PASS: actual Chromium + KLineCharts: late history, replay/live isolation, idempotent disposal without reload')
 } finally { await browser.close() }

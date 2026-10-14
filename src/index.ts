@@ -128,3 +128,6 @@ export {
   moveFocus,
   parseSessionDate,
 } from './widget/profit-calendar/calendar-math'
+
+export { mountAnalyticalWidget } from './widget/mountWidget'
+export type { AnalyticalWidgetProps, MountedWidget } from './widget/mountWidget'

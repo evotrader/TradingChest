@@ -30,3 +30,10 @@ Reproduce: npm ci; npm test; npm run build. For browser checks install Playwrigh
 - Tests: metric regressions failed before the fix and pass afterwards. Full suite now 27 files / 291 tests passes.
 - Remaining gate: real browser verification plus full EvoTrader consumer build. Direct private-repo clone lacks credentials; connector reads work. No consumer source has been modified.
 - Remaining work: reactive consumer bridge, consumer chart disposal, replay alert semantics, explicit Sharpe display mode and subsequent stages. No claim that stage 1 or the full upgrade is complete.
+
+## Browser checkpoint and batch 3
+- On 2026-10-14, the unchanged 3033f771 commit passed all 291 tests, complete build and the original lifecycle browser script on macOS / Chrome 154.0.8037.99, Node 24.15.0. The test-only executor reported no tracked file changes.
+- Browser coverage at that checkpoint is lifecycle only. Drawing interaction coverage is newly added and still requires a run.
+- Added bundle-owned mountAnalyticalWidget API, so non-Solid hosts can replace a complete props snapshot and callbacks without remounting or mixing Solid runtimes.
+- Local widget mounting tests pass; total 293 tests and complete build pass. A built-bundle browser widget test is provided; awaiting execution.
+- Consumer patch is being prepared separately: use the new mount API; dispose the main chart and its polling timer on unmount. No consumer acceptance or merge claimed yet.

@@ -112,6 +112,18 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   let liveGeneration = 0
   let loadMoreSeq = 0
   let fetchSeq = 0  // 单调递增的请求序号，用于丢弃过期响应
+  let historyController: AbortController | undefined
+  let paginationController: AbortController | undefined
+  const abortRequests = () => {
+    historyController?.abort()
+    paginationController?.abort()
+  }
+  const beginHistory = () => {
+    abortRequests()
+    historyController = new AbortController()
+    return historyController
+  }
+
 
   const [theme, setTheme] = createSignal(props.theme)
   const [styles, setStyles] = createSignal(props.styles)
@@ -230,6 +242,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if (dataList.length === 0) return
     ++fetchSeq
     ++liveGeneration
+    abortRequests()
     setLoading(false)
     setLoadingVisible(false)
     // 暂停实时数据订阅，防止实时数据污染回放时间线
@@ -262,10 +275,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       const s = symbol()
       const p = period()
       const seq = ++fetchSeq
+      const request = beginHistory()
       const generation = ++liveGeneration
       const get = async () => {
         const [from, to] = adjustFromTo(p, new Date().getTime(), 500)
-        const kLineDataList = await props.datafeed.getHistoryKLineData(s, p, from, to)
+        const kLineDataList = await props.datafeed.getHistoryKLineData(s, p, from, to, { signal: request.signal, reason: 'resume' })
         if (disposed || seq !== fetchSeq) return  // 品种/周期已切换，丢弃过期响应
         widget?.applyNewData(kLineDataList, kLineDataList.length > 0)
         // 恢复实时数据订阅
@@ -275,7 +289,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           props.onPriceUpdate?.(data.close, data.timestamp)
         })
       }
-      get().catch(e => { props.onError?.({ type: 'replay-reload', message: 'replay data reload failed', raw: e }) })
+      get().catch(e => { if (!disposed && !request.signal.aborted && seq === fetchSeq) props.onError?.({ type: 'replay-reload', message: 'replay data reload failed', raw: e }) })
     }
   }
 
@@ -471,17 +485,20 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     widget?.loadMore(timestamp => {
       if (replayEngine) return  // 回放模式下不从 datafeed 拉取数据
       const generation = fetchSeq
+      paginationController?.abort()
+      const request = new AbortController()
+      paginationController = request
       const seq = ++loadMoreSeq  // Pagination must not invalidate initial-load cleanup.
       setLoading(true)
       const get = async () => {
         const p = period()
         const [to] = adjustFromTo(p, timestamp!, 1)
         const [from] = adjustFromTo(p, to, 500)
-        const kLineDataList = await props.datafeed.getHistoryKLineData(symbol(), p, from, to)
+        const kLineDataList = await props.datafeed.getHistoryKLineData(symbol(), p, from, to, { signal: request.signal, reason: 'load-more' })
         if (disposed || generation !== fetchSeq || seq !== loadMoreSeq) return
         widget?.applyMoreData(kLineDataList, kLineDataList.length > 0)
       }
-      get().catch(e => { props.onError?.({ type: 'load-more', message: 'loadMore failed', raw: e }) }).finally(() => { if (!disposed && generation === fetchSeq && seq === loadMoreSeq) setLoading(false) })
+      get().catch(e => { if (!disposed && !request.signal.aborted && generation === fetchSeq && seq === loadMoreSeq) props.onError?.({ type: 'load-more', message: 'loadMore failed', raw: e }) }).finally(() => { if (!disposed && generation === fetchSeq && seq === loadMoreSeq) setLoading(false) })
     })
     widget?.subscribeAction(ActionType.OnTooltipIconClick, (data) => {
       if (data.indicatorName) {
@@ -528,6 +545,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     disposed = true
     ++fetchSeq
     ++liveGeneration
+    abortRequests()
     window.removeEventListener('resize', documentResize)
     widgetRef!.removeEventListener('keydown', handleKeyDown)
     // 取消实时数据订阅，防止组件卸载后幽灵回调
@@ -566,11 +584,12 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       props.onDataReset?.(s)
     }
     const seq = ++fetchSeq  // 捕获当前序号
+    const request = beginHistory()
     setLoading(true)
     setLoadingVisible(true)
     const get = async () => {
       const [from, to] = adjustFromTo(p, new Date().getTime(), 500)
-      const kLineDataList = await props.datafeed.getHistoryKLineData(s, p, from, to)
+      const kLineDataList = await props.datafeed.getHistoryKLineData(s, p, from, to, { signal: request.signal, reason: 'initial' })
       // 如果在等待期间又发起了新请求，丢弃当前过期响应
       if (disposed || seq !== fetchSeq) return
       widget?.applyNewData(kLineDataList, kLineDataList.length > 0)
@@ -581,7 +600,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       })
     }
     get()
-      .catch(e => { props.onError?.({ type: 'data-fetch', message: 'data fetch failed', raw: e }) })
+      .catch(e => { if (!disposed && !request.signal.aborted && seq === fetchSeq) props.onError?.({ type: 'data-fetch', message: 'data fetch failed', raw: e }) })
       .finally(() => { if (seq === fetchSeq) { setLoading(false); setLoadingVisible(false) } })
     return { symbol: s, period: p }
   })

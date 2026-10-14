@@ -131,3 +131,5 @@ export {
 
 export { mountAnalyticalWidget } from './widget/mountWidget'
 export type { AnalyticalWidgetProps, MountedWidget } from './widget/mountWidget'
+
+export type { DatafeedRequestContext } from './types'

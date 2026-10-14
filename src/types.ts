@@ -37,9 +37,18 @@ export interface Period {
 
 export type DatafeedSubscribeCallback = (data: KLineData) => void
 
+/** Optional request context. Legacy four-argument providers remain compatible.
+ * Each chart owns its signals; providers should pass signal to their fetch calls.
+ * A legacy single-callback provider instance must not be shared between charts.
+ */
+export interface DatafeedRequestContext {
+  signal: AbortSignal
+  reason: 'initial' | 'load-more' | 'resume'
+}
+
 export interface Datafeed {
   searchSymbols (search?: string): Promise<SymbolInfo[]>
-  getHistoryKLineData (symbol: SymbolInfo, period: Period, from: number, to: number): Promise<KLineData[]>
+  getHistoryKLineData (symbol: SymbolInfo, period: Period, from: number, to: number, context?: DatafeedRequestContext): Promise<KLineData[]>
   subscribe (symbol: SymbolInfo, period: Period, callback: DatafeedSubscribeCallback): void
   unsubscribe (symbol: SymbolInfo, period: Period): void
   /** 释放 datafeed 持有的资源（如 WebSocket 连接）。可选实现。 */

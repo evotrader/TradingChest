@@ -14,7 +14,7 @@
 
 import { KLineData } from 'klinecharts'
 
-import { Datafeed, SymbolInfo, Period, DatafeedSubscribeCallback } from './types'
+import { Datafeed, SymbolInfo, Period, DatafeedSubscribeCallback, DatafeedRequestContext } from './types'
 import { ReconnectingWebSocket } from './datafeed/ReconnectingWebSocket'
 
 
@@ -69,11 +69,16 @@ export default class DefaultDatafeed implements Datafeed {
     }
   }
 
-  async getHistoryKLineData (symbol: SymbolInfo, period: Period, from: number, to: number): Promise<KLineData[]> {
+  async getHistoryKLineData (symbol: SymbolInfo, period: Period, from: number, to: number, context?: DatafeedRequestContext): Promise<KLineData[]> {
+    const controller = new AbortController()
+    const abort = () => controller.abort(context?.signal.reason)
+    if (context?.signal.aborted) abort()
+    else context?.signal.addEventListener('abort', abort, { once: true })
+    const timeout = setTimeout(() => controller.abort(new DOMException('History request timed out', 'TimeoutError')), this._fetchTimeout)
     try {
       const response = await fetch(
         `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol.ticker)}/range/${period.multiplier}/${period.timespan}/${from}/${to}?apiKey=${this._apiKey}`,
-        { signal: AbortSignal.timeout(this._fetchTimeout) }
+        { signal: controller.signal }
       )
       if (!response.ok) {
         console.warn(`getHistoryKLineData failed: ${response.status} ${response.statusText}`)
@@ -90,8 +95,12 @@ export default class DefaultDatafeed implements Datafeed {
         turnover: data.vw
       }))
     } catch (e) {
+      if (context?.signal.aborted) throw e
       console.warn('getHistoryKLineData error:', e)
       return []
+    } finally {
+      clearTimeout(timeout)
+      context?.signal.removeEventListener('abort', abort)
     }
   }
 

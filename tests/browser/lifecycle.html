@@ -7,10 +7,10 @@ const bars = Array.from({length: 20}, (_, i) => ({timestamp: 1700000000000 + i*6
 window.setup = (pending = false, container = document.querySelector('#chart')) => {
   let resolveHistory
   const history = pending ? new Promise(resolve => { resolveHistory = resolve }) : Promise.resolve(bars)
-  const state = { histories: 0, subscriptions: 0, unsubscribes: 0, feedDisposals: 0, alerts: [], replayAlerts: [], created: [], deleted: [], indicatorClicks: [] }
+  const state = { requests: [], histories: 0, subscriptions: 0, unsubscribes: 0, feedDisposals: 0, alerts: [], replayAlerts: [], created: [], deleted: [], indicatorClicks: [] }
   const feed = {
     searchSymbols: async () => [],
-    getHistoryKLineData: (_s, _p, _from, to) => { state.histories++; return to < bars[0].timestamp ? Promise.resolve([]) : history },
+    getHistoryKLineData: (_s, _p, _from, to, context) => { state.requests.push(context); state.histories++; return to < bars[0].timestamp ? Promise.resolve([]) : history },
     subscribe: (_s, _p, callback) => { state.subscriptions++; state.tick = callback },
     unsubscribe: () => { state.unsubscribes++ },
     dispose: () => { state.feedDisposals++ },

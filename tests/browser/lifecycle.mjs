@@ -12,6 +12,7 @@ try {
   await page.evaluate(() => { setup(true); test.chart.dispose(); test.resolveHistory() })
   await page.waitForTimeout(100)
   assert.equal(await page.evaluate(() => test.state.subscriptions), 0, 'late history resubscribed after disposal')
+  assert.equal(await page.evaluate(() => test.state.requests[0].signal.aborted), true, 'dispose did not abort history')
   await open(); await page.evaluate(() => setup())
   await page.waitForFunction(() => test.state.subscriptions === 1)
   const replay = await page.evaluate(() => {

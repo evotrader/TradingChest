@@ -194,4 +194,35 @@ describe('chart lifecycle isolation', () => {
     } finally { chart.dispose(); el.remove() }
   })
 
+  it('aborts superseded history and pagination without invalidating another chart request', async () => {
+    const first = mount(vi.fn().mockReturnValue(new Promise(() => {})))
+    const initial = first.feed.getHistoryKLineData.mock.calls[0][4]
+    const second = mount(vi.fn().mockReturnValue(new Promise(() => {})))
+    const other = second.feed.getHistoryKLineData.mock.calls[0][4]
+    expect(initial.signal.aborted).toBe(false)
+    first.api.setSymbol({ticker:'NEXT'}); await tick()
+    expect(initial.signal.aborted).toBe(true)
+    expect(other.signal.aborted).toBe(false)
+    const next = first.feed.getHistoryKLineData.mock.calls.at(-1)![4]
+    first.unmount()
+    expect(next.signal.aborted).toBe(true)
+    expect(other.signal.aborted).toBe(false)
+    second.unmount()
+    expect(other.signal.aborted).toBe(true)
+  })
+
+  it('aborts pagination on replay and aborts replay-resume history on dispose', async () => {
+    const host = mount(); await tick()
+    mock.loadMore(bars[0].timestamp)
+    const pagination = host.feed.getHistoryKLineData.mock.calls.at(-1)![4]
+    expect(pagination.reason).toBe('load-more')
+    host.api.startReplay(2)
+    expect(pagination.signal.aborted).toBe(true)
+    host.api.stopReplay()
+    const resumed = host.feed.getHistoryKLineData.mock.calls.at(-1)![4]
+    expect(resumed.reason).toBe('resume')
+    host.unmount()
+    expect(resumed.signal.aborted).toBe(true)
+  })
+
 })

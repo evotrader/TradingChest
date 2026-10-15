@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, Component, ErrorBoundary } from 'solid-js'
+import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, Component, ErrorBoundary,untrack } from 'solid-js'
 
 import {
   init, dispose, utils, Nullable, Chart, OverlayMode, Styles,
@@ -37,6 +37,8 @@ import { translateTimezone } from './widget/timezone-modal/data'
 import { SymbolInfo, Period, ChartProOptions, ChartPro } from './types'
 import { indicatorRegistry } from './indicator'
 import { EngineDataLoader } from './core/engineDataLoader'
+import {DrawingHistory} from './drawing/history'
+import type {DrawingHistoryState,DrawingSnapshot,DrawingChange} from './drawing/types'
 import { buildStyles } from './core/buildStyles'
 import type { OverlayLifecycleEvent, OverlayLifecycleSource } from './types'
 
@@ -46,7 +48,12 @@ export interface ChartComponentApi extends ChartPro {
   createDrawing: (overlay: OverlayCreate) => void
 }
 
-export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'>> {
+export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'|'onDrawingSelect'|'drawingOwner'|'isDrawingEditable'|'commitDrawing'|'onDrawingHistoryChange'>> {
+  onDrawingSelect?:ChartProOptions['onDrawingSelect']
+  drawingOwner?:ChartProOptions['drawingOwner']
+  isDrawingEditable?:ChartProOptions['isDrawingEditable']
+  commitDrawing?:ChartProOptions['commitDrawing']
+  onDrawingHistoryChange?:ChartProOptions['onDrawingHistoryChange']
   onDataState?: ChartProOptions['onDataState']
   onDataReady?: ChartProOptions['onDataReady']
   ref: (chart: ChartComponentApi) => void
@@ -86,9 +93,10 @@ async function createIndicator (widget: Nullable<Chart>, indicatorName: string, 
 function snapshotOverlay (overlay: Overlay): OverlayLifecycleEvent['overlay'] {
   return {
     id: overlay.id,
+    paneId:overlay.paneId,
     groupId: overlay.groupId,
     name: overlay.name,
-    points: (overlay.points ?? []).map(point => ({ ...point })),
+    points: (overlay.points ?? []).map(({timestamp,dataIndex,value}) => timestamp===undefined?{dataIndex,value}:{timestamp,value}),
     extendData: overlay.extendData,
     styles: overlay.styles,
     lock: overlay.lock,
@@ -144,14 +152,9 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   } | null>(null)
 
   const notifyOverlay = (source: OverlayLifecycleSource, overlay: Overlay, kind: 'create' | 'update' | 'delete') => {
-    const event = { overlay: snapshotOverlay(overlay), source }
-    if (kind === 'create') {
-      props.onOverlayCreate?.(event)
-    } else if (kind === 'update') {
-      props.onOverlayUpdate?.(event)
-    } else {
-      props.onOverlayDelete?.(event)
-    }
+    if(applyingDrawing)return
+    const value=snapshotOverlay(overlay)
+    void commitDrawing({kind,logicalId:overlay.id,after:kind==='delete'?null:{logicalId:overlay.id,owner:drawingHistory.getDrawings().find(d=>d.logicalId===overlay.id)?.owner??props.drawingOwner?.(value)??'local',overlay:value},source}).catch(reason=>setDrawingState({...drawingHistory.getState(),error:reason instanceof Error?reason.message:String(reason)}))
   }
 
   const promptTextOverlay = (overlay: Overlay) => {
@@ -171,6 +174,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   const markSelectedOverlay = (overlay: Overlay) => {
     if (overlay.id) {
+      props.onDrawingSelect?.(overlay.id)
       const points = overlay.points ?? []
       let x = 0, y = 0
       if (points.length > 0 && widget) {
@@ -189,14 +193,17 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         'fibonacciCircle',
       ]
       const hasFill = fillOverlays.includes(overlay.name ?? '')
+      const defaults=widget?.getStyles().overlay,own=overlay.styles
+      const line={...defaults?.line,...own?.line}
+      const fill=own?.polygon?.color??own?.rect?.color
       setSelectedOverlay({
         id: overlay.id,
         x: Math.max(100, x),
         y: Math.max(10, y),
-        color: '#1677ff',
-        fillColor: hasFill ? 'rgba(22, 119, 255, 0.15)' : undefined,
-        lineWidth: 1,
-        lineStyle: 'solid',
+        color: own?.line?.color??own?.text?.color??defaults?.line.color??'#1677ff',
+        fillColor: hasFill ? typeof fill==='string'?fill:'rgba(22, 119, 255, 0.15)' : undefined,
+        lineWidth: line.size??1,
+        lineStyle: line.style==='dashed'&&line.dashedValue?.[0]===1?'dotted':line.style??'solid',
         locked: overlay.lock ?? false
       })
     }
@@ -207,6 +214,12 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if (overlay) {
       notifyOverlay(source, overlay, 'update')
     }
+  }
+  const drawingStyles=(id:string,inputs:Parameters<typeof buildStyles>[0])=>{
+    const defaults=widget?.getStyles().overlay??{},own=widget?.getOverlays({id})[0]?.styles??{},next=buildStyles(inputs)
+    const result:any={}
+    for(const key of new Set([...Object.keys(defaults),...Object.keys(own),...Object.keys(next)]))result[key]={...(defaults as any)[key],...(own as any)[key],...next[key]}
+    result.text={...result.text,color:inputs.color};return result
   }
 
   // 回放状态
@@ -263,6 +276,37 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   // Only drawings created through this instance's UI belong to its shortcuts.
   const ownedDrawingIds = new Set<string>()
   const completedDrawingIds = new Set<string>()
+  let applyingDrawing=false
+  const [drawingState,setDrawingState]=createSignal<DrawingHistoryState>({pending:0,canUndo:false,canRedo:false,uncertainLogicalIds:[]})
+  const editable=(overlay:OverlayLifecycleEvent['overlay'])=>overlay.name!=='alertLine'&&!overlay.id?.startsWith('alert_')&&(props.isDrawingEditable?.(overlay)??true)
+  const applyDrawing=(id:string,value:DrawingSnapshot|null):DrawingSnapshot|null=>{
+    if(!widget)throw Error('图表尚未就绪')
+    if(value?.overlay.paneId&&!widget.getPaneOptions(value.overlay.paneId))throw Error('绘图所在副图不存在，请恢复对应指标后刷新标注')
+    const selected=selectedOverlay()?.id===id
+    applyingDrawing=true
+    try{
+      widget.removeOverlay({id});ownedDrawingIds.delete(id);completedDrawingIds.delete(id)
+      if(!value){if(selected)setSelectedOverlay(null);return null}
+      const overlay=value.overlay
+      const created=widget.createOverlay({...overlay,id,styles:overlay.styles??undefined,extendData:overlay.extendData??undefined,...drawingHandlers()})
+      const actual=widget.getOverlays({id})[0]
+      if(created!==id||!actual||(overlay.paneId&&actual.paneId!==overlay.paneId))throw Error('已确认绘图无法应用到图表，请刷新标注')
+      ownedDrawingIds.add(id);completedDrawingIds.add(id)
+      if(selected)markSelectedOverlay(actual)
+      return {...value,logicalId:id,overlay:snapshotOverlay(actual)}
+    }finally{applyingDrawing=false}
+  }
+  const drawingHistory=new DrawingHistory({
+    context:()=>({symbol:symbol(),period:period()}),apply:applyDrawing,commit:change=>props.commitDrawing?props.commitDrawing(change):Promise.resolve({status:'rejected',message:'后端绘图没有接入确认回调'}),
+    onChange:state=>{if(disposed)return;setDrawingState(state);props.onDrawingHistoryChange?.(state);queueMicrotask(()=>{if(!disposed)widget?.resize()})},
+    onConfirmed:change=>{const event={overlay:(change.after??change.before)!.overlay,source:change.source};if(change.kind==='create')props.onOverlayCreate?.(event);else if(change.kind==='update')props.onOverlayUpdate?.(event);else props.onOverlayDelete?.(event)},
+  })
+  const commitDrawing=(change:Pick<DrawingChange,'kind'|'logicalId'|'after'|'source'>)=>{
+    if(!widget)return Promise.reject(Error('图表尚未就绪'))
+    const overlay=change.after?.overlay??drawingHistory.getDrawings().find(d=>d.logicalId===change.logicalId)?.overlay
+    if(overlay&&!editable(overlay))return Promise.reject(Error('系统覆盖物不能作为可编辑绘图'))
+    return drawingHistory.submit(change.kind,change.logicalId,change.after,change.source)
+  }
   let activeDrawingId: string | null = null
   const cancelDrawing = () => {
     if (activeDrawingId) widget?.removeOverlay({ id: activeDrawingId })
@@ -276,11 +320,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       setSelectedOverlay(null)
     }
   }
-  const createDrawing = (overlay: OverlayCreate) => {
-    if (disposed) return
-    cancelDrawing()
-    const id = widget?.createOverlay({
-      ...overlay,
+  function drawingHandlers():Partial<OverlayCreate>{return {
       onDrawEnd: (event) => {
         activeDrawingId = null
         completedDrawingIds.add(event.overlay.id)
@@ -297,10 +337,12 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         return true
       },
       onDeselected: () => {
+        props.onDrawingSelect?.(null)
         setSelectedOverlay(null)
         return true
       },
       onRemoved: (event) => {
+        if(applyingDrawing)return true
         if (activeDrawingId === event.overlay.id) activeDrawingId = null
         ownedDrawingIds.delete(event.overlay.id)
         if (completedDrawingIds.delete(event.overlay.id)) {
@@ -309,7 +351,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         setSelectedOverlay(null)
         return true
       }
-    })
+    }}
+  const createDrawing = (overlay: OverlayCreate) => {
+    if (disposed) return
+    cancelDrawing()
+    const id = widget?.createOverlay({...overlay,...drawingHandlers()})
     if (typeof id === 'string') {
       ownedDrawingIds.add(id)
       const drawing = widget?.getOverlays({id})[0]
@@ -320,6 +366,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   props.ref({
     locateTimestamp: () => { throw new Error('[TradingChest] locateTimestamp must be called on KLineChartPro instance') },
     cancelDrawing, deleteSelectedDrawing, createDrawing,
+    commitDrawing,
+    getDrawings:()=>drawingHistory.getDrawings(),
+    getDrawingHistoryState:()=>drawingHistory.getState(),
+    restoreDrawings:(owner,values)=>{if(values.some(value=>!editable(value.overlay)))throw Error('系统覆盖物不能恢复为可编辑绘图');drawingHistory.reconcile(owner,values)},
+    resetDrawingHistory:()=>drawingHistory.reset(),
+    undoDrawing:()=>drawingHistory.undo(),
+    redoDrawing:()=>drawingHistory.redo(),
     reloadData: options => replayEngine ? Promise.reject(new Error('回放中请先退出回放，再重新加载行情')) : loader?.reload(options?.preserveViewport ?? true) ?? Promise.resolve(),
     applySnapshot: snapshot => loader?.applySnapshot(snapshot) ?? Promise.reject(new Error('图表尚未就绪')),
     setTheme,
@@ -492,6 +545,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   onCleanup(() => {
     disposed = true
+    drawingHistory.dispose()
     loader?.dispose()
     window.removeEventListener('resize', documentResize)
     widgetRef!.removeEventListener('keydown', handleKeyDown)
@@ -521,7 +575,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   createEffect((prev?: PrevSymbolPeriod) => {
     const s = symbol(), p = period()
     if(!engineReady())return undefined
-    if (prev) props.onDataReset?.(s)
+    if (prev) untrack(()=>{cancelDrawing();drawingHistory.reset(true);setSelectedOverlay(null);props.onDataReset?.(s)})
     setLoadError('')
     loader?.activate(s,p)
     return {symbol:s,period:p}
@@ -727,6 +781,12 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           }}
         />
       </Show>
+      <div class="klinecharts-pro-drawing-history" style={{display:'flex','flex-wrap':'wrap',gap:'8px',padding:'4px 8px','font-size':'12px'}}>
+        <button aria-label="撤销绘图" disabled={!drawingState().canUndo||drawingState().pending>0} onClick={()=>void drawingHistory.undo().catch(()=>{})}>撤销绘图</button>
+        <button aria-label="重做绘图" disabled={!drawingState().canRedo||drawingState().pending>0} onClick={()=>void drawingHistory.redo().catch(()=>{})}>重做绘图</button>
+        <Show when={drawingState().pending>0}><span role="status">等待确认：{drawingState().pending} 项</span></Show>
+        <Show when={drawingState().error}><span role="alert">{drawingState().error}</span></Show>
+      </div>
       <PeriodBar
         locale={props.locale}
         symbol={symbol()}
@@ -771,10 +831,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             onDrawingItemClick={overlay => {
               createDrawing(overlay)
             }}
-            onModeChange={mode => { widget?.overrideOverlay({ mode: mode as OverlayMode }) }}
-            onLockChange={lock => { widget?.overrideOverlay({ lock }) }}
-            onVisibleChange={visible => { widget?.overrideOverlay({ visible }) }}
-            onRemoveClick={(groupId) => { widget?.removeOverlay({ groupId }) }}/>
+            onModeChange={mode => { for(const id of ownedDrawingIds)widget?.overrideOverlay({id,mode:mode as OverlayMode}) }}
+            onLockChange={lock => { for(const id of ownedDrawingIds){widget?.overrideOverlay({id,lock});notifySelectedOverlayUpdate('property-bar',id)} }}
+            onVisibleChange={visible => { for(const id of ownedDrawingIds){widget?.overrideOverlay({id,visible});notifySelectedOverlayUpdate('property-bar',id)} }}
+            onRemoveClick={(groupId) => { for(const id of [...ownedDrawingIds]){const overlay=widget?.getOverlays({id})[0];if(overlay&&(!groupId||overlay.groupId===groupId))widget?.removeOverlay({id})} }}/>
         </Show>
         <div
           ref={widgetRef}
@@ -795,7 +855,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             const info = selectedOverlay()
             if (info && widget) {
               const next = { ...info, color }
-              widget.overrideOverlay({ id: info.id, styles: buildStyles(next) })
+              widget.overrideOverlay({ id: info.id, styles: drawingStyles(info.id,next) })
               setSelectedOverlay(next)
               notifySelectedOverlayUpdate('property-bar', info.id)
             }
@@ -804,7 +864,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             const info = selectedOverlay()
             if (info && widget) {
               const next = { ...info, fillColor: fillColor === 'transparent' ? 'rgba(0,0,0,0)' : fillColor }
-              widget.overrideOverlay({ id: info.id, styles: buildStyles(next) })
+              widget.overrideOverlay({ id: info.id, styles: drawingStyles(info.id,next) })
               setSelectedOverlay(next)
               notifySelectedOverlayUpdate('property-bar', info.id)
             }
@@ -813,7 +873,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             const info = selectedOverlay()
             if (info && widget) {
               const next = { ...info, lineWidth: width }
-              widget.overrideOverlay({ id: info.id, styles: buildStyles(next) })
+              widget.overrideOverlay({ id: info.id, styles: drawingStyles(info.id,next) })
               setSelectedOverlay(next)
               notifySelectedOverlayUpdate('property-bar', info.id)
             }
@@ -822,7 +882,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             const info = selectedOverlay()
             if (info && widget) {
               const next = { ...info, lineStyle: style }
-              widget.overrideOverlay({ id: info.id, styles: buildStyles(next) })
+              widget.overrideOverlay({ id: info.id, styles: drawingStyles(info.id,next) })
               setSelectedOverlay(next)
               notifySelectedOverlayUpdate('property-bar', info.id)
             }

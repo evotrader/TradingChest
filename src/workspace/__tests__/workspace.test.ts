@@ -17,8 +17,8 @@ function setup(){
     getPeriods,storage:localStorage,mountCell:(_host,cell)=>{
       mounts.push(cell.context)
       const actions=new Map(),engine={resize:vi.fn(),getDom:()=>null,subscribeAction:vi.fn((name,cb)=>actions.set(name,cb)),unsubscribeAction:vi.fn(),getDataList:()=>[{timestamp:1,close:1}],getVisibleRange:()=>({from:0,to:1}),executeAction:vi.fn()}
-      const shortcut={setEnabled:vi.fn()};charts[cell.cellId]={engine,shortcut,actions}
-      return {ready:Promise.resolve({getChart:()=>engine,getShortcutManager:()=>shortcut} as unknown as ChartPro),dispose:()=>disposed.push(cell.context)}
+      const shortcut={setEnabled:vi.fn()},drawing={pending:0};charts[cell.cellId]={engine,shortcut,actions,drawing}
+      return {ready:Promise.resolve({getChart:()=>engine,getShortcutManager:()=>shortcut,getDrawingHistoryState:()=>drawing} as unknown as ChartPro),dispose:()=>disposed.push(cell.context)}
     }})
   instances.push(workspace);return {workspace,container,disposed,mounts,charts,getPeriods}
 }
@@ -31,6 +31,14 @@ describe('workspace ownership',()=>{
     await workspace.setLayout(1);expect(disposed).toEqual(['original:secondary-1','original:secondary-2','original:secondary-3'])
     expect(workspace.getCells().map(c=>c.cellId)).toEqual(['primary'])
     expect(charts.primary.engine.unsubscribeAction).not.toHaveBeenCalled()
+  })
+  it('retains the actual cell root and selector while a drawing write awaits confirmation',async()=>{
+    const {workspace,container,mounts,disposed,charts}=setup();await settle();await workspace.setLayout(2);await settle();
+    const before=workspace.getCells()[1].chart,mountCount=mounts.length;charts['secondary-1'].drawing.pending=1;
+    const symbol=container.querySelector<HTMLSelectElement>('[aria-label="标的 secondary-1"]')!;symbol.value='B.X';symbol.dispatchEvent(new Event('change'));await settle();
+    expect(symbol.value).toBe('A.X');expect(mounts).toHaveLength(mountCount);expect(workspace.getCells()[1].chart).toBe(before);
+    await expect(workspace.setLayout(1)).rejects.toThrow('绘图提交尚未确认');expect(disposed).toEqual([]);
+    charts['secondary-1'].drawing.pending=0;await workspace.setLayout(1);expect(disposed).toEqual(['original:secondary-1']);
   })
   it('does not replace current cells or damaged saved data on load failure',async()=>{
     const {workspace}=setup();await settle();localStorage.setItem('trading-chest-workspace-v1-original','{"version":1,"layout":4}')

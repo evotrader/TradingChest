@@ -1,3 +1,4 @@
+import {resolveDrawingPane} from '../drawing/pane'
 import type { Chart, DeepPartial, Styles, YAxisOverride } from 'klinecharts'
 import type { ChartPro } from '../types'
 import {isChartLayoutV2, migrateLayoutV1, jsonSafe, type ChartLayoutV2, type LayoutIndicator, type LayoutJson} from './v2'
@@ -93,6 +94,10 @@ export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3):Prom
   if(!isChartLayoutV3(layout))throw Error('布局结构无效')
   const chart=chartPro.getChart();if(!chart)throw Error('图表尚未就绪')
   if(layout.context?.ticker && layout.context.ticker!==chartPro.getSymbol().ticker)throw Error('布局标的与当前图表不匹配')
+  if(chartPro.getDrawingHistoryState().pending)throw Error('绘图提交尚未确认，请完成后再恢复布局')
+  if(chartPro.getDrawingHistoryState().uncertainLogicalIds.length)throw Error('绘图提交结果待确认，请刷新标注后恢复布局')
+  const backendDrawings=chartPro.getDrawings().filter(d=>d.owner==='backend').map(d=>({drawing:d,names:d.overlay.paneId&&d.overlay.paneId!=='candle_pane'?chart.getIndicators({paneId:d.overlay.paneId}).map(({id,name,calcParams})=>({id,name,calcParams})):[]}))
+  chartPro.resetDrawingHistory()
   chartPro.setTheme(layout.theme);chartPro.setLocale(layout.locale);chartPro.setTimezone(layout.timezone)
   chart.setStyles(layout.styles as DeepPartial<Styles> ?? {})
   for(const indicator of chart.getIndicators())if(!['TradeVis','COMPARE'].includes(indicator.name))chart.removeIndicator({id:indicator.id})
@@ -108,6 +113,9 @@ export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3):Prom
     if(!chart.getYAxes({id,paneId:axis.paneId}).length)chart.createYAxis({...config,id} as YAxisOverride)
     else chart.overrideYAxis({...config,id})
   }
-  for(const overlay of layout.overlayData)chart.createOverlay({...overlay,points:overlay.points})
+  chartPro.restoreDrawings('local',layout.overlayData.map(overlay=>({logicalId:overlay.id??`local-${crypto.randomUUID()}`,owner:'local',overlay:{...overlay,id:overlay.id??'',styles:overlay.styles,extendData:overlay.extendData} as import('../types').OverlaySnapshot})))
+  chartPro.restoreDrawings('backend',backendDrawings.map(({drawing,names})=>{
+    return {...drawing,overlay:{...drawing.overlay,paneId:resolveDrawingPane(chart,drawing.overlay.paneId,names)}}
+  }))
   if(layout.viewport){chart.setBarSpace(layout.viewport.barSpace);const index=chart.getDataList().findIndex(b=>b.timestamp===layout.viewport!.toTimestamp);if(index>=0)chart.scrollToDataIndex(index,0)}
 }

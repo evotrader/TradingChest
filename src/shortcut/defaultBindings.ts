@@ -21,6 +21,9 @@ const defaultBindings: ShortcutBinding[] = [
   // 图表操作快捷键
   { combo: 'escape', action: 'chart:cancelDraw', descriptionKey: 'shortcut_cancel_draw' },
   { combo: 'delete', action: 'chart:deleteSelected', descriptionKey: 'shortcut_delete_selected' },
+  { combo: 'ctrl+z', action: 'drawing:undo', descriptionKey: '撤销绘图' },
+  { combo: 'ctrl+shift+z', action: 'drawing:redo', descriptionKey: '重做绘图' },
+  { combo: 'ctrl+y', action: 'drawing:redo', descriptionKey: '重做绘图' },
   { combo: 'alt+s', action: 'chart:screenshot', descriptionKey: 'shortcut_screenshot' },
 
   // 导航快捷键

@@ -140,3 +140,11 @@ new KLineChartPro(
 `primary` 保留宿主原 context，新增窗格为 `${context}:secondary-N`。`WorkspaceDocument.version=1` 存储稳定 ID、每窗格 v3 布局、活动窗格、同步项和尺寸比例。宿主显式传入 storage 才启用存储；加载先验证目录、读取各图并恢复成功，之后替换当前工作台。失败保留当前工作台及保存原件。系统绘图不进入捕获；后端标注仅保存引用，由宿主重新读取。
 
 公共 `ChartPro.getShortcutManager()` 和 `getReplayEngine()` 返回对应对象的公开结构接口，避免不同声明入口的私有字段造成类型身份冲突；运行时返回同一对象，全部公开方法仍可调用。
+
+## 绘图确认与历史
+
+`commitDrawing(change)` 接收 `kind`、稳定 `logicalId`、目标 `after` 和 `source`。同一图表串行处理，库为本地绘图确认，后端归属必须由 `ChartProOptions.commitDrawing` 返回 `DrawingCommitResult`：`confirmed` 携带真实快照及后端 ID，`rejected` 表示明确失败，`uncertain` 表示尚不能确定并可携带核对后的快照。不要将超时直接当作未提交或自动重发创建。
+
+`getDrawings()` 返回确认快照（含 pane）；`getDrawingHistoryState()` 返回等待数量、可撤销／重做及待确认对象。`undoDrawing()`／`redoDrawing()` 仍走同一确认回调；删除后撤销必须使用重新创建返回的新后端 ID。`restoreDrawings(owner, snapshots)` 是外部权威读取恢复，不发送 CRUD，也不将恢复动作写入历史；`resetDrawingHistory()` 使旧历史失效。
+
+`drawingOwner` 区分本地和后端，`isDrawingEditable` 保护宿主系统覆盖物，`onDrawingSelect` 通知稳定逻辑 ID，`onDrawingHistoryChange` 通知确认状态。绘图工具、属性栏和快捷键共用该协议。输入框使用原生撤销；workspace 仅将快捷键发给活动窗格。切换上下文和恢复布局使历史失效，历史不存入布局。

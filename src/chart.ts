@@ -92,3 +92,7 @@ export {saveLayoutV3,loadLayoutV3,deleteLayoutV3,listLayoutsV3,migrateLayoutToV3
 export type {ChartLayoutV3,LayoutResult,LayoutIndicatorV3} from './persistence/v3'
 export {ChartWorkspace,isWorkspaceDocument} from './workspace/ChartWorkspace'
 export type {ChartWorkspaceOptions,WorkspaceDocument,WorkspaceCell,WorkspaceBinding,WorkspaceLayout,WorkspaceSync} from './workspace/types'
+export type {DrawingOwner,DrawingSource,DrawingSnapshot,DrawingChange,DrawingCommitResult,DrawingHistoryState} from './drawing/types'
+
+export {resolveDrawingPane} from './drawing/pane'
+export type {DrawingPaneIndicator} from './drawing/pane'

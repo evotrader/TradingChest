@@ -89,11 +89,13 @@ export type OverlayLifecycleSource =
   | 'property-bar'
   | 'keyboard'
   | 'programmatic'
+  | 'manual'
+  | 'history'
 
 export type OverlaySnapshot = Pick<
   Overlay,
   'id' | 'groupId' | 'name' | 'points' | 'extendData' | 'styles' | 'lock' | 'visible'
->
+> & {paneId?:string}
 
 export interface OverlayLifecycleEvent {
   overlay: OverlaySnapshot
@@ -101,6 +103,11 @@ export interface OverlayLifecycleEvent {
 }
 
 export interface ChartProOptions {
+  onDrawingSelect?: (logicalId:string|null)=>void
+  drawingOwner?: (overlay:OverlaySnapshot)=>import('./drawing/types').DrawingOwner
+  isDrawingEditable?: (overlay:OverlaySnapshot)=>boolean
+  commitDrawing?: (change:import('./drawing/types').DrawingChange)=>Promise<import('./drawing/types').DrawingCommitResult>
+  onDrawingHistoryChange?: (state:import('./drawing/types').DrawingHistoryState)=>void
   onDataState?: (state: ChartDataState) => void
   /** Initial history was applied for this exact symbol/period. */
   onDataReady?: (context: { symbol: SymbolInfo, period: Period }) => void
@@ -136,6 +143,13 @@ export interface ChartProOptions {
 }
 
 export interface ChartPro {
+  commitDrawing(change:Pick<import('./drawing/types').DrawingChange,'kind'|'logicalId'|'after'|'source'>):Promise<import('./drawing/types').DrawingCommitResult>
+  getDrawings():import('./drawing/types').DrawingSnapshot[]
+  getDrawingHistoryState():import('./drawing/types').DrawingHistoryState
+  restoreDrawings(owner:import('./drawing/types').DrawingOwner,drawings:import('./drawing/types').DrawingSnapshot[]):void
+  resetDrawingHistory():void
+  undoDrawing():Promise<import('./drawing/types').DrawingCommitResult|undefined>
+  redoDrawing():Promise<import('./drawing/types').DrawingCommitResult|undefined>
   /** Navigate existing source time points only; never snap across missing data. */
   locateTimestamp(target: { ticker: string, period: Period, timestamp: number }): import('./core/locateTimestamp').TimestampLocation
   reloadData(options?: {preserveViewport?: boolean}): Promise<void>

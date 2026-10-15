@@ -81,6 +81,11 @@ export default class KLineChartPro implements ChartPro {
           onOverlayCreate={options.onOverlayCreate ?? (() => {})}
           onOverlayUpdate={options.onOverlayUpdate ?? (() => {})}
           onOverlayDelete={options.onOverlayDelete ?? (() => {})}
+          onDrawingSelect={options.onDrawingSelect}
+          drawingOwner={options.drawingOwner}
+          isDrawingEditable={options.isDrawingEditable}
+          commitDrawing={options.commitDrawing}
+          onDrawingHistoryChange={options.onDrawingHistoryChange}
           onPriceUpdate={(price: number, timestamp: number) => {
             if (!this._disposed && !this._replayActive) this._alertManager.checkPrice(price, timestamp)
           }}
@@ -190,6 +195,8 @@ export default class KLineChartPro implements ChartPro {
       'chart:screenshot': () => { this.exportScreenshot() },
       'chart:cancelDraw': () => { this._chartApi?.cancelDrawing() },
       'chart:deleteSelected': () => { this._chartApi?.deleteSelectedDrawing() },
+      'drawing:undo': () => { void this._chartApi?.undoDrawing().catch(()=>{}) },
+      'drawing:redo': () => { void this._chartApi?.redoDrawing().catch(()=>{}) },
       // 绘图工具
       'draw:straightLine': () => { this._chartApi?.createDrawing({ name: 'straightLine' }) },
       'draw:horizontalStraightLine': () => { this._chartApi?.createDrawing({ name: 'horizontalStraightLine' }) },
@@ -532,6 +539,13 @@ export default class KLineChartPro implements ChartPro {
     this._api().stopReplay()
   }
 
+  commitDrawing(change:Parameters<ChartPro['commitDrawing']>[0]) {return this._api().commitDrawing(change)}
+  getDrawings(){return this._api().getDrawings()}
+  getDrawingHistoryState(){return this._api().getDrawingHistoryState()}
+  restoreDrawings(owner:Parameters<ChartPro['restoreDrawings']>[0],drawings:Parameters<ChartPro['restoreDrawings']>[1]){this._api().restoreDrawings(owner,drawings)}
+  resetDrawingHistory(){this._api().resetDrawingHistory()}
+  undoDrawing(){return this._api().undoDrawing()}
+  redoDrawing(){return this._api().redoDrawing()}
   getReplayEngine (): Pick<ReplayEngine,keyof ReplayEngine> | null {
     return this._api().getReplayEngine()
   }

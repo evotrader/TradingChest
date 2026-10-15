@@ -53,7 +53,7 @@ export class ChartWorkspace {
     const label=document.createElement('label');label.textContent='图表布局 '
     this.layoutSelect=document.createElement('select');this.layoutSelect.setAttribute('aria-label','图表布局')
     for(const [value,text] of [[1,'单图'],[2,'双图'],[4,'四图']] as const){const o=new Option(text,String(value));this.layoutSelect.add(o)}
-    this.layoutSelect.onchange=()=>void this.setLayout(Number(this.layoutSelect.value) as WorkspaceLayout).catch(e=>this.error(e))
+    this.layoutSelect.onchange=()=>void this.setLayout(Number(this.layoutSelect.value) as WorkspaceLayout).catch(e=>{this.layoutSelect.value=String(this.layout);this.error(e)})
     label.append(this.layoutSelect);toolbar.append(label)
     for(const [key,text] of Object.entries({symbol:'同步标的',period:'同步周期',crosshair:'同步十字线',viewport:'同步视窗'})){
       const l=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.dataset.sync=key
@@ -105,6 +105,7 @@ export class ChartWorkspace {
     retry.onclick=()=>void (runtime.pro?runtime.pro.reloadData({preserveViewport:true}):this.changeIdentity(runtime,{})).catch(e=>this.error(e))
     this.pending.add(runtime)
     element.onpointerdown=()=>this.setActive(cell.cellId);element.addEventListener('focusin',()=>this.setActive(cell.cellId))
+    element.addEventListener('keydown',event=>{if(!this.busy&&!runtime.transitioning&&runtime.cell.cellId===this.active)runtime.pro?.getShortcutManager()?.getHandler()?.(event)})
     symbolSelect.onchange=()=>{const symbol=this.options.symbols.find(s=>s.ticker===symbolSelect.value);if(symbol)void this.changeIdentity(runtime,{symbol}).catch(e=>{this.resetSelectors(runtime);this.error(e)})}
     periodSelect.onchange=()=>{const value=JSON.parse(periodSelect.value) as Period;void this.changeIdentity(runtime,{period:value}).catch(e=>{this.resetSelectors(runtime);this.error(e)})}
     try{
@@ -138,6 +139,7 @@ export class ChartWorkspace {
   async setLayout(layout:WorkspaceLayout){
     if(![1,2,4].includes(layout))throw Error('布局仅支持单图、双图或四图')
     if(this.busy)throw Error('工作台正在恢复，请稍候')
+    this.assertDrawingIdle(this.cells.slice(layout))
     const seq=++this.operation;this.busy=true
     ++this.alignment
     try{while(this.cells.length<layout){const source=this.cells.find(c=>c.cell.cellId===this.active)??this.cells[0];if(!source)throw Error('主窗格尚未就绪');const id=ids[this.cells.length];const cell=await this.createCell({...source.cell,cellId:id,context:`${this.options.context}:${id}`},this.grid);if(this.disposed||seq!==this.operation){this.disposeCell(cell);return}this.cells.push(cell)}
@@ -151,17 +153,19 @@ export class ChartWorkspace {
     if(change.symbol?.ticker===c.cell.symbol.ticker||change.period&&equalPeriod(change.period,c.cell.period))return
     if(c.transitioning)throw Error('该窗格正在切换标的或周期，请稍候')
     if(!isCurrent())return
+    this.assertDrawingIdle([c])
     if(propagate)++this.alignment
     const seq=++c.identitySeq
-    c.transitioning=true;c.symbolSelect.disabled=true;c.periodSelect.disabled=true
+    c.transitioning=true;c.body.inert=true;c.pro?.getShortcutManager()?.setEnabled(false);c.symbolSelect.disabled=true;c.periodSelect.disabled=true
     try{
       const replacement=await this.createCell({...c.cell,...change},this.grid,false,true)
       if(this.disposed||seq!==c.identitySeq||!isCurrent()||!this.cells.includes(c)){this.disposeCell(replacement);return}
+      try{this.assertDrawingIdle([c])}catch(e){this.disposeCell(replacement);throw e}
       c.element.replaceWith(replacement.element);this.disposeCell(c);this.cells[index]=replacement;this.publishLabels(replacement);this.geometry();if(propagate)this.setActive(replacement.cell.cellId)
       if(propagate&&this.active===replacement.cell.cellId){if(change.symbol&&this.sync.symbol)await this.align('symbol');if(change.period&&this.sync.period)await this.align('period')}
     }finally{
-      c.transitioning=false
-      if(this.cells.includes(c)&&!c.disposed){c.symbolSelect.disabled=this.options.symbols.length===0;c.periodSelect.disabled=c.periodSelect.options.length===0;this.resetSelectors(c)}
+      c.transitioning=false;c.body.inert=false
+      if(this.cells.includes(c)&&!c.disposed){c.symbolSelect.disabled=this.options.symbols.length===0;c.periodSelect.disabled=c.periodSelect.options.length===0;c.pro?.getShortcutManager()?.setEnabled(c.cell.cellId===this.active);this.resetSelectors(c)}
     }
   }
   private async align(key:keyof WorkspaceSync){
@@ -182,7 +186,7 @@ export class ChartWorkspace {
   }
   capture():WorkspaceDocument {
     if(this.busy||this.cells.length!==this.layout||this.cells.some(c=>c.transitioning))throw Error('工作台尚未就绪，未保存')
-    const cells=this.cells.map(c=>{if(!c.pro)throw Error(`${c.cell.cellId} 行情尚未就绪，未保存`);const options=c.binding?.captureOptions?.()??{};return {...c.cell,chart:captureLayout(c.pro,{...options,localDrawingIds:[...(options.localDrawingIds??[]),...c.restoredIds],context:{ticker:c.cell.symbol.ticker,period:{multiplier:c.cell.period.multiplier,timespan:c.cell.period.timespan}}})}})
+    const cells=this.cells.map(c=>{if(!c.pro)throw Error(`${c.cell.cellId} 行情尚未就绪，未保存`);if(c.pro.getDrawingHistoryState().pending)throw Error('绘图提交尚未确认，请完成后再保存工作台');const options=c.binding?.captureOptions?.()??{};return {...c.cell,chart:captureLayout(c.pro,{...options,localDrawingIds:[...(options.localDrawingIds??[]),...c.restoredIds,...c.pro.getDrawings().filter(d=>d.owner==='local').map(d=>d.logicalId)],context:{ticker:c.cell.symbol.ticker,period:{multiplier:c.cell.period.multiplier,timespan:c.cell.period.timespan}}})}})
     const doc:WorkspaceDocument={version:1,layout:this.layout,activeCellId:this.active,sync:{...this.sync},columnRatio:this.columnRatio,rowRatio:this.rowRatio,cells}
     if(!isWorkspaceDocument(doc))throw Error('工作台结构无效，未覆盖保存结果')
     return doc
@@ -205,12 +209,14 @@ export class ChartWorkspace {
   }
   async restore(doc:WorkspaceDocument){
     if(this.busy)throw Error('工作台正在恢复，请稍候')
+    if(this.cells.some(c=>c.pro?.getDrawingHistoryState().pending))throw Error('绘图提交尚未确认，请完成后再加载工作台')
     if(!isWorkspaceDocument(doc))throw Error('工作台结构无效')
     for(const cell of doc.cells){if(!this.options.symbols.some(s=>s.ticker===cell.symbol.ticker))throw Error(`${cell.symbol.ticker} 已不在目录中，请重新选择`);const context=cell.cellId==='primary'?this.options.context:`${this.options.context}:${cell.cellId}`;if(cell.context!==context)throw Error('保存的窗格 context 与当前入口不匹配')}
-    this.busy=true;++this.alignment;const staged:Runtime[]=[];const stage=document.createElement('div');stage.style.cssText='position:absolute;visibility:hidden;pointer-events:none;width:'+this.grid.clientWidth+'px';this.root.append(stage)
+    this.busy=true;for(const c of this.cells){c.body.inert=true;c.pro?.getShortcutManager()?.setEnabled(false)}++this.alignment;const staged:Runtime[]=[];const stage=document.createElement('div');stage.style.cssText='position:absolute;visibility:hidden;pointer-events:none;width:'+this.grid.clientWidth+'px';this.root.append(stage)
     try{
       for(const cell of doc.cells){const c=await this.createCell(cell,stage,true);staged.push(c);if(!c.pro)throw Error('恢复图表尚未就绪');await restoreLayout(c.pro,cell.chart);c.restoredIds=cell.chart.overlayData.flatMap(o=>o.id?[o.id]:[])}
       if(this.disposed)throw Error('工作台已关闭')
+      this.assertDrawingIdle(this.cells)
       for(const c of this.cells)this.disposeCell(c)
       this.cells=staged;for(const c of staged){this.grid.append(c.element);this.publishLabels(c)}
       this.layout=doc.layout;this.sync={...doc.sync};this.columnRatio=doc.columnRatio;this.rowRatio=doc.rowRatio
@@ -218,8 +224,9 @@ export class ChartWorkspace {
       for(const [label,value] of [['左右宽度',this.columnRatio],['上下高度',this.rowRatio]] as const)(this.root.querySelector(`[aria-label="${label}"]`) as HTMLInputElement).value=String(value)
       this.geometry();this.setActive(doc.activeCellId);this.notice.textContent='工作台已恢复；标注内容从后端重新读取'
       for(const c of staged){const viewport=doc.cells.find(saved=>saved.cellId===c.cell.cellId)?.chart.viewport;if(viewport&&c.pro?.getChart()&&!syncViewport(c.pro.getChart()!,{from:viewport.fromTimestamp,to:viewport.toTimestamp}))c.status.textContent='已恢复图形；视窗受引擎边界限制，无法完全对齐'}
-    }catch(e){for(const c of staged)this.disposeCell(c);throw e}finally{stage.remove();this.busy=false}
+    }catch(e){for(const c of staged)this.disposeCell(c);throw e}finally{stage.remove();this.busy=false;for(const c of this.cells){c.body.inert=false;c.pro?.getShortcutManager()?.setEnabled(c.cell.cellId===this.active)}}
   }
+  private assertDrawingIdle(cells:Runtime[]){if(cells.some(c=>c.pro?.getDrawingHistoryState().pending))throw Error('绘图提交尚未确认，请完成后再切换或移除窗格')}
   getCells(){return this.cells.map(c=>({...c.cell,chart:c.pro}))}
   private publishLabels(c:Runtime){c.element.style.display='flex';c.element.dataset.cellId=c.cell.cellId;c.symbolSelect.setAttribute('aria-label',`标的 ${c.cell.cellId}`);c.periodSelect.setAttribute('aria-label',`周期 ${c.cell.cellId}`)}
   private resetSelectors(c:Runtime){c.symbolSelect.value=c.cell.symbol.ticker;c.periodSelect.value=[...c.periodSelect.options].find(o=>equalPeriod(JSON.parse(o.value),c.cell.period))?.value??''}

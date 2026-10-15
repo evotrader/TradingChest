@@ -1,0 +1,18 @@
+<!doctype html><html><body style="margin:0"><div id="host" style="width:1200px"></div><script type="module">
+import {ChartWorkspace,KLineChartPro} from '/src/index.ts'
+import {makeBars} from './syntheticBars.ts'
+import {syncCrosshair,syncViewport,visibleTimestamps} from '/src/workspace/viewportSync.ts'
+window.syncCrosshair=syncCrosshair;window.syncViewport=syncViewport;window.visibleTimestamps=visibleTimestamps
+window.setupWorkspace=async()=>{
+ window.workspace?.dispose();window.charts={};window.subscriptions=0
+ window.workspace=new ChartWorkspace({container:document.querySelector('#host'),context:'isolated',symbols:[{ticker:'A.X'},{ticker:'B.X'}],initialSymbol:{ticker:'A.X'},getPeriods:async()=>[{multiplier:1,timespan:'minute',text:'1m'},{multiplier:1,timespan:'hour',text:'1h'}],mountCell:(host,cell)=>{
+  let resolve;const ready=new Promise(done=>resolve=done),bars=makeBars(2000).map((bar,index)=>({...bar,timestamp:1700000000000+index*(cell.period.timespan==='hour'?3600000:60000)}))
+  const chart=new KLineChartPro({container:host,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:['VOL'],onDataReady:()=>resolve(chart),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,_from,to)=>to<bars[0].timestamp?[]:bars,subscribe:()=>window.subscriptions++,unsubscribe:()=>window.subscriptions--}})
+  window.charts[cell.cellId]=chart;return{ready,dispose:()=>chart.dispose()}
+ }})
+ while(workspace.getCells().length!==1)await new Promise(r=>setTimeout(r,1))
+ await workspace.setLayout(2)
+ while(workspace.getCells().some(c=>!c.chart))await new Promise(r=>setTimeout(r,1))
+}
+window.ready=true
+</script></body></html>

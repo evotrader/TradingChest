@@ -532,7 +532,7 @@ export default class KLineChartPro implements ChartPro {
     this._api().stopReplay()
   }
 
-  getReplayEngine (): ReplayEngine | null {
+  getReplayEngine (): Pick<ReplayEngine,keyof ReplayEngine> | null {
     return this._api().getReplayEngine()
   }
 

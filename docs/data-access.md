@@ -88,3 +88,8 @@ const chart = new KLineChartPro({
 
 
 `onDataState` 返回引擎已确认的 `basis`、末根 `timestamp`、`restoring`、`replay` 和错误。宿主应据此标注当前图形口径；刚收到 HTTP 新口径不等于旧图已完成替换。实盘历史分页通过 `adjustment_end` 沿用当前序列的参考日期，并比较实际累计因子，不能仅比较 adjusted 状态。
+## 工作台宿主
+
+每个 `WorkspaceCell` 有稳定 `cellId`、完整 symbol、period 和 context。`mountCell` 必须为本窗格构造并释放独立 provider，不得共享单回调 feed。目录读取遵守传入的 AbortSignal；移除窗格、身份切换和销毁会取消本窗格工作，不取消其他窗格。
+
+`captureOptions` 只返回确实由本实例用户创建的本地绘图 ID 和后端标注引用。禁止将订单、TradeVis、报警状态或 API 标注复制为本地布局对象。布局恢复不调用标注写接口。

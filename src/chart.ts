@@ -90,3 +90,5 @@ export type { TimestampLocation } from './core/locateTimestamp'
 
 export {saveLayoutV3,loadLayoutV3,deleteLayoutV3,listLayoutsV3,migrateLayoutToV3,isChartLayoutV3,captureLayout,restoreLayout} from './persistence/v3'
 export type {ChartLayoutV3,LayoutResult,LayoutIndicatorV3} from './persistence/v3'
+export {ChartWorkspace,isWorkspaceDocument} from './workspace/ChartWorkspace'
+export type {ChartWorkspaceOptions,WorkspaceDocument,WorkspaceCell,WorkspaceBinding,WorkspaceLayout,WorkspaceSync} from './workspace/types'

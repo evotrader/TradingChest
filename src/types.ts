@@ -161,7 +161,7 @@ export interface ChartPro {
   /** 导出截图 */
   exportScreenshot(options?: { format?: 'png' | 'jpeg', backgroundColor?: string, filename?: string }): void
   /** 获取快捷键管理器 */
-  getShortcutManager(): KeyboardShortcutManager | null
+  getShortcutManager(): Pick<KeyboardShortcutManager,keyof KeyboardShortcutManager> | null
   /** 添加报警线 */
   addAlert(config: import('./alert/types').AlertConfig): void
   /** 更新报警配置（保留触发状态） */
@@ -179,7 +179,7 @@ export interface ChartPro {
   /** 退出回放模式 */
   stopReplay(): void
   /** 获取回放引擎 */
-  getReplayEngine(): import('./replay/ReplayEngine').ReplayEngine | null
+  getReplayEngine(): Pick<import('./replay/ReplayEngine').ReplayEngine,keyof import('./replay/ReplayEngine').ReplayEngine> | null
   /** 创建交易可视化指标（自动连接点击检测） */
   createTradeVisualization(trades: import('./indicator/trade/tradeVisualization').TradeRecord[], paneOptions?: Record<string, unknown>): void
   /** 向报警系统传入最新价格（实时数据到达时调用） */

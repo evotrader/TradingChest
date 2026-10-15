@@ -1,6 +1,6 @@
 <!doctype html><html><body><div id="chart" style="width:1200px;height:700px"></div>
 <script type="module">
-import { KLineChartPro } from '/src/index.ts'
+import { KLineChartPro, ChartWorkspace } from '/src/index.ts'
 import * as engine from 'klinecharts'
 import { indicatorRegistry, indicatorCategories } from '/src/indicator/index.ts'
 import { indicatorLoaders } from '/src/indicator/loaders.ts'
@@ -31,6 +31,26 @@ window.sample = async (count, profileOnly=false) => {
  for(let i=0;i<(profileOnly?0:100);i++) {const start=performance.now();chart.getChart().scrollToDataIndex(count-1-i,0);await frame();interaction.push(performance.now()-start)}
  chart.dispose();await frame()
  return {cold,update,interaction,subscriptions:state.subscriptions}
+}
+window.sampleWorkspace=async(count,layout)=>{
+ const container=document.querySelector('#chart'),ticks=new Map(),proCharts=[],state={subscriptions:0}
+ const t=performance.now()
+ const workspace=new ChartWorkspace({container,context:'performance',symbols:[{ticker:'SYNTHETIC'}],initialSymbol:{ticker:'SYNTHETIC'},getPeriods:async()=>[{timespan:'minute',multiplier:1,text:'1m'}],mountCell:(host,cell)=>{
+  const bars=makeBars(count);let resolve;const ready=new Promise(done=>resolve=done)
+  const chart=new KLineChartPro({container:host,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:['VOL','MACD'],onDataReady:()=>resolve(chart),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,_from,to)=>to<bars[0].timestamp?[]:bars,subscribe:(_s,_p,cb)=>{state.subscriptions++;ticks.set(cell.cellId,{cb,bars})},unsubscribe:()=>{state.subscriptions--;ticks.delete(cell.cellId)}}})
+  proCharts.push(chart);return {ready,dispose:()=>chart.dispose()}
+ }})
+ while(workspace.getCells().length!==1)await new Promise(r=>setTimeout(r,1))
+ await workspace.setLayout(layout)
+ await Promise.all(proCharts.map(p=>settled(p.getChart(),count)));await frame()
+ const cold=performance.now()-t,update=[],interaction=[]
+ for(let i=0;i<100;i++){
+  const start=performance.now(),expected=[]
+  for(const {cb,bars} of ticks.values()){const next={...bars.at(-1),close:bars.at(-1).close+i/10000};expected.push((bars.slice(-5,-1).reduce((sum,b)=>sum+b.close,0)+next.close)/5);cb(next)}
+  await Promise.all(proCharts.map((p,index)=>settled(p.getChart(),count,expected[index])));await frame();update.push(performance.now()-start)
+ }
+ for(let i=0;i<100;i++){const start=performance.now();for(const chart of proCharts)chart.getChart().scrollToDataIndex(count-1-i,0);await frame();interaction.push(performance.now()-start)}
+ workspace.dispose();await frame();return {cold,update,interaction,subscriptions:state.subscriptions}
 }
 window.captureOracle = async () => {
  const bars = makeBars(160), chart=engine.init(document.querySelector('#chart'))

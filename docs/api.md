@@ -131,3 +131,12 @@ new KLineChartPro(
 
 
 `onDataState(state: ChartDataState)` 反映当前已应用数据及恢复状态；`onDataReady` 表示行情应用完成，不表示创建了新的 Chart 实例。
+## 多图工作台
+
+`ChartWorkspace` 管理单图、双图和四图。宿主通过 `symbols`、`getPeriods(symbol, signal)` 提供真实目录，通过 `mountCell(container, cell, signal)` 返回独立图表的 `ready`、`dispose` 和可选捕获参数。图表必须在数据应用后才 ready；每个窗格使用独立 datafeed。`subscribeReady` 使失败后重试成功的实例重新接入工作台。
+
+库提供布局、活动窗格、尺寸比例、四项同步、保存／加载／删除控件。同步默认关闭，十字线只匹配真实时标；视窗按目标可绘制宽度和实际时间交集计算，并校验引擎应用结果。原价格不在不同品种间同步。
+
+`primary` 保留宿主原 context，新增窗格为 `${context}:secondary-N`。`WorkspaceDocument.version=1` 存储稳定 ID、每窗格 v3 布局、活动窗格、同步项和尺寸比例。宿主显式传入 storage 才启用存储；加载先验证目录、读取各图并恢复成功，之后替换当前工作台。失败保留当前工作台及保存原件。系统绘图不进入捕获；后端标注仅保存引用，由宿主重新读取。
+
+公共 `ChartPro.getShortcutManager()` 和 `getReplayEngine()` 返回对应对象的公开结构接口，避免不同声明入口的私有字段造成类型身份冲突；运行时返回同一对象，全部公开方法仍可调用。

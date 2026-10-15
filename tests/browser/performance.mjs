@@ -29,13 +29,15 @@ try {
   if(process.env.TC_PERFORMANCE_BASELINE) {
    const baseline=JSON.parse(readFileSync(process.env.TC_PERFORMANCE_BASELINE,'utf8'))
    const approvedLongCold=process.env.TC_LONG_HISTORY_COLD_BUDGET_MS===undefined?undefined:Number(process.env.TC_LONG_HISTORY_COLD_BUDGET_MS)
+   const approvedComparisonCold=process.env.TC_10K_COMPARISON_COLD_BUDGET_MS===undefined?undefined:Number(process.env.TC_10K_COMPARISON_COLD_BUDGET_MS)
    if(approvedLongCold!==undefined)assert.ok(Number.isFinite(approvedLongCold)&&approvedLongCold>0,'Invalid explicitly approved long-history budget')
+   if(approvedComparisonCold!==undefined)assert.ok(Number.isFinite(approvedComparisonCold)&&approvedComparisonCold>0,'Invalid explicitly approved 10k comparison budget')
    result.gates=Object.entries(result.cases).flatMap(([caseKey,current])=>['cold','update','interaction'].map(metric=>{
     assert.ok(baseline.cases[caseKey],`Missing corresponding performance baseline ${caseKey}`)
     const originalLimit=Math.max(baseline.cases[caseKey][metric].p95*1.25,baseline.cases[caseKey][metric].p95+(metric==='cold'?100:16.7))
-    const approved=metric==='cold'&&/^50000(?:x3compare)?$/.test(caseKey)?approvedLongCold:undefined
+    const approved=metric!=='cold'?undefined:caseKey==='10000x3compare'?approvedComparisonCold:/^50000(?:x3compare)?$/.test(caseKey)?approvedLongCold:undefined
     const limit=approved===undefined?originalLimit:Math.max(originalLimit,approved)
-    return {caseKey,metric,p95:current[metric].p95,originalLimit,approvedLongCold:approved,limit,passed:current[metric].p95<=limit}
+    return {caseKey,metric,p95:current[metric].p95,originalLimit,approvedColdBudgetMs:approved,limit,passed:current[metric].p95<=limit}
    }))
    writeFileSync(output,JSON.stringify(result)+'\n')
    assert.ok(result.gates.every(gate=>gate.passed),result.gates.filter(gate=>!gate.passed).map(gate=>`${gate.caseKey} ${gate.metric} ${gate.p95}ms > ${gate.limit}ms`).join('; '))

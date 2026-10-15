@@ -18,13 +18,12 @@ describe('normalizeToPercent', () => {
     expect(normalizeToPercent([])).toEqual([])
   })
 
-  it('basePrice === 0 返回全零', () => {
+  it('basePrice === 0 明确拒绝而不返回虚假全零', () => {
     const data = [
       { timestamp: 1, open: 0, high: 0, low: 0, close: 0, volume: 0 },
       { timestamp: 2, open: 1, high: 1, low: 1, close: 1, volume: 0 },
     ] as any
-    const result = normalizeToPercent(data)
-    expect(result).toEqual([0, 0])
+    expect(()=>normalizeToPercent(data)).toThrow('基准价格为零')
   })
 
   it('单元素数组返回 [0]', () => {

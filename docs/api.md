@@ -148,3 +148,13 @@ new KLineChartPro(
 `getDrawings()` 返回确认快照（含 pane）；`getDrawingHistoryState()` 返回等待数量、可撤销／重做及待确认对象。`undoDrawing()`／`redoDrawing()` 仍走同一确认回调；删除后撤销必须使用重新创建返回的新后端 ID。`restoreDrawings(owner, snapshots)` 是外部权威读取恢复，不发送 CRUD，也不将恢复动作写入历史；`resetDrawingHistory()` 使旧历史失效。
 
 `drawingOwner` 区分本地和后端，`isDrawingEditable` 保护宿主系统覆盖物，`onDrawingSelect` 通知稳定逻辑 ID，`onDrawingHistoryChange` 通知确认状态。绘图工具、属性栏和快捷键共用该协议。输入框使用原生撤销；workspace 仅将快捷键发给活动窗格。切换上下文和恢复布局使历史失效，历史不存入布局。
+
+## 独立比较与回放
+
+`addComparison(symbol, datafeed): Promise<ComparisonHandle>` 为本条比较取得一个独立 provider；不能传主图 datafeed，也不能在同图多个比较之间共享 provider。handle 包含图表实例、完整标的、周期及实际 indicator ID。`removeComparison(handleId)` 释放单条比较；`cancelComparison(handleId)` 取消尚未完成的添加并释放 provider；`getComparisons()` 提供成员、共同基准、应用的源末根／收益与错误状态。
+
+`ComparisonDatafeed` 支持普通 bar 订阅，或 `subscribeSnapshots(symbol, period, onSnapshot, onError)` 完整快照订阅；`unsubscribe` 暂停，`dispose` 最终释放。宿主的 `comparisonSymbols` 与同步工厂 `createComparisonDatafeed` 为库内目录选择器提供有效值，`onComparisonChange` 接收状态。生产宿主采用原 HTTP OHLCV 持续续读；只读复盘使用固定窗口静态 provider。
+
+比较组按主图与所有成员首个共同实际时标分别归零。缺口不取近邻，基准前不输出，零／非法基准拒绝；新增失败保留原组。全部收益与主收益线共用一个独立 normal 百分比轴，原价蜡烛／订单仍在原价轴；不做 FX 转换。平移或前插历史不重定基准，增加／移除成员和 `resetComparisonRange()` 会显式统一重算；`refreshComparisons()` 重读但保留固定时标。权威基准价格修订会提示并重算，新的复权口径须覆盖既有历史。
+
+只注册通用 COMPARE 模板，实例查询函数和基准放在 extendData；不使用全局 ticker 闭包。回放暂停各 provider，按主图截止裁剪；退出先重读比较再恢复主图与订阅，失败仍保持暂停状态。取消、移除、切换、销毁均使旧回调失效。`normalizeToPercent` 工具也拒绝零／非法基准，不再返回虚假全零。

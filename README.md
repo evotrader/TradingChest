@@ -206,8 +206,12 @@ chart.getAlerts(): AlertConfig[]
 chart.feedPrice(price: number)     // Feed live price for alert checking
 
 // Symbol Comparison
-chart.addComparison(symbol: SymbolInfo): Promise<void>
-chart.removeComparison(ticker: string)
+chart.addComparison(symbol: SymbolInfo, datafeed: ComparisonDatafeed): Promise<ComparisonHandle>
+chart.removeComparison(handleId: string)
+chart.cancelComparison(handleId: string)
+chart.getComparisons(): ComparisonState
+chart.resetComparisonRange(): Promise<void>
+chart.refreshComparisons(): Promise<void>
 
 // Bar Replay
 chart.startReplay(startPosition?: number)

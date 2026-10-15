@@ -14,10 +14,8 @@
 
 import { render } from 'solid-js/web'
 
-import { utils, Nullable, DeepPartial, Styles, registerIndicator } from 'klinecharts'
-import { normalizeToPercent } from './compare'
+import { utils, Nullable, DeepPartial, Styles } from 'klinecharts'
 import { locateDataTimestamp, type TimestampLocation } from './core/locateTimestamp'
-import { historySnapshot } from './core/engineDataLoader'
 
 import ChartProComponent, { type ChartComponentApi } from './ChartProComponent'
 
@@ -81,6 +79,9 @@ export default class KLineChartPro implements ChartPro {
           onOverlayCreate={options.onOverlayCreate ?? (() => {})}
           onOverlayUpdate={options.onOverlayUpdate ?? (() => {})}
           onOverlayDelete={options.onOverlayDelete ?? (() => {})}
+          comparisonSymbols={options.comparisonSymbols}
+          createComparisonDatafeed={options.createComparisonDatafeed}
+          onComparisonChange={options.onComparisonChange}
           onDrawingSelect={options.onDrawingSelect}
           drawingOwner={options.drawingOwner}
           isDrawingEditable={options.isDrawingEditable}
@@ -113,8 +114,6 @@ export default class KLineChartPro implements ChartPro {
             this._historyReady = false
             this._activateAlertSymbol(symbol)
             this._alertManager.resetPrevPrice()
-            // 品种/周期切换时清理比较指标（旧数据时间戳不再对齐）
-            this._clearComparisons()
           }}
           onDataState={options.onDataState}
           onError={options.onError}/>
@@ -236,7 +235,6 @@ export default class KLineChartPro implements ChartPro {
 
   private _shortcutManager: KeyboardShortcutManager
 
-  private _comparisons = new Map<string, string>() // ticker → indicatorName
 
   private _datafeed: import('./types').Datafeed
 
@@ -454,82 +452,16 @@ export default class KLineChartPro implements ChartPro {
     return this._alertManager.getAlerts()
   }
 
-  private _clearComparisons (): void {
-    for (const [ticker, indicatorName] of this._comparisons) {
-      try { this.getChart()?.removeIndicator({paneId:'candle_pane',name:indicatorName}) } catch (_) { /* already disposing */ }
-    }
-    this._comparisons.clear()
-  }
-
-  /**
-   * Add comparison overlay for another symbol.
-   * Known limitation: comparison data is fetched once and not updated with new ticks.
-   */
-  async addComparison (symbol: SymbolInfo): Promise<void> {
+  addComparison(symbol:SymbolInfo,datafeed:import('./compare/types').ComparisonDatafeed){
     this._assertNotDisposed()
-    // 防止重复添加同一品种（先移除旧的）
-    if (this._comparisons.has(symbol.ticker)) {
-      this.removeComparison(symbol.ticker)
-    }
-    const chart = this.getChart()
-    if (!chart) return
-
-    const p = this.getPeriod()
-    const mainData = chart.getDataList()
-    if (mainData.length === 0) return
-
-    const from = mainData[0].timestamp
-    const to = mainData[mainData.length - 1].timestamp
-    const {bars:compData} = historySnapshot(await this._datafeed.getHistoryKLineData(symbol, p, from, to))
-    if (compData.length === 0) return
-
-    const compPercent = normalizeToPercent(compData)
-    const compMap = new Map<number, number>()
-    // Sorted arrays for binary search fallback
-    const compTimestamps = compData.map(d => d.timestamp)
-    compData.forEach((d, i) => { compMap.set(d.timestamp, compPercent[i]) })
-
-    const indicatorName = `COMPARE_${symbol.ticker.replace(/[^A-Z0-9]/g, '_')}`
-    registerIndicator({
-      name: indicatorName,
-      shortName: symbol.shortName ?? symbol.ticker,
-      figures: [{ key: 'pct', title: `${symbol.ticker}: `, type: 'line' }],
-      calc: (dataList) => {
-        return dataList.map(d => {
-          let pct = compMap.get(d.timestamp)
-          if (pct === undefined) {
-            // Binary search for nearest timestamp within tolerance
-            let lo = 0, hi = compTimestamps.length - 1
-            while (lo < hi) {
-              const mid = (lo + hi) >> 1
-              if (compTimestamps[mid] < d.timestamp) lo = mid + 1
-              else hi = mid
-            }
-            // Check lo and lo-1 for closest match within 60s
-            for (const idx of [lo, lo - 1]) {
-              if (idx >= 0 && idx < compTimestamps.length && Math.abs(compTimestamps[idx] - d.timestamp) <= 60000) {
-                pct = compMap.get(compTimestamps[idx])
-                break
-              }
-            }
-          }
-          return { pct }
-        })
-      }
-    })
-
-    chart.createIndicator({name:indicatorName,paneId:'candle_pane'}, true)
-    this._comparisons.set(symbol.ticker, indicatorName)
+    if(datafeed===this._datafeed)return Promise.reject(Error('比较必须使用独立于主图的数据通道'))
+    return this._api().addComparison(symbol,datafeed)
   }
-
-  removeComparison (ticker: string): void {
-    this._assertNotDisposed()
-    const indicatorName = this._comparisons.get(ticker)
-    if (indicatorName) {
-      this.getChart()?.removeIndicator({paneId:'candle_pane',name:indicatorName})
-      this._comparisons.delete(ticker)
-    }
-  }
+  removeComparison(id:string){this._api().removeComparison(id)}
+  cancelComparison(id:string){this._api().cancelComparison(id)}
+  getComparisons(){return this._api().getComparisons()}
+  resetComparisonRange(){return this._api().resetComparisonRange()}
+  refreshComparisons(){return this._api().refreshComparisons()}
 
   startReplay (startPosition?: number): void {
     this._api().startReplay(startPosition)
@@ -559,8 +491,6 @@ export default class KLineChartPro implements ChartPro {
     if (this._disposed) return // 幂等：重复调用安全
     this._disposed = true
     // Unmount below stops replay without reloading history or resubscribing.
-    // 2. Remove comparisons
-    this._clearComparisons()
     // 3. Clear alerts & TradeVis instance data
     for (const manager of this._symbolAlerts.values()) manager.clearAll()
     this._symbolAlerts.clear()

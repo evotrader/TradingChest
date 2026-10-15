@@ -206,8 +206,12 @@ chart.getAlerts(): AlertConfig[]
 chart.feedPrice(price: number)     // 실시간 가격을 전달하여 알림 감지
 
 // 종목 비교
-chart.addComparison(symbol: SymbolInfo): Promise<void>
-chart.removeComparison(ticker: string)
+chart.addComparison(symbol: SymbolInfo, datafeed: ComparisonDatafeed): Promise<ComparisonHandle>
+chart.removeComparison(handleId: string)
+chart.cancelComparison(handleId: string)
+chart.getComparisons(): ComparisonState
+chart.resetComparisonRange(): Promise<void>
+chart.refreshComparisons(): Promise<void>
 
 // 바 리플레이
 chart.startReplay(startPosition?: number)

@@ -1,0 +1,19 @@
+<!doctype html><html><body><div id="one" style="width:1100px;height:650px"></div><div id="two" style="width:1100px;height:650px"></div><script type="module">
+import {KLineChartPro} from '/src/index.ts'
+import {makeBars} from './syntheticBars.ts'
+window.charts={};window.feeds={};window.mainBars={};window.resources={subscriptions:0,providers:0};window.errors=[]
+window.makeFeed=(key,bars)=>{
+ resources.providers++;let active=false,disposed=false,callback,full=bars
+ const feed={searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,_from,to)=>to<full[0].timestamp?[]:full,subscribe:(_s,_p,cb)=>{if(!active){active=true;resources.subscriptions++}callback=cb},unsubscribe:()=>{if(active){active=false;resources.subscriptions--}},dispose:()=>{if(disposed)return;disposed=true;feed.unsubscribe();resources.providers--}}
+ feeds[key]={feed,push:bar=>callback?.(bar),replace:bars=>full=bars};return feed
+}
+window.setup=async()=>{
+ for(const chart of Object.values(charts))chart.dispose();charts={};feeds={};resources={subscriptions:0,providers:0}
+ for(const key of ['one','two']){
+  const bars=makeBars(160);mainBars[key]=bars;let done;const loaded=new Promise(resolve=>done=resolve)
+  charts[key]=new KLineChartPro({container:document.getElementById(key),symbol:{ticker:'MAIN.X'},period:{multiplier:1,timespan:'minute',text:'1m'},mainIndicators:['MA'],subIndicators:['VOL'],datafeed:makeFeed(`main-${key}`,bars),onDataReady:()=>done(),onError:e=>errors.push(e.message)})
+  await loaded
+ }
+}
+window.ready=true
+</script></body></html>

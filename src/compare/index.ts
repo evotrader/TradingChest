@@ -24,6 +24,6 @@ import { KLineData } from 'klinecharts'
 export function normalizeToPercent(data: KLineData[]): number[] {
   if (data.length === 0) return []
   const basePrice = data[0].close
-  if (basePrice === 0) return data.map(() => 0)
+  if (!Number.isFinite(basePrice)||basePrice === 0) throw Error('基准价格为零或无效，无法比较')
   return data.map(d => ((d.close - basePrice) / basePrice) * 100)
 }

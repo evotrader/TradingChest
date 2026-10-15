@@ -52,6 +52,27 @@ window.sampleWorkspace=async(count,layout)=>{
  for(let i=0;i<100;i++){const start=performance.now();for(const chart of proCharts)chart.getChart().scrollToDataIndex(count-1-i,0);await frame();interaction.push(performance.now()-start)}
  workspace.dispose();await frame();return {cold,update,interaction,subscriptions:state.subscriptions}
 }
+window.sampleComparisons=async(count,profileOnly=false)=>{
+ const main=makeBars(count),state={subscriptions:0},ticks=new Map(),series=new Map(),container=document.querySelector('#chart');series.set('SYNTHETIC',main)
+ for(let i=0;i<3;i++)series.set(`COMPARE${i}`,main.map((b,index)=>{const factor=i+2,extra=(index%7)*(i+1)/10;return {...b,open:b.open*factor+extra,high:b.high*factor+extra,low:b.low*factor+extra,close:b.close*factor+extra}}))
+ const feed=(key)=>({searchSymbols:async()=>[],getHistoryKLineData:async(symbol,_period,_from,to)=>{const bars=series.get(symbol.ticker==='MAIN_RETURN'?'SYNTHETIC':symbol.ticker);return to<bars[0].timestamp?[]:bars},subscribe:(_s,_p,cb)=>{state.subscriptions++;ticks.set(key,cb)},unsubscribe:()=>{if(ticks.has(key)){state.subscriptions--;ticks.delete(key)}}})
+ let ready;const loaded=new Promise(done=>ready=done),start=performance.now(),chart=new KLineChartPro({container,symbol:{ticker:'SYNTHETIC'},period:{multiplier:1,timespan:'minute',text:'1m'},mainIndicators:['MA'],subIndicators:['VOL','MACD'],datafeed:feed('main'),onDataReady:ready})
+ await loaded;await settled(chart.getChart(),count)
+ const modern=typeof chart.getComparisons==='function'
+ for(let i=0;i<3;i++)await chart.addComparison({ticker:`COMPARE${i}`},...(modern?[feed(`COMPARE${i}`)]:[]))
+ if(!modern)await chart.addComparison({ticker:'MAIN_RETURN'})
+ const compareSettled=async()=>{const start=performance.now();while(true){const lines=indicators(chart.getChart()).filter(i=>i.name==='COMPARE'||i.name.startsWith('COMPARE_'));if(lines.length===4&&lines.every(line=>{const ticker=line.shortName.includes('COMPARE')?line.shortName.match(/COMPARE\d/)?.[0]:'SYNTHETIC',bars=series.get(ticker??'SYNTHETIC'),expected=(bars.at(-1).close/bars[0].close-1)*100;return line.result.length===count&&Math.abs(line.result.at(-1).pct-expected)<1e-8}))return;if(performance.now()-start>15000)throw Error('Comparison load did not settle');await new Promise(r=>setTimeout(r,1))}}
+ await compareSettled();await frame();const cold=performance.now()-start,update=[],interaction=[]
+ for(let i=0;i<(profileOnly?0:100);i++){
+  const start=performance.now()
+  for(const [ticker,bars] of series){const next={...bars.at(-1),close:bars.at(-1).close+.0001};bars[bars.length-1]=next;if(modern||ticker==='SYNTHETIC')ticks.get(ticker==='SYNTHETIC'?'main':ticker)?.(next)}
+  if(!modern){for(let j=0;j<3;j++)await chart.addComparison({ticker:`COMPARE${j}`});await chart.addComparison({ticker:'MAIN_RETURN'})}
+  const expected=main.slice(-5).reduce((sum,b)=>sum+b.close,0)/5;await settled(chart.getChart(),count,expected);await compareSettled();await frame();update.push(performance.now()-start)
+ }
+ for(let i=0;i<(profileOnly?0:100);i++){const start=performance.now();chart.getChart().scrollToDataIndex(count-1-i,0);await frame();interaction.push(performance.now()-start)}
+ chart.dispose();await frame();return {cold,update,interaction,subscriptions:state.subscriptions,modern}
+}
+
 window.captureOracle = async () => {
  const bars = makeBars(160), chart=engine.init(document.querySelector('#chart'))
  const names=[...new Set([...engine.getSupportedIndicators(),...Object.keys(indicatorLoaders),...Object.values(indicatorCategories).flatMap(x=>x.names),'HeikinAshi','Baseline','TradeVis'])].sort()

@@ -37,6 +37,8 @@ import { translateTimezone } from './widget/timezone-modal/data'
 import { SymbolInfo, Period, ChartProOptions, ChartPro } from './types'
 import { indicatorRegistry } from './indicator'
 import { EngineDataLoader } from './core/engineDataLoader'
+import {ComparisonManager} from './compare/manager'
+import type {ComparisonState} from './compare/types'
 import {DrawingHistory} from './drawing/history'
 import type {DrawingHistoryState,DrawingSnapshot,DrawingChange} from './drawing/types'
 import { buildStyles } from './core/buildStyles'
@@ -48,7 +50,10 @@ export interface ChartComponentApi extends ChartPro {
   createDrawing: (overlay: OverlayCreate) => void
 }
 
-export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'|'onDrawingSelect'|'drawingOwner'|'isDrawingEditable'|'commitDrawing'|'onDrawingHistoryChange'>> {
+export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'|'comparisonSymbols'|'createComparisonDatafeed'|'onComparisonChange'|'onDrawingSelect'|'drawingOwner'|'isDrawingEditable'|'commitDrawing'|'onDrawingHistoryChange'>> {
+  comparisonSymbols?:ChartProOptions['comparisonSymbols']
+  createComparisonDatafeed?:ChartProOptions['createComparisonDatafeed']
+  onComparisonChange?:ChartProOptions['onComparisonChange']
   onDrawingSelect?:ChartProOptions['onDrawingSelect']
   drawingOwner?:ChartProOptions['drawingOwner']
   isDrawingEditable?:ChartProOptions['isDrawingEditable']
@@ -222,10 +227,24 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     result.text={...result.text,color:inputs.color};return result
   }
 
+  let comparisonPanel:HTMLDivElement|undefined,comparisonResizeFrame:number|undefined,comparisonPanelHeight=0
+  const resizeComparisonPanel=()=>{if(comparisonResizeFrame!==undefined||disposed)return;comparisonResizeFrame=requestAnimationFrame(()=>{comparisonResizeFrame=undefined;if(disposed)return;const height=comparisonPanel?.clientHeight??0;if(height!==comparisonPanelHeight){comparisonPanelHeight=height;widget?.resize()}})}
+  const [comparisonState,setComparisonState]=createSignal<ComparisonState>({handles:[],pending:[],replay:false,restoring:false})
+  const [comparisonSelected,setComparisonSelected]=createSignal('')
+  let factoryGeneration=0
+  const comparisons=new ComparisonManager({chart:()=>widget,symbol,period,instanceId:`compare_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,onChange:state=>{if(!disposed){setComparisonState(state);resizeComparisonPanel();props.onComparisonChange?.(state)}}})
+  const addSelectedComparison=async()=>{
+    const selected=props.comparisonSymbols?.find(value=>value.ticker===comparisonSelected()),factory=props.createComparisonDatafeed
+    if(!selected||!factory)return
+    const epoch=factoryGeneration
+    try{const feed=await factory(selected,period());if(disposed||epoch!==factoryGeneration){feed.dispose?.();return}await comparisons.add(selected,feed)}catch(reason){if(!disposed&&!(reason instanceof DOMException&&reason.name==='AbortError'))setComparisonState({...comparisons.getState(),error:reason instanceof Error?reason.message:String(reason)})}
+  }
+
   // 回放状态
   const defaultReplayState: ReplayState = { active: false, playing: false, speed: 1, position: 0, totalBars: 0 }
   const [replayState, setReplayState] = createSignal<ReplayState>(defaultReplayState)
   let replayEngine: ReplayEngine | null = null
+  let replayRevision=0,replayPrefix:KLineData[]=[]
 
   const setChartPeriod = (nextPeriod: Period) => {
     if (replayEngine) return
@@ -241,19 +260,27 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     setLoadingVisible(false)
     // 暂停实时数据订阅，防止实时数据污染回放时间线
     const pos = startPosition ?? Math.floor(dataList.length * 0.5)
+    try{comparisons.enterReplay(dataList[Math.max(0,pos-1)]?.timestamp??dataList[0].timestamp)}catch(reason){setLoadError(`回放无法开始：${reason instanceof Error?reason.message:String(reason)}；请重读行情或移除不可比较成员`);return}
     props.onReplayActiveChange?.(true)
-    replayEngine = new ReplayEngine({
+    const engine = new ReplayEngine({
       onDataChange: (data) => {
+        if(disposed||replayEngine!==engine)return
+        ++replayRevision;replayPrefix=data
         props.onReplayReset?.(data.at(-1)?.close, data.at(-1)?.timestamp)
+        comparisons.seek(data.at(-1)?.timestamp??-Infinity)
         loader?.setReplay(data)
       },
       onBarUpdate: (bar) => {
-        loader?.pushReplay(bar)
+        if(disposed||replayEngine!==engine)return
+        ++replayRevision;replayPrefix=[...replayPrefix,bar]
+        comparisons.seek(bar.timestamp)
+        if(resuming())loader?.setReplay(replayPrefix);else loader?.pushReplay(bar)
         props.onReplayPriceUpdate?.(bar.close, bar.timestamp)
       },
       onStateChange: (state) => { setReplayState(state) },
     })
-    replayEngine.start(dataList, pos)
+    replayEngine=engine
+    engine.start(dataList, pos)
   }
 
   const [resuming,setResuming] = createSignal(false)
@@ -261,15 +288,25 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if (disposed || !replayEngine || resuming()) return
     replayEngine.pause()
     setResuming(true)
-    loader?.reload(true).then(() => {
-      if (disposed) return
+    const engine=replayEngine,revision=replayRevision
+    const current=()=>!disposed&&replayEngine===engine&&replayRevision===revision
+    const assertCurrent=()=>{if(!current())throw new DOMException('回放位置已改变，旧恢复已取消','AbortError')}
+    const retainedReplay=widget?.getDataList().map(bar=>({...bar}))??[],retainedRange=widget?.getVisibleRange(),retainedSpace=widget?.getBarSpace().bar
+    let mainRestored=false
+    const reloadMain=()=>{assertCurrent();return (loader?.reload(true)??Promise.resolve()).then(()=>{assertCurrent();mainRestored=true})}
+    const restore=comparisons.getState().handles.length?comparisons.prepareResume().then(reloadMain):reloadMain()
+    restore.then(() => {
+      assertCurrent()
+      comparisons.leaveReplay()
       replayEngine?.dispose()
       replayEngine = null
+      replayPrefix=[]
       setReplayState(defaultReplayState)
       props.onReplayActiveChange?.(false)
       props.onDataReady?.({symbol:symbol(),period:period()})
     }).catch(error => {
-      if(!disposed && error instanceof DOMException && error.name==='AbortError')setLoadError('回放恢复已取消，请重试退出回放')
+      if(current()&&mainRestored&&comparisons.getState().replay){loader?.setReplay(retainedReplay);props.onReplayReset?.(retainedReplay.at(-1)?.close,retainedReplay.at(-1)?.timestamp);if(retainedSpace!==undefined)widget?.setBarSpace(retainedSpace);if(retainedRange){widget?.scrollToDataIndex(Math.min(retainedReplay.length-1,retainedRange.to-1),0);if(retainedSpace!==undefined)widget?.scrollByDistance(retainedSpace/2,0)}}
+      if(!disposed)setLoadError(error instanceof DOMException&&error.name==='AbortError'?'回放恢复已取消，请重试退出回放':`回放恢复失败：${error instanceof Error?error.message:String(error)}`)
     }).finally(() => {setResuming(false)})
   }
 
@@ -398,8 +435,12 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     updateAlert: () => { throw new Error('[TradingChest] updateAlert must be called on KLineChartPro instance') },
     removeAlert: () => { throw new Error('[TradingChest] removeAlert must be called on KLineChartPro instance') },
     getAlerts: () => { throw new Error('[TradingChest] getAlerts must be called on KLineChartPro instance') },
-    addComparison: async () => { throw new Error('[TradingChest] addComparison must be called on KLineChartPro instance') },
-    removeComparison: () => { throw new Error('[TradingChest] removeComparison must be called on KLineChartPro instance') },
+    addComparison:(symbol,feed)=>{if(feed===props.datafeed)return Promise.reject(Error('比较必须使用独立于主图的数据通道'));return comparisons.add(symbol,feed)},
+    removeComparison:id=>comparisons.remove(id),
+    cancelComparison:id=>comparisons.cancel(id),
+    getComparisons:()=>comparisons.getState(),
+    resetComparisonRange:()=>comparisons.resetRange(),
+    refreshComparisons:()=>comparisons.retry(),
     startReplay: (pos?: number) => { startReplay(pos) },
     stopReplay: () => { stopReplay() },
     getReplayEngine: () => replayEngine,
@@ -492,7 +533,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     }
 
     if (widget) loader = new EngineDataLoader(widget, props.datafeed, {
-      state: state=>props.onDataState?.(state),
+      state: state=>{comparisons.mainChanged();props.onDataState?.(state)},
       loading: active => {setLoading(active);setLoadingVisible(active)},
       ready: identity => {setLoadError('');if(!resuming())props.onDataReady?.(identity)},
       error: error => {setLoadError(error.message);props.onError?.(error)},
@@ -545,6 +586,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   onCleanup(() => {
     disposed = true
+    if(comparisonResizeFrame!==undefined)cancelAnimationFrame(comparisonResizeFrame)
+    ++factoryGeneration;comparisons.dispose()
     drawingHistory.dispose()
     loader?.dispose()
     window.removeEventListener('resize', documentResize)
@@ -575,7 +618,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   createEffect((prev?: PrevSymbolPeriod) => {
     const s = symbol(), p = period()
     if(!engineReady())return undefined
-    if (prev) untrack(()=>{cancelDrawing();drawingHistory.reset(true);setSelectedOverlay(null);props.onDataReset?.(s)})
+    if (prev) untrack(()=>{++factoryGeneration;comparisons.clear();cancelDrawing();drawingHistory.reset(true);setSelectedOverlay(null);props.onDataReset?.(s)})
     setLoadError('')
     loader?.activate(s,p)
     return {symbol:s,period:p}
@@ -786,6 +829,26 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         <button aria-label="重做绘图" disabled={!drawingState().canRedo||drawingState().pending>0} onClick={()=>void drawingHistory.redo().catch(()=>{})}>重做绘图</button>
         <Show when={drawingState().pending>0}><span role="status">等待确认：{drawingState().pending} 项</span></Show>
         <Show when={drawingState().error}><span role="alert">{drawingState().error}</span></Show>
+      </div>
+      <div ref={comparisonPanel} class="klinecharts-pro-comparisons" style={{'max-height':'140px','overflow-y':'auto','flex-shrink':'0',display:'flex','flex-wrap':'wrap',gap:'8px',padding:'4px 8px','font-size':'12px'}}>
+        <label>比较标的 <select aria-label="比较标的" value={comparisonSelected()} disabled={!props.createComparisonDatafeed||!props.comparisonSymbols?.length||comparisonState().replay||comparisonState().restoring} onChange={e=>setComparisonSelected(e.currentTarget.value)}>
+          <option value="">选择目录标的</option>
+          {props.comparisonSymbols?.filter(value=>value.ticker!==symbol().ticker).map(value=><option value={value.ticker}>{value.name??value.ticker}</option>)}
+        </select></label>
+        <button disabled={!comparisonSelected()||!props.createComparisonDatafeed||comparisonState().replay||comparisonState().restoring} onClick={()=>void addSelectedComparison()}>添加比较</button>
+        <Show when={!props.createComparisonDatafeed||!props.comparisonSymbols?.length}><span>当前入口没有可用的比较目录或数据通道</span></Show>
+        {comparisonState().pending.map(value=><span>{value.symbol.ticker} 读取中 <button aria-label={`取消比较 ${value.symbol.ticker}`} onClick={()=>comparisons.cancel(value.id)}>取消比较</button></span>)}
+        {comparisonState().handles.map(value=><span data-comparison-symbol={value.symbol.ticker} data-comparison-return={value.plottedReturn} data-comparison-timestamp={value.plottedTimestamp}>{value.symbol.ticker} · 加载末根收益 {value.plottedReturn===undefined?'无可比收益':`${value.plottedReturn.toFixed(2)}%`} · {value.mode==='static'?'静态读取':value.mode==='http-snapshot'?'HTTP 续读':'订阅更新'} · 最近读取 {value.readAt?new Date(value.readAt).toISOString():'未知'} · 源末根 {value.sourceTimestamp?new Date(value.sourceTimestamp).toISOString():'未知'} <button aria-label={`移除比较 ${value.symbol.ticker}`} onClick={()=>comparisons.remove(value.id)}>移除比较</button></span>)}
+        <Show when={comparisonState().handles.length>0}>
+          <span data-main-return={comparisonState().mainReturn}>主图加载末根收益：{comparisonState().mainReturn===undefined?'无可比收益':`${comparisonState().mainReturn!.toFixed(2)}%`}</span>
+          <button disabled={comparisonState().replay||comparisonState().restoring} onClick={()=>void comparisons.resetRange().catch(()=>{})}>重设比较区间</button>
+          <span data-comparison-base={comparisonState().baseTimestamp}>共同基准：{comparisonState().baseTimestamp?new Date(comparisonState().baseTimestamp!).toISOString():'不可比较'}；原价蜡烛／订单使用原价轴；主收益与比较收益共用左侧 % 轴。</span>
+          <span>{[symbol(),...comparisonState().handles.map(h=>h.symbol)].map(value=>`${value.ticker}：${value.priceCurrency?`本币 ${value.priceCurrency}`:'报价单位百分比，币种未知'}`).join('；')}；未做汇率换算。</span>
+        </Show>
+        <Show when={comparisonState().notice}><span role="status">{comparisonState().notice}</span></Show>
+        <Show when={comparisonState().replay}><span>比较续读已暂停，收益仅显示回放截止之前。</span></Show>
+        <Show when={comparisonState().restoring}><span role="status">正在重读比较行情…</span></Show>
+        <Show when={comparisonState().error}><button disabled={comparisonState().restoring} onClick={()=>void comparisons.retry().catch(()=>{})}>重试比较</button><span role="alert">比较失败：{comparisonState().error}；下一步：重新添加或重设区间后重试。</span></Show>
       </div>
       <PeriodBar
         locale={props.locale}

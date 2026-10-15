@@ -96,3 +96,5 @@ export type {DrawingOwner,DrawingSource,DrawingSnapshot,DrawingChange,DrawingCom
 
 export {resolveDrawingPane} from './drawing/pane'
 export type {DrawingPaneIndicator} from './drawing/pane'
+
+export type {ComparisonDatafeed,ComparisonHandle,ComparisonState} from './compare/types'

@@ -206,8 +206,12 @@ chart.getAlerts(): AlertConfig[]
 chart.feedPrice(price: number)     // リアルタイム価格を渡してアラート検出
 
 // 銘柄比較
-chart.addComparison(symbol: SymbolInfo): Promise<void>
-chart.removeComparison(ticker: string)
+chart.addComparison(symbol: SymbolInfo, datafeed: ComparisonDatafeed): Promise<ComparisonHandle>
+chart.removeComparison(handleId: string)
+chart.cancelComparison(handleId: string)
+chart.getComparisons(): ComparisonState
+chart.resetComparisonRange(): Promise<void>
+chart.refreshComparisons(): Promise<void>
 
 // バーリプレイ
 chart.startReplay(startPosition?: number)

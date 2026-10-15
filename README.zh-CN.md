@@ -207,8 +207,12 @@ chart.getAlerts(): AlertConfig[]
 chart.feedPrice(price: number)     // 传入实时价格触发报警检测
 
 // 品种对比
-chart.addComparison(symbol: SymbolInfo): Promise<void>
-chart.removeComparison(ticker: string)
+chart.addComparison(symbol: SymbolInfo, datafeed: ComparisonDatafeed): Promise<ComparisonHandle>
+chart.removeComparison(handleId: string)
+chart.cancelComparison(handleId: string)
+chart.getComparisons(): ComparisonState
+chart.resetComparisonRange(): Promise<void>
+chart.refreshComparisons(): Promise<void>
 
 // K 线回放
 chart.startReplay(startPosition?: number)

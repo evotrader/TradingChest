@@ -103,6 +103,9 @@ export interface OverlayLifecycleEvent {
 }
 
 export interface ChartProOptions {
+  comparisonSymbols?:SymbolInfo[]
+  createComparisonDatafeed?:(symbol:SymbolInfo,period:Period)=>import('./compare/types').ComparisonDatafeed
+  onComparisonChange?:(state:import('./compare/types').ComparisonState)=>void
   onDrawingSelect?: (logicalId:string|null)=>void
   drawingOwner?: (overlay:OverlaySnapshot)=>import('./drawing/types').DrawingOwner
   isDrawingEditable?: (overlay:OverlaySnapshot)=>boolean
@@ -185,9 +188,13 @@ export interface ChartPro {
   /** 获取所有报警 */
   getAlerts(): import('./alert/types').AlertConfig[]
   /** 添加对比品种（归一化为百分比变化叠加在主图） */
-  addComparison(symbol: SymbolInfo): Promise<void>
+  addComparison(symbol:SymbolInfo,datafeed:import('./compare/types').ComparisonDatafeed):Promise<import('./compare/types').ComparisonHandle>
   /** 移除对比品种 */
-  removeComparison(ticker: string): void
+  removeComparison(handleId:string):void
+  cancelComparison(handleId:string):void
+  getComparisons():import('./compare/types').ComparisonState
+  resetComparisonRange():Promise<void>
+  refreshComparisons():Promise<void>
   /** 进入回放模式 */
   startReplay(startPosition?: number): void
   /** 退出回放模式 */

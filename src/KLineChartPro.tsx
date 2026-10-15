@@ -14,7 +14,7 @@
 
 import { render } from 'solid-js/web'
 
-import { utils, Nullable, DeepPartial, Styles, registerIndicator, YAxisType } from 'klinecharts'
+import { utils, Nullable, DeepPartial, Styles, registerIndicator } from 'klinecharts'
 import { normalizeToPercent } from './compare'
 import { locateDataTimestamp, type TimestampLocation } from './core/locateTimestamp'
 
@@ -84,7 +84,7 @@ export default class KLineChartPro implements ChartPro {
             if (!this._disposed && !this._replayActive) this._alertManager.checkPrice(price, timestamp)
           }}
           onReplayActiveChange={(active: boolean) => {
-            this._historyReady = false
+            if (active) this._historyReady = false
             this._replayActive = active
             if (!active) this._alertManager.resetPrevPrice()
           }}
@@ -213,9 +213,8 @@ export default class KLineChartPro implements ChartPro {
       'toggle:logScale': () => {
         const chart = this.getChart()
         if (!chart) return
-        const s = chart.getStyles()
-        const yAxisType = s.yAxis?.type === YAxisType.Log ? YAxisType.Normal : YAxisType.Log
-        chart.setStyles({ yAxis: { type: yAxisType } })
+        const axis = chart.getYAxes({paneId:'candle_pane'})[0]
+        if (axis) chart.overrideYAxis({id:axis.id,paneId:'candle_pane',name:axis.name === 'logarithm' ? 'normal' : 'logarithm'})
       },
     })
     this._shortcutManager.bindTo(this._container!)
@@ -261,6 +260,8 @@ export default class KLineChartPro implements ChartPro {
       throw new Error('[TradingChest] Instance has been disposed. Create a new instance to continue.')
     }
   }
+
+  reloadData(options?: {preserveViewport?: boolean}): Promise<void> { return this._api().reloadData(options) }
 
   setTheme (theme: string): void {
     this._container?.setAttribute('data-theme', theme)
@@ -311,6 +312,7 @@ export default class KLineChartPro implements ChartPro {
     return this._api().getPeriod()
   }
 
+  private _tradeIndicatorId: string | null = null
   private _historyReady = false
 
   locateTimestamp (target: { ticker: string, period: Period, timestamp: number }): TimestampLocation {
@@ -356,13 +358,14 @@ export default class KLineChartPro implements ChartPro {
     if (!chart) return
     cleanupTradeVisInstance(this._instanceId)
     if (trades.length === 0) {
-      chart.removeIndicator('candle_pane', 'TradeVis')
+      if (this._tradeIndicatorId) chart.removeIndicator({id:this._tradeIndicatorId})
+      this._tradeIndicatorId = null
       return
     }
-    chart.createIndicator({
-      name: 'TradeVis',
-      extendData: { trades, _instanceId: this._instanceId }
-    } as any, true, paneOptions ?? { id: 'candle_pane' })
+    const value = {name:'TradeVis',paneId:'candle_pane',extendData:{trades,_instanceId:this._instanceId}}
+    if (this._tradeIndicatorId && chart.getIndicators({id:this._tradeIndicatorId}).length) chart.overrideIndicator({...value,id:this._tradeIndicatorId})
+    else this._tradeIndicatorId = chart.createIndicator(value, true)
+    if(paneOptions) chart.setPaneOptions({...paneOptions,id:'candle_pane'})
   }
 
   private _symbolKey (symbol: SymbolInfo): string {
@@ -442,7 +445,7 @@ export default class KLineChartPro implements ChartPro {
 
   private _clearComparisons (): void {
     for (const [ticker, indicatorName] of this._comparisons) {
-      try { this.getChart()?.removeIndicator('candle_pane', indicatorName) } catch (_) { /* already disposing */ }
+      try { this.getChart()?.removeIndicator({paneId:'candle_pane',name:indicatorName}) } catch (_) { /* already disposing */ }
     }
     this._comparisons.clear()
   }
@@ -504,7 +507,7 @@ export default class KLineChartPro implements ChartPro {
       }
     })
 
-    chart.createIndicator(indicatorName, true, { id: 'candle_pane' })
+    chart.createIndicator({name:indicatorName,paneId:'candle_pane'}, true)
     this._comparisons.set(symbol.ticker, indicatorName)
   }
 
@@ -512,7 +515,7 @@ export default class KLineChartPro implements ChartPro {
     this._assertNotDisposed()
     const indicatorName = this._comparisons.get(ticker)
     if (indicatorName) {
-      this.getChart()?.removeIndicator('candle_pane', indicatorName)
+      this.getChart()?.removeIndicator({paneId:'candle_pane',name:indicatorName})
       this._comparisons.delete(ticker)
     }
   }

@@ -47,7 +47,7 @@ const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => 
 const optionalString = (v: unknown) => v === undefined || typeof v === 'string'
 const keys = (v: Record<string, unknown>, allowed: string[]) => Object.keys(v).every(k => allowed.includes(k))
 /** Reject runtime objects/cycles and conventional credential fields, rather than silently stripping them. */
-function jsonSafe(v: unknown, seen = new Set<object>()): boolean {
+export function jsonSafe(v: unknown, seen = new Set<object>()): boolean {
   if (v === null || typeof v === 'string' || typeof v === 'boolean') return true
   if (typeof v === 'number') return Number.isFinite(v)
   if (!Array.isArray(v) && !object(v)) return false
@@ -98,14 +98,6 @@ export function migrateLayoutV1(v: unknown): ChartLayoutV2 | null {
     panes:[], overlayData:v.overlayData
   }
   return isChartLayoutV2(result) ? JSON.parse(JSON.stringify(result)) : null
-}
-export function saveLayoutV2(key: string, layout: Omit<ChartLayoutV2, 'version' | 'timestamp'>): boolean {
-  const data = { ...layout, version:2, timestamp:Date.now() }
-  try {
-    if (!isChartLayoutV2(data)) return false
-    localStorage.setItem(PREFIX + key, JSON.stringify(data))
-    return true
-  } catch { return false }
 }
 /** Reads v2 first. If absent, returns migrated v1 in memory; never writes during a read. */
 export function loadLayoutV2(key: string): ChartLayoutV2 | null {

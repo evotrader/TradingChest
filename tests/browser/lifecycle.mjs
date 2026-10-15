@@ -2,7 +2,7 @@ import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
 const require = createRequire(process.env.PLAYWRIGHT_PACKAGE_JSON || import.meta.url)
 const { chromium } = require('playwright')
-const browser = await chromium.launch({executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', args: ['--no-sandbox']})
+const browser = await chromium.launch({executablePath: process.env.CHROMIUM_PATH, chromiumSandbox: true})
 try {
   const page = await browser.newPage()
   const errors = []
@@ -15,16 +15,16 @@ try {
   assert.equal(await page.evaluate(() => test.state.requests[0].signal.aborted), true, 'dispose did not abort history')
   await open(); await page.evaluate(() => setup())
   await page.waitForFunction(() => test.state.subscriptions === 1)
-  const navigation = await page.evaluate(() => {
+  const navigation = await page.evaluate(async () => {
     const period = test.chart.getPeriod()
     const request = timestamp => test.chart.locateTimestamp({ ticker: 'TEST', period, timestamp })
     const exact = request(test.bars[5].timestamp)
     const reference = request(test.bars[5].timestamp + 1000)
     const outside = request(test.bars[0].timestamp - 1000)
     const mismatch = test.chart.locateTimestamp({ ticker: 'OTHER', period, timestamp: test.bars[5].timestamp })
-    test.chart.getChart().applyNewData([test.bars[0], test.bars[2]])
+    await test.replaceBars([test.bars[0], test.bars[2]])
     const gap = request(test.bars[1].timestamp)
-    test.chart.getChart().applyNewData(test.bars)
+    await test.replaceBars(test.bars)
     return { exact, reference, outside, mismatch, gap }
   })
   assert.equal(navigation.exact.status, 'exact-timestamp')
@@ -138,7 +138,7 @@ try {
         created:test.state.created, histories:test.state.histories,
         widget:document.querySelector('.klinecharts-pro-widget').getBoundingClientRect().toJSON(),
         overlays:test.state.overlayIds.map(id => {
-          const o = test.chart.getChart().getOverlayById(id)
+          const o = test.chart.getChart().getOverlays({id:id})[0]
           return {id,name:o?.name,step:o?.currentStep,points:o?.points}
         }),
       })), null, 2))
@@ -150,9 +150,9 @@ try {
     test.chart.getChart().createOverlay({name:'horizontalStraightLine',id:'system-order',points:[{value:22}],lock:true})
   })
   await widget.dispatchEvent('keydown', {key:'Escape',bubbles:true})
-  assert.equal(await page.evaluate(() => test.state.created.filter(id => test.chart.getChart().getOverlayById(id)).length), 3)
+  assert.equal(await page.evaluate(() => test.state.created.filter(id => test.chart.getChart().getOverlays({id:id})[0]).length), 3)
   await page.evaluate(() => {
-    const overlay = test.chart.getChart().getOverlayById(test.state.created[1])
+    const overlay = test.chart.getChart().getOverlays({id:test.state.created[1]})[0]
     overlay.onSelected({overlay})
     const input = document.createElement('input')
     document.querySelector('.klinecharts-pro-widget').appendChild(input)
@@ -162,9 +162,9 @@ try {
   assert.equal(await page.evaluate(() => test.state.deleted.length), 0)
   await widget.dispatchEvent('keydown', {key:'Delete',bubbles:true})
   const remaining = await page.evaluate(() => ({
-    count:test.state.created.filter(id => test.chart.getChart().getOverlayById(id)).length,
-    alerts:!!test.chart.getChart().getOverlayById('alert_system'),
-    order:!!test.chart.getChart().getOverlayById('system-order'),
+    count:test.state.created.filter(id => test.chart.getChart().getOverlays({id:id})[0]).length,
+    alerts:!!test.chart.getChart().getOverlays({id:'alert_system'})[0],
+    order:!!test.chart.getChart().getOverlays({id:'system-order'})[0],
     deleted:test.state.deleted.length,
   }))
   assert.deepEqual(remaining, {count:2, alerts:true, order:true, deleted:1})

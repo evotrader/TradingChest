@@ -103,7 +103,7 @@ Candle Solid, Candle Hollow, Up Hollow, Down Hollow, OHLC, Area, **Heikin Ashi**
 ## Install
 
 ```bash
-npm install trading-chest klinecharts@^9.8.12
+npm install trading-chest klinecharts@10.1.0
 ```
 
 ## Usage
@@ -238,7 +238,7 @@ import {
   exportToCSV, exportAllToCSV, exportScreenshot,
 
   // Layout Persistence
-  saveLayout, loadLayout, deleteLayout, listLayouts,
+  saveLayoutV3, loadLayoutV3, deleteLayoutV3, listLayoutsV3,
 
   // Keyboard Shortcuts
   KeyboardShortcutManager,
@@ -260,7 +260,7 @@ import {
 
 ## Tech Stack
 
-- **Rendering Engine**: [KLineChart](https://github.com/klinecharts/KLineChart) 9.x (Canvas, high performance)
+- **Rendering Engine**: [KLineChart](https://github.com/klinecharts/KLineChart) 10.1.0 (Canvas, high performance)
 - **UI Framework**: [Solid.js](https://www.solidjs.com/) (reactive, lightweight)
 - **Build Tool**: [Vite](https://vitejs.dev/) (ESM + UMD dual output)
 - **Language**: TypeScript (zero `@ts-expect-error` for project code)

@@ -127,7 +127,9 @@ const tradeVisualization: IndicatorTemplate = {
       return info
     })
   },
-  draw: ({ ctx, indicator, bounding, barSpace, xAxis, yAxis, visibleRange }) => {
+  draw: ({ ctx, indicator, bounding, chart, xAxis, yAxis }) => {
+    const barSpace = chart.getBarSpace()
+    const visibleRange = chart.getVisibleRange()
     const result = indicator.result as BarTradeInfo[]
     if (!result || result.length === 0) return false
 

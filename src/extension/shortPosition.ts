@@ -16,7 +16,7 @@ const shortPosition: OverlayTemplate = {
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: true,
   needDefaultYAxisFigure: true,
-  createPointFigures: ({ coordinates, overlay, precision }) => {
+  createPointFigures: ({ coordinates, overlay, chart }) => {
     if (coordinates.length < 2) {
       return []
     }
@@ -84,7 +84,7 @@ const shortPosition: OverlayTemplate = {
         attrs: {
           x: rightX,
           y: (entryY + stopLossY) / 2,
-          text: `SL: ${stopLossPrice.toFixed(precision.price)} (-${riskAmount.toFixed(precision.price)})`,
+          text: `SL: ${stopLossPrice.toFixed((chart.getSymbol()?.pricePrecision ?? 2))} (-${riskAmount.toFixed((chart.getSymbol()?.pricePrecision ?? 2))})`,
           baseline: 'middle',
           align: 'left'
         },
@@ -144,7 +144,7 @@ const shortPosition: OverlayTemplate = {
           attrs: {
             x: rightX,
             y: (entryY + takeProfitY) / 2,
-            text: `TP: ${takeProfitPrice.toFixed(precision.price)} (+${rewardAmount.toFixed(precision.price)})`,
+            text: `TP: ${takeProfitPrice.toFixed((chart.getSymbol()?.pricePrecision ?? 2))} (+${rewardAmount.toFixed((chart.getSymbol()?.pricePrecision ?? 2))})`,
             baseline: 'middle',
             align: 'left'
           },

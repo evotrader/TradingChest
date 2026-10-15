@@ -1,21 +1,23 @@
 <!doctype html><html><body><div id="chart" style="width:800px;height:500px"></div>
 <script type="module">
-import { KLineChartPro } from '/src/index.ts'
+import { KLineChartPro, captureLayout, restoreLayout, migrateLayoutToV3, saveLayoutV3, loadLayoutV3, isChartLayoutV3 } from '/src/index.ts'
+import {getSupportedOverlays} from 'klinecharts'
+window.layoutApi={captureLayout,restoreLayout,migrateLayoutToV3,saveLayoutV3,loadLayoutV3,isChartLayoutV3,getSupportedOverlays}
 import { getTradeVisHitTargets } from '/src/indicator/trade/tradeVisualization.ts'
 window.tradeTargets = chart => getTradeVisHitTargets(chart._instanceId)
 const bars = Array.from({length: 20}, (_, i) => ({timestamp: 1700000000000 + i*60000, open: 10+i, high: 12+i, low: 9+i, close: 11+i, volume: 20}))
 window.setup = (pending = false, container = document.querySelector('#chart')) => {
   let resolveHistory
   const history = pending ? new Promise(resolve => { resolveHistory = resolve }) : Promise.resolve(bars)
-  const state = { requests: [], histories: 0, subscriptions: 0, unsubscribes: 0, feedDisposals: 0, alerts: [], replayAlerts: [], created: [], deleted: [], indicatorClicks: [] }
+  const state = { requests: [], histories: 0, subscriptions: 0, unsubscribes: 0, feedDisposals: 0, alerts: [], replayAlerts: [], created: [], deleted: [], indicatorClicks: [],errors:[],ready:[] }
   const feed = {
     searchSymbols: async () => [],
-    getHistoryKLineData: (_s, _p, _from, to, context) => { state.requests.push(context); state.histories++; return to < bars[0].timestamp ? Promise.resolve([]) : history },
+    getHistoryKLineData: (_s, _p, _from, to, context) => { state.requests.push(context); state.histories++; if(state.failHistory) return Promise.reject(new Error('隔离测试读取失败'));if(state.holdResume && context?.reason==='resume')return new Promise((resolve,reject)=>{state.resolveResume=resolve;state.rejectResume=reject});if(state.holdSymbol===_s.ticker)return new Promise(resolve=>{state.resolveSymbol=resolve});return state.historyOverride ? Promise.resolve(state.historyOverride) : to < bars[0].timestamp ? Promise.resolve([]) : history },
     subscribe: (_s, _p, callback) => { state.subscriptions++; state.tick = callback },
     unsubscribe: () => { state.unsubscribes++ },
     dispose: () => { state.feedDisposals++ },
   }
-  const chart = new KLineChartPro({container, symbol: {ticker:'TEST'}, period: {multiplier:1,timespan:'minute',text:'1m'}, mainIndicators:[], subIndicators:[], datafeed:feed, onIndicatorClick: e => state.indicatorClicks.push(e), onAlertTrigger: a => state.alerts.push(a), onReplayAlertTrigger: a => state.replayAlerts.push(a), onOverlayCreate: e => state.created.push(e.overlay.id), onOverlayDelete: e => state.deleted.push(e.overlay.id)})
+  const chart = new KLineChartPro({container, symbol: {ticker:'TEST'}, period: {multiplier:1,timespan:'minute',text:'1m'}, mainIndicators:[], subIndicators:[], datafeed:feed, onDataReady:e=>state.ready.push(e),onError:e=>state.errors.push(e),onIndicatorClick: e => state.indicatorClicks.push(e), onAlertTrigger: a => state.alerts.push(a), onReplayAlertTrigger: a => state.replayAlerts.push(a), onOverlayCreate: e => state.created.push(e.overlay.id), onOverlayDelete: e => state.deleted.push(e.overlay.id)})
   const engine = chart.getChart()
   const createOverlay = engine.createOverlay.bind(engine)
   state.overlayIds = []
@@ -24,7 +26,7 @@ window.setup = (pending = false, container = document.querySelector('#chart')) =
     state.overlayIds.push(result)
     return result
   }
-  window.test = {chart, state, bars, resolveHistory: () => resolveHistory?.(bars)}
+  window.test = {chart, state, bars, replaceBars: async rows => {state.historyOverride=rows;await chart.reloadData({preserveViewport:false});state.historyOverride=undefined}, resolveHistory: () => resolveHistory?.(bars)}
 }
 window.ready = true
 </script></body></html>

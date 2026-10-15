@@ -26,7 +26,7 @@ import type { SettingOption } from './data'
 
 export interface SettingModalProps {
   locale: string
-  currentStyles: Styles
+  currentStyles: Styles & {axis?: {name:string;reverse:boolean}}
   onClose: () => void
   onChange: (style: DeepPartial<Styles>) => void
   onRestoreDefault: (options: SelectDataSourceItem[]) => void

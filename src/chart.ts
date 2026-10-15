@@ -37,7 +37,6 @@ registerIndicator(tradeVisualization)
 // 新模块导出
 import { themePresets, getThemeByName } from './theme'
 import { exportToCSV, exportAllToCSV, exportScreenshot } from './export'
-import { saveLayout, loadLayout, deleteLayout, listLayouts } from './persistence'
 import KeyboardShortcutManager from './shortcut'
 import { indicatorCategories, indicatorRegistry } from './indicator'
 
@@ -53,10 +52,6 @@ export {
   exportAllToCSV,
   exportScreenshot,
   // 布局持久化
-  saveLayout,
-  loadLayout,
-  deleteLayout,
-  listLayouts,
   // 快捷键
   KeyboardShortcutManager,
   // 指标分类
@@ -70,7 +65,6 @@ export type {
 }
 
 export type { ThemePreset } from './theme'
-export type { ChartLayout } from './persistence'
 export type { ShortcutBinding } from './shortcut'
 export type { IndicatorClickEvent } from './types'
 export { AlertManager } from './alert'
@@ -87,9 +81,12 @@ export type { DatafeedRequestContext } from './types'
 export { calculateSessionVwap } from './indicator/volume/sessionVwap'
 export type { BarSession, SessionKLineData, SessionVwapMethod, SessionVwapPoint } from './indicator/volume/sessionVwap'
 
-export { saveLayoutV2, loadLayoutV2, migrateLayoutV1, isChartLayoutV2 } from './persistence/v2'
+export { loadLayoutV2, migrateLayoutV1, isChartLayoutV2 } from './persistence/v2'
 export type { ChartLayoutV2, LayoutIndicator, LayoutPane, LayoutOverlay, LayoutJson } from './persistence/v2'
 export { createSessionDatafeed, seriesIdentityKey } from './datafeed/session'
 export type { SeriesIdentity, HistoryBatch, SessionUpdate, DataSession, SessionProvider, DataSessionStatus } from './datafeed/session'
 
 export type { TimestampLocation } from './core/locateTimestamp'
+
+export {saveLayoutV3,loadLayoutV3,deleteLayoutV3,listLayoutsV3,migrateLayoutToV3,isChartLayoutV3,captureLayout,restoreLayout} from './persistence/v3'
+export type {ChartLayoutV3,LayoutResult,LayoutIndicatorV3} from './persistence/v3'

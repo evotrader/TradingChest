@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import {createRequire} from 'node:module'
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -13,7 +14,7 @@ const run = (command, args, cwd = dir) => execFileSync(command, args, {cwd, stdi
 try {
   const packed = JSON.parse(run(npm, ['pack','--json','--pack-destination',dir], root))[0]
   writeFileSync(path.join(dir,'package.json'), JSON.stringify({private:true,type:'module'}))
-  run(npm, ['install','--ignore-scripts','--no-audit','--no-fund',path.join(dir,packed.filename),'jsdom@30.0.1'])
+  run(npm, ['install','--ignore-scripts','--no-audit','--no-fund',path.join(dir,packed.filename),'jsdom@30.0.1','klinecharts@10.1.0'])
   assert.equal(existsSync(path.join(dir,'node_modules/react')), false, 'chart-only install pulled React')
   // Browser components use a browser bundler. KLineCharts 9.8.12's raw Node
   // CJS shim requires a .js UMD file under type:module and exports no engine API.
@@ -46,9 +47,10 @@ if(typeof chart.KLineChartPro!=='function') throw Error('missing CommonJS chart'
 `);
   console.log('Packed ESM/CJS browser consumers without React and shared Solid runtime PASS');
   writeFileSync(path.join(dir,'consumer.ts'), `import { KLineChartPro, type DatafeedRequestContext } from 'trading-chest/chart';\nimport { MetricSeries } from 'trading-chest/solid';\nvoid KLineChartPro; void MetricSeries; let context: DatafeedRequestContext | undefined; void context;\n`)
-  run(process.execPath,[path.join(root,'node_modules/typescript/bin/tsc'),'consumer.ts','--noEmit','--module','NodeNext','--moduleResolution','NodeNext','--target','es2022'])
+  run(process.execPath,[createRequire(import.meta.url).resolve('typescript/bin/tsc'),'consumer.ts','--noEmit','--module','NodeNext','--moduleResolution','NodeNext','--target','es2022'])
   writeFileSync(path.join(dir,'react.mjs'), `
-import assert from 'node:assert/strict';
+import assert from 'node:assert/strict'
+import {createRequire} from 'node:module';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {LiveSharpeChart} from 'trading-chest/react';
@@ -69,13 +71,13 @@ const root=require('trading-chest');
 if(typeof root.KLineChartPro!=='function'||typeof root.mountAnalyticalWidget!=='function') throw Error('root CommonJS exports missing');
 `);
   writeFileSync(path.join(dir,'legacy.mjs'), `
-import assert from 'node:assert/strict';
+import assert from 'node:assert/strict'
 import {JSDOM} from 'jsdom';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const dom=new JSDOM('<div></div>',{url:'http://localhost',runScripts:'outside-only'});
-dom.window.eval(readFileSync(require.resolve('klinecharts/dist/umd/klinecharts.js'),'utf8'));
+dom.window.eval(readFileSync(new URL('./dist/umd/klinecharts.js', 'file://'+require.resolve('klinecharts/package.json')),'utf8'));
 dom.window.React=(await import('react')).default;
 dom.window.eval(readFileSync(require.resolve('trading-chest/dist/trading-chest.umd.js'),'utf8'));
 assert.equal(typeof dom.window.tradingchest.KLineChartPro,'function');

@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { saveLayout, loadLayout, deleteLayout, listLayouts, type ChartLayout } from '../index'
+import {saveLayoutV3 as saveLayout,loadLayoutV3,deleteLayoutV3 as deleteLayout,listLayoutsV3} from '../index'
+const loadLayout=(key:string)=>{const result=loadLayoutV3(key);return result.status==='ok'?result.value:null}
+const listLayouts=()=>{const result=listLayoutsV3();return result.status==='ok'?result.value:[]}
 
 const store: Record<string, string> = {}
 const localStorageMock = {
@@ -33,8 +35,7 @@ describe('persistence', () => {
         theme: 'dark',
         locale: 'zh-CN',
         timezone: 'Asia/Shanghai',
-        mainIndicators: ['MA'],
-        subIndicators: ['VOL'],
+        indicators: [{name:'MA',placement:'main' as const},{name:'VOL',placement:'sub' as const}], panes:[], axes:[],
         styles: null,
         overlayData: []
       }
@@ -46,9 +47,9 @@ describe('persistence', () => {
       expect(loaded!.theme).toBe('dark')
       expect(loaded!.locale).toBe('zh-CN')
       expect(loaded!.timezone).toBe('Asia/Shanghai')
-      expect(loaded!.mainIndicators).toEqual(['MA'])
-      expect(loaded!.subIndicators).toEqual(['VOL'])
-      expect(loaded!.version).toBe(1)
+      expect(loaded!.indicators.filter(i=>i.placement==='main').map(i=>i.name)).toEqual(['MA'])
+      expect(loaded!.indicators.filter(i=>i.placement==='sub').map(i=>i.name)).toEqual(['VOL'])
+      expect(loaded!.version).toBe(3)
       expect(loaded!.timestamp).toBeGreaterThan(0)
     })
 
@@ -58,8 +59,7 @@ describe('persistence', () => {
         theme: 'light',
         locale: 'en',
         timezone: 'UTC',
-        mainIndicators: [],
-        subIndicators: [],
+        indicators: [], panes:[], axes:[],
         styles: null,
         overlayData: []
       }
@@ -67,7 +67,7 @@ describe('persistence', () => {
       saveLayout('versioned', layout)
       const loaded = loadLayout('versioned')!
 
-      expect(loaded.version).toBe(1)
+      expect(loaded.version).toBe(3)
       expect(loaded.timestamp).toBeGreaterThanOrEqual(beforeSave)
       expect(loaded.timestamp).toBeLessThanOrEqual(Date.now())
     })
@@ -77,8 +77,7 @@ describe('persistence', () => {
         theme: 'dark',
         locale: 'en',
         timezone: 'UTC',
-        mainIndicators: [],
-        subIndicators: [],
+        indicators: [], panes:[], axes:[],
         styles: null,
         overlayData: [
           {
@@ -112,7 +111,7 @@ describe('persistence', () => {
     })
 
     it('should return null for corrupted JSON', () => {
-      store['trading-chest-layout-corrupted'] = 'not valid json'
+      store['trading-chest-layout-v3-corrupted'] = 'not valid json'
       expect(loadLayout('corrupted')).toBeNull()
     })
 
@@ -123,12 +122,11 @@ describe('persistence', () => {
         theme: 'dark',
         locale: 'en',
         timezone: 'UTC',
-        mainIndicators: [],
-        subIndicators: [],
+        indicators: [], panes:[], axes:[],
         styles: null,
         overlayData: []
       }
-      store['trading-chest-layout-invalid-version'] = JSON.stringify(data)
+      store['trading-chest-layout-v3-invalid-version'] = JSON.stringify(data)
       expect(loadLayout('invalid-version')).toBeNull()
     })
 
@@ -148,8 +146,7 @@ describe('persistence', () => {
         theme: 'dark',
         locale: 'en',
         timezone: 'UTC',
-        mainIndicators: [],
-        subIndicators: [],
+        indicators: [], panes:[], axes:[],
         styles: null,
         overlayData: []
       }
@@ -177,8 +174,7 @@ describe('persistence', () => {
         theme: 'dark',
         locale: 'en',
         timezone: 'UTC',
-        mainIndicators: [],
-        subIndicators: [],
+        indicators: [], panes:[], axes:[],
         styles: null,
         overlayData: []
       }
@@ -187,8 +183,7 @@ describe('persistence', () => {
         theme: 'light',
         locale: 'en',
         timezone: 'UTC',
-        mainIndicators: [],
-        subIndicators: [],
+        indicators: [], panes:[], axes:[],
         styles: null,
         overlayData: []
       }
@@ -210,8 +205,7 @@ describe('persistence', () => {
         theme: 'dark',
         locale: 'en',
         timezone: 'UTC',
-        mainIndicators: [],
-        subIndicators: [],
+        indicators: [], panes:[], axes:[],
         styles: null,
         overlayData: []
       }
@@ -219,11 +213,11 @@ describe('persistence', () => {
       saveLayout('a', layout)
       // Simulate time passing with manual timestamp manipulation
       const bData = {
-        version: 1,
+        version: 3,
         timestamp: Date.now() + 1000,
         ...layout
       }
-      store['trading-chest-layout-b'] = JSON.stringify(bData)
+      store['trading-chest-layout-v3-b'] = JSON.stringify(bData)
 
       const list = listLayouts()
 
@@ -233,24 +227,21 @@ describe('persistence', () => {
       }
     })
 
-    it('should ignore corrupted layouts in storage', () => {
+    it('should surface corrupted layouts without hiding existing valid ones', () => {
       const layout = {
         theme: 'dark',
         locale: 'en',
         timezone: 'UTC',
-        mainIndicators: [],
-        subIndicators: [],
+        indicators: [], panes:[], axes:[],
         styles: null,
         overlayData: []
       }
 
       saveLayout('valid', layout)
-      store['trading-chest-layout-corrupted'] = 'invalid json'
+      store['trading-chest-layout-v3-corrupted'] = 'invalid json'
 
-      const list = listLayouts()
-
-      expect(list).toHaveLength(1)
-      expect(list[0].key).toBe('valid')
+      expect(listLayoutsV3()).toMatchObject({status:'error',code:'read'})
+      expect(loadLayout('valid')).not.toBeNull()
     })
 
     it('should ignore non-trading-chest keys in storage', () => {
@@ -258,8 +249,7 @@ describe('persistence', () => {
         theme: 'dark',
         locale: 'en',
         timezone: 'UTC',
-        mainIndicators: [],
-        subIndicators: [],
+        indicators: [], panes:[], axes:[],
         styles: null,
         overlayData: []
       }
@@ -281,8 +271,7 @@ describe('persistence', () => {
         theme: 'dark',
         locale: 'en',
         timezone: 'UTC',
-        mainIndicators: ['MA'],
-        subIndicators: ['VOL'],
+        indicators: [{name:'MA',placement:'main' as const},{name:'VOL',placement:'sub' as const}], panes:[], axes:[],
         styles: null,
         overlayData: []
       }
@@ -306,7 +295,7 @@ describe('persistence', () => {
 
       // Verify data integrity
       const loaded1 = loadLayout('layout1')!
-      expect(loaded1.mainIndicators).toEqual(['MA'])
+      expect(loaded1.indicators.filter(i=>i.placement==='main').map(i=>i.name)).toEqual(['MA'])
       const loaded3 = loadLayout('layout3')!
       expect(loaded3.locale).toBe('zh-CN')
     })

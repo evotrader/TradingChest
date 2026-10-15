@@ -25,7 +25,7 @@ const dateAndPriceRange: OverlayTemplate = {
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: true,
   needDefaultYAxisFigure: true,
-  createPointFigures: ({ coordinates, overlay, precision }) => {
+  createPointFigures: ({ coordinates, overlay, chart }) => {
     if (coordinates.length > 1) {
       const points = overlay.points
       const price1 = points[0].value!
@@ -55,7 +55,7 @@ const dateAndPriceRange: OverlayTemplate = {
 
       // 格式化显示文本：价格差 / 涨跌幅 / K 线数 / 时间
       const sign = priceDiff >= 0 ? '+' : ''
-      const line1 = `${sign}${priceDiff.toFixed(precision.price)}  (${sign}${percentChange.toFixed(2)}%)`
+      const line1 = `${sign}${priceDiff.toFixed((chart.getSymbol()?.pricePrecision ?? 2))}  (${sign}${percentChange.toFixed(2)}%)`
       const line2 = `${bars} 根  |  ${durationText}`
 
       // 文本位置：矩形中间

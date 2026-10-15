@@ -2,7 +2,7 @@ import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
 const require = createRequire(process.env.PLAYWRIGHT_PACKAGE_JSON || import.meta.url)
 const { chromium } = require('playwright')
-const browser = await chromium.launch({executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', args:['--no-sandbox']})
+const browser = await chromium.launch({executablePath: process.env.CHROMIUM_PATH, chromiumSandbox: true})
 try {
   const page = await browser.newPage()
   const errors = []

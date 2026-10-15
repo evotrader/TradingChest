@@ -119,6 +119,7 @@ export interface ChartProOptions {
 export interface ChartPro {
   /** Navigate existing source time points only; never snap across missing data. */
   locateTimestamp(target: { ticker: string, period: Period, timestamp: number }): import('./core/locateTimestamp').TimestampLocation
+  reloadData(options?: {preserveViewport?: boolean}): Promise<void>
   setTheme(theme: string): void
   getTheme(): string
   setStyles(styles: DeepPartial<Styles>): void

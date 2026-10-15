@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { saveLayoutV2, loadLayoutV2, migrateLayoutV1, isChartLayoutV2, type ChartLayoutV2 } from '../v2'
-import { loadLayout, listLayouts } from '../index'
+import { loadLayoutV2, migrateLayoutV1, isChartLayoutV2, type ChartLayoutV2 } from '../v2'
+import { loadLayoutV3 } from '../v3'
+// Historical fixture writer, never exported by the v10 product.
+function saveLayoutV2(key:string,input:Omit<ChartLayoutV2,'version'|'timestamp'>):boolean {
+  const data={...input,version:2,timestamp:Date.now()}
+  if(!isChartLayoutV2(data))return false
+  try{localStorage.setItem('trading-chest-layout-v2-'+key,JSON.stringify(data));return true}catch{return false}
+}
 const store: Record<string,string> = {}
 const storage = {
   getItem: vi.fn((k:string)=>store[k]??null),
@@ -34,8 +40,8 @@ describe('opt-in non-destructive layout v2',()=>{
     const raw=JSON.stringify(legacy());store['trading-chest-layout-a']=raw
     expect(saveLayoutV2('a',layout())).toBe(true)
     expect(store['trading-chest-layout-a']).toBe(raw)
-    expect(loadLayout('a')?.version).toBe(1)
-    expect(listLayouts()).toEqual([{key:'a',timestamp:100}])
+    expect(loadLayoutV3('a')).toMatchObject({status:'ok',value:{version:3}})
+    expect(store['trading-chest-layout-a']).toBe(raw)
   })
   it('prefers v2 and does not resurrect stale v1 when v2 is corrupt',()=>{
     store['trading-chest-layout-a']=JSON.stringify(legacy())

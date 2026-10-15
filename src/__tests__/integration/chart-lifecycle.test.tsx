@@ -22,9 +22,25 @@ function deferred() {
   return { promise, resolve }
 }
 function mount(history = vi.fn().mockResolvedValue(bars)) {
+  let data = bars, symbol: any, period: any, loader: any
+  const initialData = vi.fn((rows: typeof bars) => {data=rows})
+  const barData = vi.fn((bar: typeof bars[number]) => {data=[...data.filter(row=>row.timestamp!==bar.timestamp),bar]})
+  const olderData = vi.fn((rows: typeof bars) => {data=[...rows,...data]})
+  const request = (type: string, timestamp: number | null = null) => {
+    if (!symbol || !period || !loader) return
+    loader.getBars({type,timestamp,symbol,period,callback:(rows: typeof bars)=>{
+      if(type==='init') {initialData(rows);loader.subscribeBar({symbol,period,callback:barData})}
+      else olderData(rows)
+    }})
+  }
   mock.chart = new Proxy({
-    getStyles: () => ({}), getDataList: () => bars, getDom: () => null,
-    loadMore: (fn: any) => { mock.loadMore = fn },
+    getStyles: () => ({}), getDataList: () => data, getDom: () => null,
+    getVisibleRange:()=>({from:0,to:data.length}),getBarSpace:()=>({bar:6}),
+    getIndicators:()=>[],getOverlays:vi.fn(()=>[]),
+    setDataLoader:(value:any)=>{loader=value;mock.loadMore=(timestamp:number)=>request('forward',timestamp)},
+    getSymbol:()=>symbol,getPeriod:()=>period,
+    setSymbol:(value:any)=>{symbol=value;request('init')},setPeriod:(value:any)=>{period=value;request('init')},
+    resetData:()=>request('init'),initialData,barData,olderData,
   } as any, { get(target, key) { return target[key] ?? (target[key] = vi.fn()) } })
   let api!: ChartPro
   const feed = { getHistoryKLineData: history, subscribe: vi.fn(), unsubscribe: vi.fn(), searchSymbols: vi.fn() }
@@ -45,13 +61,13 @@ describe('chart lifecycle isolation', () => {
     const host = mount(vi.fn().mockReturnValue(pending.promise))
     host.unmount(); pending.resolve(bars); await tick()
     expect(host.feed.subscribe).not.toHaveBeenCalled()
-    expect(host.chart.applyNewData).not.toHaveBeenCalled()
+    expect(host.chart.initialData).not.toHaveBeenCalled()
   })
   it('ignores queued live ticks after unmount', async () => {
     const host = mount(); await tick()
     const callback = host.feed.subscribe.mock.calls[0][2]
     host.unmount(); callback(bars[0])
-    expect(host.chart.updateData).not.toHaveBeenCalled()
+    expect(host.chart.barData).not.toHaveBeenCalled()
     expect(host.price).not.toHaveBeenCalled()
   })
   it('ignores queued live ticks and pending load-more while replaying', async () => {
@@ -59,26 +75,26 @@ describe('chart lifecycle isolation', () => {
     const host = mount(vi.fn().mockResolvedValueOnce(bars).mockReturnValueOnce(pending.promise)); await tick()
     const callback = host.feed.subscribe.mock.calls[0][2]
     mock.loadMore(bars[0].timestamp)
-    host.api.startReplay(2); host.chart.updateData.mockClear()
+    host.api.startReplay(2); host.chart.barData.mockClear()
     callback(bars[3]); pending.resolve(bars); await tick()
-    expect(host.chart.updateData).not.toHaveBeenCalled()
-    expect(host.chart.applyMoreData).not.toHaveBeenCalled()
+    expect(host.chart.barData).not.toHaveBeenCalled()
+    expect(host.chart.olderData).not.toHaveBeenCalled()
     expect(host.price).not.toHaveBeenCalled()
   })
   it('keeps current live ticks valid during ordinary load-more', async () => {
     const host = mount(); await tick()
     const callback = host.feed.subscribe.mock.calls[0][2]
     mock.loadMore(bars[0].timestamp); await tick(); callback(bars[3])
-    expect(host.chart.updateData).toHaveBeenCalledWith(bars[3])
+    expect(host.chart.barData).toHaveBeenCalledWith(bars[3])
   })
   it('does not send a historical correction to new-bar rendering or live price alerts', async () => {
     const host = mount(); await tick()
     const callback = host.feed.subscribe.mock.calls[0][2]
     callback({...bars[0],close:12})
-    expect(host.chart.updateData).not.toHaveBeenCalled()
+    expect(host.chart.barData).not.toHaveBeenCalled()
     expect(host.price).not.toHaveBeenCalled()
     callback({...bars[3],close:12})
-    expect(host.chart.updateData).toHaveBeenCalledTimes(1)
+    expect(host.chart.barData).toHaveBeenCalledTimes(1)
     expect(host.price).toHaveBeenCalledWith(12,bars[3].timestamp)
   })
   it('ignores old symbol callbacks after switching symbols', async () => {
@@ -105,7 +121,7 @@ describe('chart lifecycle isolation', () => {
       overlays.set(options.id, { ...options, currentStep: 1, points: [] })
       return options.id
     })
-    host.chart.getOverlayById.mockImplementation((id: string) => overlays.get(id))
+    host.chart.getOverlays.mockImplementation(({id}: {id:string}) => overlays.has(id) ? [overlays.get(id)] : [])
     host.chart.removeOverlay.mockImplementation(({ id }: { id: string }) => {
       const overlay = overlays.get(id)
       overlays.delete(id)
@@ -167,7 +183,7 @@ describe('chart lifecycle isolation', () => {
   it('clears the initial loading mask when the engine immediately asks for older bars', async () => {
     const pending = deferred()
     const host = mount(vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue([]))
-    host.chart.applyNewData.mockImplementationOnce(() => mock.loadMore(bars[0].timestamp))
+    host.chart.initialData.mockImplementationOnce(() => mock.loadMore(bars[0].timestamp))
     pending.resolve(bars); await tick(); await tick()
     expect(host.container.querySelector('.klinecharts-pro-loading')).toBeNull()
     expect(host.feed.subscribe).toHaveBeenCalledTimes(1)
@@ -211,7 +227,7 @@ describe('chart lifecycle isolation', () => {
     try {
       await tick()
       chart.createTradeVisualization([])
-      expect(mock.chart.removeIndicator).toHaveBeenCalledWith('candle_pane', 'TradeVis')
+      expect(mock.chart.removeIndicator).not.toHaveBeenCalled()
       chart.addAlert({id:'same-id',price:12,condition:'above'})
       chart.feedPrice(10); chart.feedPrice(13)
       expect(live).toHaveBeenCalledTimes(1)

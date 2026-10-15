@@ -20,7 +20,7 @@ const fibonacciExtension: OverlayTemplate = {
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: true,
   needDefaultYAxisFigure: true,
-  createPointFigures: ({ coordinates, overlay, precision }) => {
+  createPointFigures: ({ coordinates, overlay, chart }) => {
     const fbLines: LineAttrs[] = []
     const texts: TextAttrs[] = []
     if (coordinates.length > 2) {
@@ -31,7 +31,7 @@ const fibonacciExtension: OverlayTemplate = {
       const textX = coordinates[2].x > coordinates[1].x ? coordinates[1].x : coordinates[2].x
       percents.forEach(percent => {
         const y = coordinates[2].y + yDif * percent
-        const price = (points[2].value! + valueDif * percent).toFixed(precision.price)
+        const price = (points[2].value! + valueDif * percent).toFixed((chart.getSymbol()?.pricePrecision ?? 2))
         fbLines.push({ coordinates: [{ x: coordinates[1].x, y }, { x: coordinates[2].x, y }] })
         texts.push({
           x: textX,

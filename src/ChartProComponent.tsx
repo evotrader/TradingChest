@@ -46,7 +46,8 @@ export interface ChartComponentApi extends ChartPro {
   createDrawing: (overlay: OverlayCreate) => void
 }
 
-export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady'>> {
+export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'>> {
+  onDataState?: ChartProOptions['onDataState']
   onDataReady?: ChartProOptions['onDataReady']
   ref: (chart: ChartComponentApi) => void
   /** 内部回调：实时数据到达时通知外层（用于报警检测） */
@@ -320,6 +321,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     locateTimestamp: () => { throw new Error('[TradingChest] locateTimestamp must be called on KLineChartPro instance') },
     cancelDrawing, deleteSelectedDrawing, createDrawing,
     reloadData: options => replayEngine ? Promise.reject(new Error('回放中请先退出回放，再重新加载行情')) : loader?.reload(options?.preserveViewport ?? true) ?? Promise.resolve(),
+    applySnapshot: snapshot => loader?.applySnapshot(snapshot) ?? Promise.reject(new Error('图表尚未就绪')),
     setTheme,
     getTheme: () => theme(),
     setStyles,
@@ -437,6 +439,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     }
 
     if (widget) loader = new EngineDataLoader(widget, props.datafeed, {
+      state: state=>props.onDataState?.(state),
       loading: active => {setLoading(active);setLoadingVisible(active)},
       ready: identity => {setLoadError('');if(!resuming())props.onDataReady?.(identity)},
       error: error => {setLoadError(error.message);props.onError?.(error)},

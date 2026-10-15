@@ -37,6 +37,24 @@ export interface Period {
 
 export type DatafeedSubscribeCallback = (data: KLineData) => void
 
+/** Optional provenance belongs to this exact history response. */
+export type HistoryResult = KLineData[] | {bars: KLineData[]; basis?: string}
+export interface ChartSnapshot {
+  symbol: SymbolInfo
+  period: Period
+  bars: KLineData[]
+  basis?: string
+}
+export interface ChartDataState {
+  symbol: SymbolInfo
+  period: Period
+  basis?: string
+  timestamp?: number
+  restoring: boolean
+  replay: boolean
+  error?: string
+}
+
 /** Optional request context. Legacy four-argument providers remain compatible.
  * Each chart owns its signals; providers should pass signal to their fetch calls.
  * A legacy single-callback provider instance must not be shared between charts.
@@ -48,7 +66,7 @@ export interface DatafeedRequestContext {
 
 export interface Datafeed {
   searchSymbols (search?: string): Promise<SymbolInfo[]>
-  getHistoryKLineData (symbol: SymbolInfo, period: Period, from: number, to: number, context?: DatafeedRequestContext): Promise<KLineData[]>
+  getHistoryKLineData (symbol: SymbolInfo, period: Period, from: number, to: number, context?: DatafeedRequestContext): Promise<HistoryResult>
   subscribe (symbol: SymbolInfo, period: Period, callback: DatafeedSubscribeCallback): void
   unsubscribe (symbol: SymbolInfo, period: Period): void
   /** 释放 datafeed 持有的资源（如 WebSocket 连接）。可选实现。 */
@@ -83,6 +101,7 @@ export interface OverlayLifecycleEvent {
 }
 
 export interface ChartProOptions {
+  onDataState?: (state: ChartDataState) => void
   /** Initial history was applied for this exact symbol/period. */
   onDataReady?: (context: { symbol: SymbolInfo, period: Period }) => void
   container: string | HTMLElement
@@ -120,6 +139,7 @@ export interface ChartPro {
   /** Navigate existing source time points only; never snap across missing data. */
   locateTimestamp(target: { ticker: string, period: Period, timestamp: number }): import('./core/locateTimestamp').TimestampLocation
   reloadData(options?: {preserveViewport?: boolean}): Promise<void>
+  applySnapshot(snapshot: ChartSnapshot): Promise<void>
   setTheme(theme: string): void
   getTheme(): string
   setStyles(styles: DeepPartial<Styles>): void

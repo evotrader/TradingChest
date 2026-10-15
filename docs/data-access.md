@@ -78,3 +78,13 @@ const chart = new KLineChartPro({
 设置面板和快捷键使用 `getYAxes`／`overrideYAxis` 修改真实价格轴，名称为 `normal`／`percentage`／`logarithm`；价格轴类型不再写入 `styles.yAxis.type`。
 
 图表支持浏览器打包及 UMD，React 分析入口保持独立。原始 Node 图表导入不属于 SSR 支持范围。CJS 浏览器子入口为规避上游 CJS→ESM 型 UMD 入口缺陷，打包同一发布版的真实 ESM 引擎；ESM 和 UMD 仍消费固定 peer。
+## 权威快照续读
+
+宿主可以调用 `chart.applySnapshot({symbol, period, bars, basis})`。`symbol.ticker` 必须为当前完整标的 ID；周期也必须完全相同。`bars` 必须按时标严格递增且 OHLCV 有效，重复和错身份会拒绝。
+
+同根修改和新根通过当前引擎订阅 callback 更新；更早数据的修订先重读整个已加载范围，成功后替换并保留视窗和绘图，不触发实时报警。缺少旧行不代表删除。回放中只保留待应用输入，退出时重读权威历史。
+
+`Datafeed.getHistoryKLineData` 可返回原数组，或 `{bars, basis}`。`basis` 是该次读取的口径标识，例如后端 `adjustment_status` 与 `adjustment_basis` 的组合，必须与 bars 同次取得；不能使用全局“最后一次”状态。口径变化时必须成功读齐已加载时标才能替换；失败保留旧图并显示恢复错误，下一次快照或重试继续恢复。
+
+
+`onDataState` 返回引擎已确认的 `basis`、末根 `timestamp`、`restoring`、`replay` 和错误。宿主应据此标注当前图形口径；刚收到 HTTP 新口径不等于旧图已完成替换。实盘历史分页通过 `adjustment_end` 沿用当前序列的参考日期，并比较实际累计因子，不能仅比较 adjusted 状态。

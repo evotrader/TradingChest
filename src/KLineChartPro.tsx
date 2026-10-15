@@ -17,6 +17,7 @@ import { render } from 'solid-js/web'
 import { utils, Nullable, DeepPartial, Styles, registerIndicator } from 'klinecharts'
 import { normalizeToPercent } from './compare'
 import { locateDataTimestamp, type TimestampLocation } from './core/locateTimestamp'
+import { historySnapshot } from './core/engineDataLoader'
 
 import ChartProComponent, { type ChartComponentApi } from './ChartProComponent'
 
@@ -100,6 +101,7 @@ export default class KLineChartPro implements ChartPro {
           onDataReady={(context) => {
             if (this._disposed) return
             this._historyReady = true
+            this._alertManager.resetPrevPrice()
             options.onDataReady?.(context)
           }}
           onDataReset={(symbol) => {
@@ -109,6 +111,7 @@ export default class KLineChartPro implements ChartPro {
             // 品种/周期切换时清理比较指标（旧数据时间戳不再对齐）
             this._clearComparisons()
           }}
+          onDataState={options.onDataState}
           onError={options.onError}/>
       ),
       this._container
@@ -262,6 +265,7 @@ export default class KLineChartPro implements ChartPro {
   }
 
   reloadData(options?: {preserveViewport?: boolean}): Promise<void> { return this._api().reloadData(options) }
+  applySnapshot(snapshot: import('./types').ChartSnapshot): Promise<void> {return this._api().applySnapshot(snapshot)}
 
   setTheme (theme: string): void {
     this._container?.setAttribute('data-theme', theme)
@@ -469,7 +473,7 @@ export default class KLineChartPro implements ChartPro {
 
     const from = mainData[0].timestamp
     const to = mainData[mainData.length - 1].timestamp
-    const compData = await this._datafeed.getHistoryKLineData(symbol, p, from, to)
+    const {bars:compData} = historySnapshot(await this._datafeed.getHistoryKLineData(symbol, p, from, to))
     if (compData.length === 0) return
 
     const compPercent = normalizeToPercent(compData)

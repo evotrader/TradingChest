@@ -76,7 +76,7 @@ export { getTradeVisHitTargets, cleanupTradeVisInstance } from './indicator/trad
 export type { TradeRecord, TradeVisExtendData } from './indicator/trade/tradeVisualization'
 export type { ConnectionState } from './DefaultDatafeed'
 
-export type { DatafeedRequestContext } from './types'
+export type { DatafeedRequestContext, ChartSnapshot, HistoryResult, ChartDataState } from './types'
 
 export { calculateSessionVwap } from './indicator/volume/sessionVwap'
 export type { BarSession, SessionKLineData, SessionVwapMethod, SessionVwapPoint } from './indicator/volume/sessionVwap'

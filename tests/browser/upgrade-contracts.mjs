@@ -16,6 +16,37 @@ try {
   return {rejected,bars:JSON.stringify(chart.getDataList())===before,range:JSON.stringify(chart.getVisibleRange())===range,drawing:chart.getOverlays({id:'retained'}).length===1}
  });assert.deepEqual(preserved,{rejected:true,bars:true,range:true,drawing:true})
  await open()
+ const snapshots=await page.evaluate(async()=>{
+  const chart=test.chart.getChart(),snapshot=bars=>({symbol:{ticker:'TEST'},period:{multiplier:1,timespan:'minute',text:'1m'},bars})
+  const rows=test.bars.map(bar=>({...bar})),last=rows.at(-1)
+  last.close+=0.5
+  await test.chart.applySnapshot(snapshot([last]))
+  const same=chart.getDataList().at(-1).close===last.close
+  const next={...last,timestamp:last.timestamp+60000};rows.push(next)
+  await test.chart.applySnapshot(snapshot([next]))
+  const appended=chart.getDataList().length===21
+  const beforeAlerts=test.state.alerts.length
+  rows[2].close+=0.5;test.state.historyOverride=rows
+  await test.chart.applySnapshot(snapshot(rows))
+  const revision=chart.getDataList()[2].close===rows[2].close&&test.state.alerts.length===beforeAlerts
+  const confirmed=JSON.stringify(chart.getDataList());test.state.failHistory=true
+  let failed=false;try{await test.chart.applySnapshot({...snapshot(rows),basis:'adjusted'})}catch{failed=true}
+  const preserved=JSON.stringify(chart.getDataList())===confirmed
+  const retainedBasis=test.state.dataStates.at(-1).basis===undefined && !!test.state.dataStates.at(-1).error && !test.state.dataStates.at(-1).restoring
+  test.state.failHistory=false;test.state.historyOverride={bars:rows,basis:'adjusted'}
+  await test.chart.applySnapshot({...snapshot(rows),basis:'adjusted'})
+  const histories=test.state.histories
+  await test.chart.applySnapshot({...snapshot([rows.at(-1)]),basis:'adjusted'})
+  let wrong=false,duplicates=false
+  try{await test.chart.applySnapshot({...snapshot(rows),symbol:{ticker:'OTHER'}})}catch{wrong=true}
+  try{await test.chart.applySnapshot(snapshot([last,last]))}catch{duplicates=true}
+  test.chart.startReplay(5)
+  await test.chart.applySnapshot({...snapshot(rows),basis:'adjusted'})
+  const replayUntouched=chart.getDataList().length===5
+  test.chart.stopReplay()
+  return {same,appended,revision,failed,preserved,retainedBasis,stableBasis:test.state.histories===histories+1,wrong,duplicates,replayUntouched}
+ });assert.ok(Object.values(snapshots).every(Boolean),JSON.stringify(snapshots))
+ await open()
  await page.evaluate(()=>{test.state.holdResume=true;test.state.holdSymbol='OTHER';test.pending=test.chart.reloadData().catch(error=>{test.state.cancelled=error.name});test.chart.setSymbol({ticker:'OTHER'});test.state.rejectResume(new Error('旧请求已取消'))})
  await page.waitForTimeout(50)
  assert.equal(await page.locator('.klinecharts-pro-loading').count(),1,'old reload closed current loading')

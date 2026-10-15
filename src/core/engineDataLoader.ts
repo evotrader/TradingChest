@@ -1,5 +1,5 @@
 import type { Chart, DataLoader, DataLoaderGetBarsParams, KLineData, Period as EnginePeriod } from 'klinecharts'
-import type { Datafeed, Period, SymbolInfo, ChartProOptions } from '../types'
+import type { Datafeed, Period, SymbolInfo, ChartProOptions, HistoryResult, ChartSnapshot } from '../types'
 import { adjustFromTo } from './adjustFromTo'
 
 export function toEnginePeriod(period: Period): EnginePeriod {
@@ -20,7 +20,14 @@ export function validateBars(bars: KLineData[]): void {
     previous = bar.timestamp
   }
 }
+export function historySnapshot(result: HistoryResult): {bars: KLineData[]; basis?: string} {
+  const snapshot = Array.isArray(result) ? {bars:result} : result
+  validateBars(snapshot.bars)
+  return snapshot
+}
+const changed = (a: KLineData, b: KLineData): boolean => ['open','high','low','close','volume'].some(key => a[key] !== b[key])
 interface Hooks {
+  state?: ChartProOptions['onDataState']
   loading: (loading: boolean) => void
   ready: NonNullable<ChartProOptions['onDataReady']>
   error: NonNullable<ChartProOptions['onError']>
@@ -34,11 +41,22 @@ export class EngineDataLoader implements DataLoader {
   private current?: {symbol: SymbolInfo; period: Period}
   private subscription?: {symbol: SymbolInfo; period: Period}
   private stream?: (bar: KLineData) => void
-  private prepared?: KLineData[]
+  private prepared?: {bars: KLineData[]; basis?: string}
+  private basis?: string
+  private pendingSnapshot?: ChartSnapshot
+  private snapshotTask?: Promise<void>
+  private suspended = false
   private replay?: KLineData[]
   private confirmed = false
   private disposed = false
+  private restoring = false
+  private readError?: string
   constructor(private chart: Chart, private feed: Datafeed, private hooks: Hooks) { chart.setDataLoader(this) }
+  private emitState():void {
+    if(this.current && !this.disposed)this.hooks.state?.({...this.current,basis:this.basis,timestamp:this.chart.getDataList().at(-1)?.timestamp,restoring:this.restoring,replay:!!this.replay,error:this.readError})
+  }
+  private setLoading(active:boolean):void {this.restoring=active;this.hooks.loading(active);this.emitState()}
+  private reportError(error:Parameters<NonNullable<ChartProOptions['onError']>>[0]):void {this.readError=error.message;this.hooks.error(error);this.emitState()}
   private invalidate(): void {
     ++this.generation
     for (const request of this.requests) request.abort()
@@ -55,6 +73,11 @@ export class EngineDataLoader implements DataLoader {
     this.invalidate()
     this.confirmed = false
     this.prepared = undefined
+    this.basis = undefined
+    this.pendingSnapshot = undefined
+    this.snapshotTask = undefined
+    this.suspended = false
+    this.readError=undefined
     this.replay = undefined
     this.current = {symbol: {...symbol}, period: {...period}}
     // v10 merges symbols. Explicitly clear absent decoration instead of inheriting another instrument.
@@ -75,37 +98,41 @@ export class EngineDataLoader implements DataLoader {
     const generation = this.generation, page = ++this.pageSequence
     const active = () => !this.disposed && generation === this.generation && (request.type === 'init' || page === this.pageSequence)
     if (this.replay) {
-      if (request.type === 'init') { this.confirmed = true; request.callback(this.replay, {forward:false, backward:false}) }
+      if (request.type === 'init') { this.confirmed = true; request.callback(this.replay, {forward:false, backward:false});this.emitState() }
       else request.callback([], {forward:false, backward:false})
       return
     }
     if (request.type !== 'init' && request.type !== 'forward') {request.callback([], {backward:false});return}
     const controller = new AbortController()
     this.requests.add(controller)
-    this.hooks.loading(true)
+    this.setLoading(true)
     try {
       let bars: KLineData[]
-      if (request.type === 'init' && this.prepared) {bars=this.prepared;this.prepared=undefined}
+      let basis: string | undefined
+      if (request.type === 'init' && this.prepared) {({bars,basis}=this.prepared);this.prepared=undefined}
       else {
         const end = request.type === 'init' ? Date.now() : (request.timestamp ?? 0) - 1
         const [from, to] = adjustFromTo(identity.period, end, 500)
-        bars = await this.feed.getHistoryKLineData(identity.symbol, identity.period, from, to, {signal:controller.signal, reason:request.type === 'init' ? 'initial' : 'load-more'})
+        ;({bars,basis}=historySnapshot(await this.feed.getHistoryKLineData(identity.symbol, identity.period, from, to, {signal:controller.signal, reason:request.type === 'init' ? 'initial' : 'load-more'})))
         if (request.type === 'forward') bars = bars.filter(bar => bar.timestamp < (request.timestamp ?? Infinity))
       }
       validateBars(bars)
       if (!active() || controller.signal.aborted) return
-      if (request.type === 'init') this.confirmed = true
+      if (request.type === 'init') {this.confirmed = true;this.basis=basis;this.suspended=false}
+      else if (bars.length>0 && basis !== this.basis) throw new Error('历史复权口径已变化，请重试重新加载行情')
       request.callback(bars, {forward:bars.length > 0, backward:false})
+      this.readError=undefined
+      this.emitState()
       if (request.type === 'init') this.hooks.ready(identity)
     } catch (error) {
       if (!active() || controller.signal.aborted) return
       if (request.type === 'init') this.confirmed = false
-      this.hooks.error({type:request.type === 'init' ? 'data-fetch' : 'load-more',message:error instanceof Error ? error.message : '行情读取失败',raw:error})
+      this.reportError({type:request.type === 'init' ? 'data-fetch' : 'load-more',message:error instanceof Error ? error.message : '行情读取失败',raw:error})
       // An init callback clears the data; only first/new identities use this failure path.
       request.callback([], {forward:false, backward:false})
     } finally {
       this.requests.delete(controller)
-      if (active()) this.hooks.loading(false)
+      if (active()) this.setLoading(false)
     }
   }
   subscribeBar: NonNullable<DataLoader['subscribeBar']> = ({callback}) => {
@@ -119,36 +146,71 @@ export class EngineDataLoader implements DataLoader {
       if (this.disposed || generation !== this.generation || this.replay) return
       this.push(bar)
     })
+    queueMicrotask(() => {void this.drainSnapshots().catch(()=>{})})
   }
   unsubscribeBar = (): void => {this.stopSubscription();this.stream=undefined}
   push(bar: KLineData): void {
-    if (this.disposed || !this.stream || this.replay) return
-    try { validateBars([bar]) } catch (error) {this.hooks.error({type:'invalid-bar',message:String(error),raw:bar});return}
+    if (this.disposed || !this.stream || this.replay || this.suspended) return
+    try { validateBars([bar]) } catch (error) {this.reportError({type:'invalid-bar',message:String(error),raw:bar});return}
     const latest = this.chart.getDataList().at(-1)
     if (latest && bar.timestamp < latest.timestamp) {
-      this.hooks.error({type:'historical-revision',message:'历史修订需要重载，不进入实时报警',raw:bar});return
+      this.reportError({type:'historical-revision',message:'历史修订需要重载，不进入实时报警',raw:bar});return
     }
     this.stream(bar)
+    this.emitState()
     this.hooks.price(bar)
   }
+  applySnapshot(snapshot: ChartSnapshot): Promise<void> {
+    if (!this.current || !sameSeries(snapshot,this.current) || this.disposed) return Promise.reject(new Error('行情快照与当前标的或周期不匹配'))
+    try {validateBars(snapshot.bars)} catch(error) {return Promise.reject(error)}
+    this.pendingSnapshot = {...snapshot,bars:snapshot.bars.map(bar=>({...bar}))}
+    return this.drainSnapshots()
+  }
+  private drainSnapshots(): Promise<void> {
+    if (this.snapshotTask) return this.snapshotTask
+    if (!this.confirmed || !this.stream || this.replay || !this.pendingSnapshot) return Promise.resolve()
+    const generation = this.generation
+    const task = (async () => {
+      while (this.pendingSnapshot && !this.replay && !this.disposed && generation === this.generation) {
+        const snapshot=this.pendingSnapshot;this.pendingSnapshot=undefined
+        const data=this.chart.getDataList(),last=data.at(-1)?.timestamp ?? -Infinity
+        const existing=new Map(data.map(bar=>[bar.timestamp,bar]))
+        const basisChanged=snapshot.basis !== this.basis
+        const revision=snapshot.bars.some(bar=>bar.timestamp<last && (!existing.has(bar.timestamp) || changed(existing.get(bar.timestamp)!,bar)))
+        if (this.suspended || basisChanged || revision) {await this.reload(true,basisChanged,snapshot.bars[0]?.timestamp);break}
+        for(const bar of snapshot.bars) if(bar.timestamp>=last && (!existing.has(bar.timestamp)||changed(existing.get(bar.timestamp)!,bar)))this.push(bar)
+      }
+    })().finally(()=>{
+      if(this.snapshotTask!==task)return
+      this.snapshotTask=undefined
+      if(this.pendingSnapshot && !this.replay && !this.disposed)queueMicrotask(()=>{void this.drainSnapshots().catch(()=>{})})
+    })
+    this.snapshotTask=task
+    return this.snapshotTask
+  }
   /** Prefetch before reset; failure leaves the confirmed data, drawings and viewport intact. */
-  async reload(preserveViewport = true): Promise<void> {
+  async reload(preserveViewport = true, requireComplete = false, earliestTimestamp = Infinity): Promise<void> {
     if (this.disposed || !this.current) throw new DOMException('行情恢复已取消或图表尚未就绪','AbortError')
     const generation = this.generation, identity = this.current, controller = new AbortController()
     this.requests.add(controller)
-    this.hooks.loading(true)
+    this.readError=undefined
+    this.setLoading(true)
+    this.suspended=true
     let completionGeneration = generation
     const data = this.chart.getDataList(), range = this.chart.getVisibleRange(), space = this.chart.getBarSpace().bar
     const anchor = data[Math.min(data.length-1, Math.max(0,range.to-1))]?.timestamp
     const [defaultFrom, to] = adjustFromTo(identity.period, Date.now(), 500)
     try {
-      const bars = await this.feed.getHistoryKLineData(identity.symbol,identity.period,Math.min(data[0]?.timestamp ?? defaultFrom,defaultFrom),to,{signal:controller.signal,reason:'resume'})
-      validateBars(bars)
+      const result = historySnapshot(await this.feed.getHistoryKLineData(identity.symbol,identity.period,Math.min(data[0]?.timestamp ?? defaultFrom,defaultFrom,earliestTimestamp),to,{signal:controller.signal,reason:'resume'}))
       if (this.disposed || generation !== this.generation || controller.signal.aborted) throw new DOMException('行情恢复已取消','AbortError')
+      const basisChanged = result.basis !== this.basis
+      const timestamps=new Set(result.bars.map(bar=>bar.timestamp))
+      if ((requireComplete || basisChanged) && data.some(bar=>!timestamps.has(bar.timestamp))) throw new Error('新复权口径未覆盖全部已加载历史，保留旧图；请重试')
+      const bars=(basisChanged || requireComplete) ? result.bars : [...new Map([...data,...result.bars].map(bar=>[bar.timestamp,bar])).values()].sort((a,b)=>a.timestamp-b.timestamp)
       this.invalidate()
       completionGeneration = this.generation
       this.replay = undefined
-      this.prepared = bars
+      this.prepared = {bars,basis:result.basis}
       this.chart.resetData()
       if (preserveViewport && anchor !== undefined) {
         this.chart.setBarSpace(space)
@@ -157,17 +219,17 @@ export class EngineDataLoader implements DataLoader {
       }
     } catch (error) {
       if (!this.disposed && generation === this.generation && !controller.signal.aborted) {
-        this.hooks.error({type:'data-reload',message:error instanceof Error ? error.message : '行情恢复失败',raw:error})
+        this.reportError({type:'data-reload',message:error instanceof Error ? error.message : '行情恢复失败',raw:error})
       }
       throw error
-    } finally {this.requests.delete(controller);if(!this.disposed && completionGeneration===this.generation)this.hooks.loading(false)}
+    } finally {this.requests.delete(controller);if(!this.disposed && completionGeneration===this.generation)this.setLoading(false)}
   }
   setReplay(bars: KLineData[]): void {
     this.invalidate()
     this.replay = bars
-    this.hooks.loading(false)
+    this.setLoading(false)
     this.chart.resetData()
   }
-  pushReplay(bar: KLineData): void {if(this.replay){this.replay=[...this.replay,bar];this.stream?.(bar)}}
+  pushReplay(bar: KLineData): void {if(this.replay){this.replay=[...this.replay,bar];this.stream?.(bar);this.emitState()}}
   dispose(): void {if(!this.disposed){this.disposed=true;this.invalidate()}}
 }

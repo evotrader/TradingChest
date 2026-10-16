@@ -1,10 +1,32 @@
-import {describe,it,expect,beforeEach} from 'vitest'
-import {isChartLayoutV3,migrateLayoutToV3,saveLayoutV3,loadLayoutV3,listLayoutsV3,deleteLayoutV3} from '../v3'
+import {describe,it,expect,beforeEach,vi} from 'vitest'
+vi.mock('klinecharts',()=>({getSupportedIndicators:()=>['MA'],registerIndicator:vi.fn()}))
+import {isChartLayoutV3,migrateLayoutToV3,saveLayoutV3,loadLayoutV3,listLayoutsV3,deleteLayoutV3,restoreLayout,type ChartLayoutV3} from '../v3'
+import type {ChartPro} from '../../types'
 const values=new Map<string,string>()
 const storage={getItem:(k:string)=>values.get(k)??null,setItem:(k:string,v:string)=>values.set(k,v),removeItem:(k:string)=>values.delete(k),key:(i:number)=>[...values.keys()][i]??null,get length(){return values.size}} as Storage
 const old={version:2,timestamp:1,theme:'dark',locale:'zh-CN',timezone:'UTC',styles:{yAxis:{type:'log',reverse:true},indicator:{tooltip:{icons:[{id:'settings',icon:'s',fontFamily:'icons',position:'middle'}]}}},indicators:[],panes:[],overlayData:[]}
 beforeEach(()=>values.clear())
 describe('v3 layouts and read-only migration',()=>{
+ it('rejects duplicate indicator IDs and malformed nested records without throwing',()=>{
+  const indicator={id:'same',name:'MA',placement:'main',paneId:'candle_pane',calcParams:[5],visible:true};
+  const valid={...old,version:3,axes:[],panes:[{id:'candle_pane'}],indicators:[indicator]};
+  expect(isChartLayoutV3(valid)).toBe(true);
+  expect(isChartLayoutV3({...valid,indicators:[indicator,indicator]})).toBe(false);
+  expect(isChartLayoutV3({...valid,indicators:[null]})).toBe(false);
+  expect(isChartLayoutV3({...valid,panes:[null]})).toBe(false);
+ })
+ it('rejects an unsupported indicator before changing the existing drawing or layout',async()=>{
+  const resetDrawingHistory=vi.fn(),removeIndicator=vi.fn(),chart={removeIndicator};
+  const pro={getChart:()=>chart,getSymbol:()=>({ticker:'A'}),getDrawingHistoryState:()=>({pending:0,uncertainLogicalIds:[]}),resetDrawingHistory} as unknown as ChartPro;
+  const layout={...old,version:3,axes:[],panes:[{id:'candle_pane'}],indicators:[{name:'UNAVAILABLE',placement:'main',paneId:'candle_pane',calcParams:[],visible:true}]} as unknown as ChartLayoutV3;
+  await expect(restoreLayout(pro,layout)).rejects.toThrow('未注册');expect(resetDrawingHistory).not.toHaveBeenCalled();expect(removeIndicator).not.toHaveBeenCalled();
+ })
+ it('does not treat a null engine creation result as a restored indicator',async()=>{
+  const restoreDrawings=vi.fn(),chart={getIndicators:()=>[],setStyles:vi.fn(),createIndicator:vi.fn(()=>null)};
+  const pro={getChart:()=>chart,getSymbol:()=>({ticker:'A'}),getDrawingHistoryState:()=>({pending:0,uncertainLogicalIds:[]}),getDrawings:()=>[],resetDrawingHistory:vi.fn(),setTheme:vi.fn(),setLocale:vi.fn(),setTimezone:vi.fn(),restoreDrawings} as unknown as ChartPro;
+  const layout={...old,version:3,axes:[],panes:[{id:'candle_pane'}],indicators:[{name:'MA',placement:'main',paneId:'candle_pane',calcParams:[5],visible:true}]} as unknown as ChartLayoutV3;
+  await expect(restoreLayout(pro,layout)).rejects.toThrow('创建结果');expect(restoreDrawings).not.toHaveBeenCalled();
+ })
  it('maps the independent axis and tooltip features without changing the old record',()=>{
   const before=JSON.stringify(old),result=migrateLayoutToV3(old)
   expect(result.status).toBe('ok');if(result.status!=='ok')throw Error('migration failed')

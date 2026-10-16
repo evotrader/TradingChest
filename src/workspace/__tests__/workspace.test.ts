@@ -52,6 +52,20 @@ describe('workspace ownership',()=>{
     const w=new ChartWorkspace({container,context:'x',symbols:[{ticker:'A'}],initialSymbol:{ticker:'A'},getPeriods:(_s,s)=>{signal=s;return new Promise(done=>resolve=done)},mountCell:mount})
     w.dispose();resolve([period]);await settle();expect(signal.aborted).toBe(true);expect(mount).not.toHaveBeenCalled()
   })
+  it('waits for initial ownership before restoring a workspace and releases every chart',async()=>{
+    const template={version:3,timestamp:1,theme:'dark',locale:'zh-CN',timezone:'UTC',styles:{},indicators:[],panes:[],axes:[],overlayData:[],context:{ticker:'A',period:{multiplier:1,timespan:'minute'}}};
+    const doc={version:1,layout:1,activeCellId:'primary',sync:{symbol:false,period:false,crosshair:false,viewport:false},columnRatio:50,rowRatio:50,cells:[{cellId:'primary',context:'x',symbol:{ticker:'A'},period,chart:template}]};
+    const container=document.createElement('div');document.body.append(container);let release!:(value:Period[])=>void;let mounted=0,disposed=0;
+    const getPeriods=vi.fn().mockImplementationOnce(()=>new Promise(done=>release=done)).mockResolvedValue([period]);
+    const w=new ChartWorkspace({container,context:'x',symbols:[{ticker:'A'}],initialSymbol:{ticker:'A'},initialPeriod:period,getPeriods,mountCell:()=>{
+      mounted++;const engine={resize:vi.fn(),getDom:()=>null,subscribeAction:vi.fn(),unsubscribeAction:vi.fn(),getIndicators:()=>[],setStyles:vi.fn()};
+      const pro={getChart:()=>engine,getSymbol:()=>({ticker:'A'}),getShortcutManager:()=>({setEnabled:vi.fn()}),getDrawingHistoryState:()=>({pending:0,uncertainLogicalIds:[]}),getDrawings:()=>[],resetDrawingHistory:vi.fn(),setTheme:vi.fn(),setLocale:vi.fn(),setTimezone:vi.fn(),restoreDrawings:vi.fn()};
+      return {ready:Promise.resolve(pro as unknown as ChartPro),dispose:()=>disposed++};
+    }});instances.push(w);
+    const restoring=w.restore(doc as import('../types').WorkspaceDocument);await settle();expect(mounted).toBe(0);expect(getPeriods).toHaveBeenCalledTimes(1);
+    release([period]);await restoring;await settle();expect(w.getCells()).toHaveLength(1);expect(container.querySelectorAll('[data-cell-id="primary"]')).toHaveLength(1);
+    expect(mounted).toBe(2);expect(disposed).toBe(1);w.dispose();expect(disposed).toBe(2);
+  })
   it('rejects sync changes while a layout expansion awaits a directory read',async()=>{
     const {workspace,container,getPeriods}=setup();await settle();let resolve!:(periods:Period[])=>void
     getPeriods.mockImplementationOnce(()=>new Promise(done=>resolve=done))

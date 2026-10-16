@@ -40,7 +40,8 @@ export class ChartWorkspace {
   private alignmentTail:Promise<void>=Promise.resolve()
   private propagating=false
   private disposed=false
-  private busy=false
+  private busy=true
+  private initialization:Promise<void>|undefined
   private observer:ResizeObserver|null=null
   private controls:HTMLInputElement[]=[]
   private layoutSelect:HTMLSelectElement
@@ -72,9 +73,9 @@ export class ChartWorkspace {
     this.grid=document.createElement('div');this.grid.style.cssText='display:grid;gap:8px;min-width:0'
     this.root.append(toolbar,this.notice,this.grid);options.container.append(this.root)
     if(typeof ResizeObserver!=='undefined'){this.observer=new ResizeObserver(()=>{for(const c of this.cells)c.pro?.getChart()?.resize()});this.observer.observe(this.grid)}
-    void this.createCell({cellId:'primary',symbol:options.initialSymbol,period:options.initialPeriod??{multiplier:1,timespan:'day',text:'1d'},context:options.context},this.grid).then(c=>{
+    this.initialization=this.createCell({cellId:'primary',symbol:options.initialSymbol,period:options.initialPeriod??{multiplier:1,timespan:'day',text:'1d'},context:options.context},this.grid).then(c=>{
       if(this.disposed){this.disposeCell(c);return}this.cells=[c];this.geometry();this.setActive('primary')
-    }).catch(e=>this.error(e))
+    }).catch(e=>this.error(e)).finally(()=>{this.initialization=undefined;this.busy=false})
   }
   private key(){return this.options.storageKey??`trading-chest-workspace-v1-${this.options.context}`}
   private error(reason:unknown){if(this.disposed)return;const error=reason instanceof Error?reason:new Error(String(reason));this.notice.textContent=error.message;this.options.onError?.(error)}
@@ -137,6 +138,8 @@ export class ChartWorkspace {
   private disposeCell(c:Runtime){if(c.disposed)return;c.disposed=true;this.pending.delete(c);c.controller.abort();c.unsubscribeReady?.();c.unsubscribe?.();c.binding?.dispose();c.element.remove()}
   setActive(id:string){const c=this.cells.find(c=>c.cell.cellId===id);if(!c)return;this.active=id;for(const item of this.cells){item.element.dataset.active=String(item===c);item.element.style.borderColor=item===c?'#60a5fa':'#374151';item.pro?.getShortcutManager()?.setEnabled(item===c)}this.options.onActiveCell?.({...c.cell})}
   async setLayout(layout:WorkspaceLayout){
+    if(this.initialization)await this.initialization
+    if(this.disposed)throw Error('工作台已关闭')
     if(![1,2,4].includes(layout))throw Error('布局仅支持单图、双图或四图')
     if(this.busy)throw Error('工作台正在恢复，请稍候')
     this.assertDrawingIdle(this.cells.slice(layout))
@@ -208,6 +211,8 @@ export class ChartWorkspace {
     await this.restore(doc)
   }
   async restore(doc:WorkspaceDocument){
+    if(this.initialization)await this.initialization
+    if(this.disposed)throw Error('工作台已关闭')
     if(this.busy)throw Error('工作台正在恢复，请稍候')
     if(this.cells.some(c=>c.pro?.getDrawingHistoryState().pending))throw Error('绘图提交尚未确认，请完成后再加载工作台')
     if(!isWorkspaceDocument(doc))throw Error('工作台结构无效')

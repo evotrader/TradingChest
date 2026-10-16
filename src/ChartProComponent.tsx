@@ -147,7 +147,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const [loadingVisible, setLoadingVisible] = createSignal(false)
 
   const [indicatorSettingModalParams, setIndicatorSettingModalParams] = createSignal({
-    visible: false, indicatorName: '', paneId: '', calcParams: [] as Array<any>
+    visible: false, indicatorId:'',indicatorName: '', paneId: '', calcParams: [] as Array<any>
   })
 
   // 绘图 overlay 选中状态（浮动属性工具栏）
@@ -569,7 +569,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       switch (data.feature.id) {
         case 'visible': widget?.overrideIndicator({name:indicator.name,id:indicator.id,visible:true}); break
         case 'invisible': widget?.overrideIndicator({name:indicator.name,id:indicator.id,visible:false}); break
-        case 'setting': setIndicatorSettingModalParams({visible:true,indicatorName:indicator.name,paneId:indicator.paneId,calcParams:indicator.calcParams}); break
+        case 'setting': setIndicatorSettingModalParams({visible:true,indicatorId:indicator.id,indicatorName:indicator.name,paneId:indicator.paneId,calcParams:indicator.calcParams}); break
         case 'close': {
           widget?.removeIndicator({id:indicator.id})
           if(indicator.paneId==='candle_pane') setMainIndicators(mainIndicators().filter(name=>name!==indicator.name))
@@ -817,10 +817,12 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         <IndicatorSettingModal
           locale={props.locale}
           params={indicatorSettingModalParams()}
-          onClose={() => { setIndicatorSettingModalParams({ visible: false, indicatorName: '', paneId: '', calcParams: [] }) }}
+          onClose={() => { setIndicatorSettingModalParams({ visible: false, indicatorId:'',indicatorName: '', paneId: '', calcParams: [] }) }}
           onConfirm={(params)=> {
             const modalParams = indicatorSettingModalParams()
-            widget?.overrideIndicator({ id:widget.getIndicators({paneId:modalParams.paneId,name:modalParams.indicatorName})[0]?.id, name: modalParams.indicatorName, calcParams: params, paneId:modalParams.paneId })
+            const indicator=modalParams.indicatorId?widget?.getIndicators({id:modalParams.indicatorId})[0]:undefined
+            if(!indicator||indicator.name!==modalParams.indicatorName||indicator.paneId!==modalParams.paneId){setLoadError('待设置的指标实例已不存在，请重新打开指标设置');return}
+            widget?.overrideIndicator({id:indicator.id,name:indicator.name,calcParams:params,paneId:indicator.paneId})
           }}
         />
       </Show>

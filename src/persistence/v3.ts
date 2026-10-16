@@ -1,5 +1,5 @@
 import {resolveDrawingPane} from '../drawing/pane'
-import type { Chart, DeepPartial, Styles, YAxisOverride } from 'klinecharts'
+import type {Chart,DeepPartial,Styles,YAxisOverride} from 'klinecharts'
 import type { ChartPro } from '../types'
 import {isChartLayoutV2, migrateLayoutV1, jsonSafe, type ChartLayoutV2, type LayoutIndicator, type LayoutJson} from './v2'
 
@@ -18,10 +18,12 @@ const clean = <T>(value:T):T => JSON.parse(JSON.stringify(value))
 export function isChartLayoutV3(value: unknown): value is ChartLayoutV3 {
   if(!value || typeof value!=='object') return false
   const v=value as ChartLayoutV3
-  if(!jsonSafe(v) || !Array.isArray(v.overlayData) || v.version!==3 || !Array.isArray(v.axes) || !Array.isArray(v.indicators)) return false
+  if(!jsonSafe(v) || !Array.isArray(v.overlayData) || v.version!==3 || !Array.isArray(v.axes) || !Array.isArray(v.indicators) || !Array.isArray(v.panes) || v.panes.some(p=>!p||typeof p.id!=='string')) return false
   if(v.axes.some(a=>!a || (a.id!==undefined&&typeof a.id!=='string') || typeof a.paneId!=='string' || !['normal','percentage','logarithm'].includes(a.name) || !['left','right'].includes(a.position) || ['reverse','inside','scrollZoomEnabled'].some(k=>typeof (a as any)[k]!=='boolean') || !a.gap || Object.values(a.gap).some(x=>typeof x!=='number'||!Number.isFinite(x)))) return false
   if(new Set(v.axes.filter(a=>a.id!==undefined).map(a=>a.id)).size!==v.axes.filter(a=>a.id!==undefined).length) return false
-  if(v.indicators.some(i=>(i.id!==undefined && typeof i.id!=='string') || (i.yAxisId!==undefined && (!v.axes.some(a=>a.id===i.yAxisId&&a.paneId===i.paneId))))) return false
+  if(v.indicators.some(i=>!i || (i.id!==undefined && typeof i.id!=='string') || (i.yAxisId!==undefined && (!v.axes.some(a=>a.id===i.yAxisId&&a.paneId===i.paneId))))) return false
+  const indicatorIds=v.indicators.flatMap(i=>i.id?[i.id]:[])
+  if(new Set(indicatorIds).size!==indicatorIds.length)return false
   if(v.annotationRefs && (!Array.isArray(v.annotationRefs)||v.annotationRefs.some(x=>typeof x!=='string'))) return false
   if(v.viewport && (!Object.values(v.viewport).every(x=>typeof x==='number'&&Number.isFinite(x))||v.viewport.fromTimestamp>v.viewport.toTimestamp||v.viewport.barSpace<=0)) return false
   const allowed=['id','paneId','name','groupId','points','lock','visible','styles','extendData']
@@ -94,18 +96,32 @@ export function captureLayout(chartPro:ChartPro, options:{localDrawingIds?:strin
 export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3):Promise<void> {
   if(!isChartLayoutV3(layout))throw Error('布局结构无效')
   const chart=chartPro.getChart();if(!chart)throw Error('图表尚未就绪')
-  if(layout.context?.ticker && layout.context.ticker!==chartPro.getSymbol().ticker)throw Error('布局标的与当前图表不匹配')
-  if(chartPro.getDrawingHistoryState().pending)throw Error('绘图提交尚未确认，请完成后再恢复布局')
-  if(chartPro.getDrawingHistoryState().uncertainLogicalIds.length)throw Error('绘图提交结果待确认，请刷新标注后恢复布局')
+  const assertReady=()=>{
+    if(chartPro.getChart()!==chart)throw Error('图表实例已改变，请重新加载布局')
+    if(layout.context?.ticker && layout.context.ticker!==chartPro.getSymbol().ticker)throw Error('布局标的与当前图表不匹配')
+    if(chartPro.getDrawingHistoryState().pending)throw Error('绘图提交尚未确认，请完成后再恢复布局')
+    if(chartPro.getDrawingHistoryState().uncertainLogicalIds.length)throw Error('绘图提交结果待确认，请刷新标注后恢复布局')
+  }
+  assertReady()
+  const {indicatorRegistry}=await import('../indicator')
+  for(const indicator of layout.indicators)await indicatorRegistry.ensureRegistered(indicator.name)
+  const {getSupportedIndicators}=await import('klinecharts')
+  const supported=new Set(getSupportedIndicators())
+  for(const indicator of layout.indicators)if(!supported.has(indicator.name))throw Error(`无法恢复指标 ${indicator.name}：当前引擎未注册该指标，当前工作台已保留`)
+  assertReady()
   const backendDrawings=chartPro.getDrawings().filter(d=>d.owner==='backend').map(d=>({drawing:d,names:d.overlay.paneId&&d.overlay.paneId!=='candle_pane'?chart.getIndicators({paneId:d.overlay.paneId}).map(({id,name,calcParams})=>({id,name,calcParams})):[]}))
   chartPro.resetDrawingHistory()
   chartPro.setTheme(layout.theme);chartPro.setLocale(layout.locale);chartPro.setTimezone(layout.timezone)
   chart.setStyles(layout.styles as DeepPartial<Styles> ?? {})
   for(const indicator of chart.getIndicators())if(!['TradeVis','COMPARE'].includes(indicator.name))chart.removeIndicator({id:indicator.id})
-  const {indicatorRegistry}=await import('../indicator')
   const axisIds=new Map<string,string>()
   for(const axis of layout.axes)if(axis.default && axis.paneId==='candle_pane' && axis.id){const real=chart.getYAxes({paneId:'candle_pane'})[0];if(real)axisIds.set(axis.id,real.id)}
-  for(const i of layout.indicators){await indicatorRegistry.ensureRegistered(i.name);chart.createIndicator({name:i.name,id:i.id,paneId:i.placement==='main'?'candle_pane':i.paneId,yAxisId:i.yAxisId?axisIds.get(i.yAxisId)??i.yAxisId:undefined,calcParams:i.calcParams,visible:i.visible},true)}
+  for(const i of layout.indicators){
+    const paneId=i.placement==='main'?'candle_pane':i.paneId,yAxisId=i.yAxisId?axisIds.get(i.yAxisId)??i.yAxisId:undefined
+    const id=chart.createIndicator({name:i.name,id:i.id,paneId,yAxisId,calcParams:i.calcParams,visible:i.visible},true)
+    const actual=id?chart.getIndicators({id}):[]
+    if(!id||actual.length!==1||actual[0].name!==i.name||(i.id&&actual[0].id!==i.id)||(paneId&&actual[0].paneId!==paneId)||(yAxisId&&actual[0].yAxisId!==yAxisId))throw Error(`无法恢复指标 ${i.name}：创建结果或窗格／价格轴绑定不匹配`)
+  }
   for(const pane of layout.panes)chart.setPaneOptions(pane)
   for(const axis of layout.axes){
     const {default:isDefault,...config}=axis

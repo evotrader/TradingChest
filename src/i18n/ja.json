@@ -445,5 +445,6 @@
   "workspace_confirmation_mismatch": "The original operation is unconfirmed; refresh and select again or retry. Current charts are retained",
   "workspace_no_legacy": "No legacy layout to import",
   "workspace_delete_confirm": "Confirm workspace deletion",
-  "workspace_delete_target": "Delete “{name}”? Current charts will be retained."
+  "workspace_delete_target": "Delete “{name}”? Current charts will be retained.",
+  "drawing_runtime_pane": "一時的な分析ペインには描画を保存できません。メインチャートか通常の指標ペインに描画してください。既存の描画は手動で削除してから再試行してください。"
 }

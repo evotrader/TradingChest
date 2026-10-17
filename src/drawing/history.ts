@@ -3,6 +3,7 @@ import type {DrawingChange,DrawingCommitResult,DrawingHistoryState,DrawingOwner,
 
 interface Options {
   locale?:()=>string
+  validate?:(snapshot:DrawingSnapshot)=>void
   commit?:(change:DrawingChange)=>Promise<DrawingCommitResult>
   apply:(id:string,snapshot:DrawingSnapshot|null)=>DrawingSnapshot|null
   context:()=>DrawingChange['context']
@@ -51,6 +52,7 @@ export class DrawingHistory {
     return run.finally(()=>{if(generation===this.generation){this.pending--;this.emit()}})
   }
   private async perform(id:string,after:DrawingSnapshot|null,source:DrawingSource,generation:number,context:DrawingChange['context']):Promise<{result:DrawingCommitResult;before:DrawingSnapshot|null;after:DrawingSnapshot|null}>{
+    if(after)this.options.validate?.(after)
     const before=copy(this.drawings.get(id)??null)
     if(this.uncertain.has(id)){const result:DrawingCommitResult={status:'rejected',message:this.text('drawing_message_1')};this.apply(id,before);this.error=result.message;this.emit();return {result,before,after:before}}
     const kind=before?(after?'update':'delete'):'create'
@@ -114,6 +116,7 @@ export class DrawingHistory {
     const ids=new Set(values.map(v=>v.logicalId))
     if(ids.size!==values.length||values.some(v=>v.owner!==owner))throw Error(this.text('drawing_message_8'))
     if(values.some(v=>this.drawings.has(v.logicalId)&&this.drawings.get(v.logicalId)!.owner!==owner))throw Error(this.text('drawing_message_9'))
+    for(const value of values)this.options.validate?.(value)
     for(const current of this.getDrawings())if(current.owner===owner&&!ids.has(current.logicalId)){this.apply(current.logicalId,null);this.dropHistory(current.logicalId);this.uncertain.delete(current.logicalId)}
     for(const value of values){const old=this.drawings.get(value.logicalId),actual=this.apply(value.logicalId,value);if(!same(old,actual))this.dropHistory(value.logicalId);this.uncertain.delete(value.logicalId)}
     for(const [id,uncertainOwner] of this.uncertain)if(uncertainOwner===owner)this.uncertain.delete(id)

@@ -4,13 +4,32 @@ import type {DrawingChange,DrawingCommitResult,DrawingSnapshot} from '../types'
 
 const context=()=>({symbol:{ticker:'A.X'},period:{multiplier:1,timespan:'minute',text:'1m'}})
 const snapshot=(price:number,owner:'local'|'backend'='local',backendId?:string):DrawingSnapshot=>({logicalId:'drawing-1',owner,backendId,overlay:{id:'drawing-1',groupId:'drawings',name:'segment',points:[{timestamp:100,value:price}],styles:{line:{color:'#fff'}},extendData:null,lock:false,visible:true}})
-function setup(commit?:(change:DrawingChange)=>Promise<DrawingCommitResult>){
+function setup(commit?:(change:DrawingChange)=>Promise<DrawingCommitResult>,validate?:(value:DrawingSnapshot)=>void){
   const visible=new Map<string,DrawingSnapshot>(),states:any[]=[]
   const apply=vi.fn((id:string,value:DrawingSnapshot|null)=>{if(value)visible.set(id,value);else visible.delete(id);return value})
-  const history=new DrawingHistory({context,apply,commit,onChange:state=>states.push(state)})
+  const history=new DrawingHistory({context,apply,commit,validate,onChange:state=>states.push(state)})
   return {history,visible,apply,states}
 }
 describe('confirmed drawing history',()=>{
+  it('rechecks queued intents and undo targets before host writes without making the result uncertain',async()=>{
+    let blocked=false
+    const commit=vi.fn(async(change:DrawingChange):Promise<DrawingCommitResult>=>({status:'confirmed',snapshot:change.after}))
+    const {history,visible}=setup(commit,()=>{if(blocked)throw Error('Transient pane')})
+    const pending=history.submit('create','drawing-1',snapshot(10,'backend','server-1'),'manual');blocked=true
+    await expect(pending).rejects.toThrow('Transient pane');expect(commit).not.toHaveBeenCalled();expect(visible.size).toBe(0)
+    blocked=false;await history.submit('create','drawing-1',snapshot(10,'backend','server-1'),'manual')
+    blocked=true;await history.submit('delete','drawing-1',null,'keyboard')
+    await expect(history.undo()).rejects.toThrow('Transient pane');expect(commit).toHaveBeenCalledTimes(2);expect(visible.size).toBe(0)
+    expect(history.getState()).toMatchObject({pending:0,canUndo:true,canRedo:false,uncertainLogicalIds:[]})
+  })
+  it('preflights an entire canonical batch before removing or applying any drawings',()=>{
+    const {history,visible,apply}=setup(undefined,value=>{if(value.overlay.paneId==='transient')throw Error('Transient pane')})
+    history.reconcile('local',[snapshot(10)]);apply.mockClear()
+    const valid={...snapshot(20),logicalId:'new',overlay:{...snapshot(20).overlay,id:'new'}}
+    const invalid={...snapshot(30),logicalId:'bad',overlay:{...snapshot(30).overlay,id:'bad',paneId:'transient'}}
+    expect(()=>history.reconcile('local',[valid,invalid])).toThrow('Transient pane');expect(apply).not.toHaveBeenCalled()
+    expect([...visible.values()]).toEqual([snapshot(10)]);expect(history.getDrawings()).toEqual([snapshot(10)])
+  })
   it('freezes an intent before the queue runs and compares canonical objects independently of key order',async()=>{
     const {history}=setup();const intent=snapshot(10),pending=history.submit('create','drawing-1',intent,'manual');intent.overlay.points[0].value=99;await pending
     expect(history.getDrawings()[0].overlay.points[0].value).toBe(10)

@@ -1,5 +1,6 @@
 import {configureIndicatorTooltip} from '../indicator/instances'
 import {runtimeBindings} from '../analysis/bindings'
+import i18n from '../i18n'
 import {resolveDrawingPane} from '../drawing/pane'
 import {getIdentityEpoch} from '../core/identityEpoch'
 import type {Chart,DeepPartial,Styles,YAxisOverride} from 'klinecharts'
@@ -88,13 +89,15 @@ export function listLayoutsV3(storage:Storage=localStorage):LayoutResult<Array<{
 export function captureLayout(chartPro:ChartPro, options:{localDrawingIds?:string[];annotationRefs?:string[];context?:ChartLayoutV3['context']}={}):ChartLayoutV3 {
   const chart=chartPro.getChart();if(!chart)throw Error('图表尚未就绪')
   const runtime=runtimeBindings.get(chart)
+  const localOverlays=chart.getOverlays().filter(o=>options.localDrawingIds?.includes(o.id))
+  if(localOverlays.some(o=>runtime?.paneIds.has(o.paneId)))throw Error(i18n('drawing_runtime_pane',chartPro.getLocale()))
   const comparisonAxes=new Set(chart.getIndicators().filter(i=>i.name==='COMPARE').map(i=>i.yAxisId))
   const bars=chart.getDataList(),range=chart.getVisibleRange(),from=bars[Math.max(0,range.from)],to=bars[Math.min(bars.length-1,range.to-1)]
   return clean({version:3,timestamp:Date.now(),theme:chartPro.getTheme(),locale:chartPro.getLocale(),timezone:chartPro.getTimezone(),styles:chart.getStyles(),
     indicators:chart.getIndicators().filter(i=>!['TradeVis','COMPARE'].includes(i.name)&&!runtime?.indicatorIds.has(i.id)).map(i=>({id:i.id,name:i.name,placement:i.paneId==='candle_pane'?'main':'sub',paneId:i.paneId,yAxisId:i.yAxisId,calcParams:i.calcParams,visible:i.visible})),
     panes:(chart.getPaneOptions() as Array<{id:string;height:number;minHeight:number;order:number}>).filter(p=>!runtime?.paneIds.has(p.id)).map(({id,height,minHeight,order})=>({id,height,minHeight,order})),
     axes:(chart.getPaneOptions() as Array<{id:string}>).flatMap(p=>chart.getYAxes({paneId:p.id}).filter(a=>!comparisonAxes.has(a.id)&&!runtime?.axisIds.has(a.id)&&!runtime?.paneIds.has(p.id)).map((a,index)=>({id:a.id,default:index===0,paneId:p.id,name:a.name,reverse:a.reverse,inside:a.inside,position:a.position,scrollZoomEnabled:a.scrollZoomEnabled,gap:a.gap}))),
-    overlayData:chart.getOverlays().filter(o=>options.localDrawingIds?.includes(o.id)).map(o=>({id:o.id,paneId:o.paneId,name:o.name,groupId:o.groupId,points:o.points.map(({timestamp,dataIndex,value})=>({timestamp,dataIndex,value})),lock:o.lock,visible:o.visible,styles:o.styles??undefined,extendData:o.extendData??undefined})),
+    overlayData:localOverlays.map(o=>({id:o.id,paneId:o.paneId,name:o.name,groupId:o.groupId,points:o.points.map(({timestamp,dataIndex,value})=>({timestamp,dataIndex,value})),lock:o.lock,visible:o.visible,styles:o.styles??undefined,extendData:o.extendData??undefined})),
     context:options.context,annotationRefs:options.annotationRefs,viewport:from&&to?{fromTimestamp:from.timestamp,toTimestamp:to.timestamp,barSpace:chart.getBarSpace().bar}:undefined}) as unknown as ChartLayoutV3
 }
 export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3):Promise<void> {

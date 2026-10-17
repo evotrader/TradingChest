@@ -42,6 +42,7 @@ import AnalysisEventList from './analysis/EventList'
 import { EngineDataLoader } from './core/engineDataLoader'
 import i18n from './i18n'
 import {AnalysisManager,type AnalysisView} from './analysis/manager'
+import {isRuntimeAnalysisPane} from './analysis/bindings'
 import {MetricSeries} from './widget/metric-series/MetricSeries'
 import {ComparisonManager} from './compare/manager'
 import type {ComparisonState} from './compare/types'
@@ -345,8 +346,12 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   let applyingDrawing=false
   const [drawingState,setDrawingState]=createSignal<DrawingHistoryState>({pending:0,canUndo:false,canRedo:false,uncertainLogicalIds:[]})
   const editable=(overlay:OverlayLifecycleEvent['overlay'])=>overlay.name!=='alertLine'&&!overlay.id?.startsWith('alert_')&&(props.isDrawingEditable?.(overlay)??true)
+  const validateDrawingTarget=(value:DrawingSnapshot)=>{
+    if(widget&&isRuntimeAnalysisPane(widget,value.overlay.paneId))throw Error(i18n('drawing_runtime_pane',locale()))
+  }
   const applyDrawing=(id:string,value:DrawingSnapshot|null):DrawingSnapshot|null=>{
     if(!widget)throw Error(i18n('chart_not_ready',locale()))
+    if(value)validateDrawingTarget(value)
     if(value?.overlay.paneId&&!widget.getPaneOptions(value.overlay.paneId))throw Error(i18n('drawing_pane_missing',locale()))
     const selected=selectedOverlay()?.id===id
     applyingDrawing=true
@@ -364,12 +369,14 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
   const drawingHistory=new DrawingHistory({
     locale,
+    validate:validateDrawingTarget,
     context:()=>({symbol:symbol(),period:period()}),apply:applyDrawing,commit:change=>props.commitDrawing?props.commitDrawing(change):Promise.resolve({status:'rejected',message:i18n('drawing_message_3',locale())}),
     onChange:state=>{if(disposed)return;setDrawingState(state);props.onDrawingHistoryChange?.(state);queueMicrotask(()=>{if(!disposed)widget?.resize()})},
     onConfirmed:change=>{const event={overlay:(change.after??change.before)!.overlay,source:change.source};if(change.kind==='create')props.onOverlayCreate?.(event);else if(change.kind==='update')props.onOverlayUpdate?.(event);else props.onOverlayDelete?.(event)},
   })
   const commitDrawing=(change:Pick<DrawingChange,'kind'|'logicalId'|'after'|'source'>)=>{
     if(!widget)return Promise.reject(Error(i18n('chart_not_ready',locale())))
+    try{if(change.after)validateDrawingTarget(change.after)}catch(error){return Promise.reject(error)}
     const overlay=change.after?.overlay??drawingHistory.getDrawings().find(d=>d.logicalId===change.logicalId)?.overlay
     if(overlay&&!editable(overlay))return Promise.reject(Error(i18n('drawing_protected',locale())))
     return drawingHistory.submit(change.kind,change.logicalId,change.after,change.source)
@@ -389,6 +396,15 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
   function drawingHandlers():Partial<OverlayCreate>{return {
       onDrawEnd: (event) => {
+        if(widget&&isRuntimeAnalysisPane(widget,event.overlay.paneId)){
+          // Reject the preview before text prompts, history or host persistence callbacks.
+          applyingDrawing=true
+          try{widget.removeOverlay({id:event.overlay.id})}finally{applyingDrawing=false}
+          activeDrawingId=null;ownedDrawingIds.delete(event.overlay.id);completedDrawingIds.delete(event.overlay.id)
+          setSelectedOverlay(null);props.onDrawingSelect?.(null)
+          setDrawingState({...drawingHistory.getState(),error:i18n('drawing_runtime_pane',locale())})
+          return true
+        }
         activeDrawingId = null
         completedDrawingIds.add(event.overlay.id)
         promptTextOverlay(event.overlay)
@@ -400,6 +416,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         return true
       },
       onSelected: (event) => {
+        // The engine can emit selection after onDrawEnd removed a rejected preview.
+        if(!widget?.getOverlays({id:event.overlay.id}).length){setSelectedOverlay(null);props.onDrawingSelect?.(null);return true}
         markSelectedOverlay(event.overlay)
         return true
       },

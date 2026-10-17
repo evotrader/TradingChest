@@ -445,5 +445,6 @@
   "workspace_confirmation_mismatch": "未确认原操作；请刷新重新选择或重试，当前图形保留",
   "workspace_no_legacy": "没有可导入的旧布局",
   "workspace_delete_confirm": "确认删除工作台",
-  "workspace_delete_target": "删除“{name}”？当前图形保留。"
+  "workspace_delete_target": "删除“{name}”？当前图形保留。",
+  "drawing_runtime_pane": "临时分析副图不支持保存绘图，请在主图或普通指标副图绘制；已有绘图请手动删除后重试。"
 }

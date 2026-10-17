@@ -177,6 +177,16 @@ console.log('Legacy browser UMD and CSS paths PASS');
       other.addAnalysisLayer(other.getAnalysisContext(),{id:'mixed',label:'Mixed entrypoints',type:'line',placement:'sub',valueType:'scalar',data:[{timestamp:window.analysisDemo.bars[0].timestamp,value:1}]})
       const fromRoot=root.captureLayout(other),fromChart=sub.captureLayout(other)
       if(fromRoot.indicators.some(i=>i.name==='TC_ANALYSIS')||fromChart.indicators.some(i=>i.name==='TC_ANALYSIS'))throw Error('Mixed entrypoint capture serialized runtime layers')
+      const runtimePane=other.getChart().getIndicators({name:'TC_ANALYSIS'})[0].paneId
+      const overlay={id:'packed-transient-drawing',name:'horizontalStraightLine',paneId:runtimePane,points:[{timestamp:window.analysisDemo.bars[0].timestamp,value:1}]}
+      const rejected=await other.commitDrawing({kind:'create',logicalId:overlay.id,after:{logicalId:overlay.id,owner:'local',overlay},source:'manual'}).then(()=>false,error=>error.message.includes('临时分析副图'))
+      if(!rejected||other.getDrawings().length)throw Error('Packed chart accepted a persistent runtime drawing')
+      other.getChart().createOverlay(overlay)
+      for(const entry of [root,sub]){
+        let blocked=false;try{entry.captureLayout(other,{localDrawingIds:[overlay.id]})}catch(error){blocked=error.message.includes('临时分析副图')}
+        if(!blocked||other.getChart().getOverlays({id:overlay.id}).length!==1)throw Error('Mixed entrypoint capture lost the runtime drawing boundary')
+      }
+      other.getChart().removeOverlay({id:overlay.id})
       await root.restoreLayout(other,fromRoot)
       if(other.getChart().getIndicators({name:'TC_ANALYSIS'}).length!==1)throw Error('Mixed entrypoint restore removed an active runtime layer')
       const pendingLayout=root.captureLayout(other)
@@ -187,7 +197,7 @@ console.log('Legacy browser UMD and CSS paths PASS');
       for(const ticker of ['PACKED.OTHER','PACKED']){const previous=readyCount;other.setSymbol({ticker});for(let i=0;i<1000&&readyCount===previous;i++)await new Promise(resolve=>setTimeout(resolve,1));if(readyCount===previous)throw Error('Packed identity switch did not complete')}
       releaseLayout()
       if(!await restoring||other.getChart().getIndicators({id:'packed-stale-layout'}).length)throw Error('Mixed entrypoint restore crossed an identity epoch')
-      other.dispose();host.remove();return {sharedDefinitions:true,lazyAcrossEntries:true,runtimeExcluded:true,runtimeRetained:true,staleLayoutCancelled:true}
+      other.dispose();host.remove();return {sharedDefinitions:true,lazyAcrossEntries:true,runtimeExcluded:true,runtimeRetained:true,runtimeDrawingRejected:true,staleLayoutCancelled:true}
     })
     console.log('Packed mixed root/chart definitions, lazy registration and runtime ownership PASS',JSON.stringify(mixed))
     await page.evaluate(()=>window.analysisDemo.chart.dispose());assert.deepEqual(errors,[])

@@ -445,5 +445,6 @@
   "workspace_confirmation_mismatch": "The original operation is unconfirmed; refresh and select again or retry. Current charts are retained",
   "workspace_no_legacy": "No legacy layout to import",
   "workspace_delete_confirm": "Confirm workspace deletion",
-  "workspace_delete_target": "Delete “{name}”? Current charts will be retained."
+  "workspace_delete_target": "Delete “{name}”? Current charts will be retained.",
+  "drawing_runtime_pane": "임시 분석 패널에는 그리기를 저장할 수 없습니다. 메인 차트나 일반 지표 패널에 그려 주세요. 기존 그리기는 직접 삭제한 후 다시 시도해 주세요."
 }

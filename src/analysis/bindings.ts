@@ -8,3 +8,6 @@ export const runtimeBindings={
   set(chart:Chart,bindings:RuntimeBindings):void {Object.defineProperty(chart,bindingKey,{value:bindings,writable:true,configurable:true})},
   delete(chart:Chart):boolean{return delete (chart as OwnedChart)[bindingKey]}
 }
+
+/** Only panes owned by transient analysis layers lack a persistent drawing target. */
+export const isRuntimeAnalysisPane=(chart:Chart,paneId:string|undefined):boolean=>!!paneId&&!!runtimeBindings.get(chart)?.paneIds.has(paneId)

@@ -445,5 +445,6 @@
   "workspace_confirmation_mismatch": "The original operation is unconfirmed; refresh and select again or retry. Current charts are retained",
   "workspace_no_legacy": "No legacy layout to import",
   "workspace_delete_confirm": "Confirm workspace deletion",
-  "workspace_delete_target": "Delete “{name}”? Current charts will be retained."
+  "workspace_delete_target": "Delete “{name}”? Current charts will be retained.",
+  "drawing_runtime_pane": "Temporary analysis panes do not support persistent drawings. Draw on the main chart or a regular indicator pane; manually delete existing drawings on the temporary pane before retrying."
 }

@@ -4,6 +4,8 @@ export interface AnalysisResult {value?:number;lower?:number;upper?:number}
 export interface AnalysisRendererData {
   type:AnalysisLayerSpec['type'];color:string;unit:string;label:string
   valueAt:(timestamp:number)=>AnalysisResult|undefined;events:AnalysisEvent[]
+  indexAt:(timestamp:number)=>number|undefined
+  calculate:(bars:KLineData[])=>AnalysisResult[]
   getHits:()=>Array<{x:number;y:number;event:AnalysisEvent}>
 }
 let registered=false
@@ -12,7 +14,7 @@ export function registerAnalysisRenderer():void {
   if(registered)return
   registerIndicator<AnalysisResult,unknown,AnalysisRendererData>({name:'TC_ANALYSIS',shortName:'Analysis',calcParams:[],figures:[{key:'value',type:'line'},{key:'lower',type:'line'},{key:'upper',type:'line'}],
     shouldUpdate:(a,b)=>({calc:a.extendData!==b.extendData,draw:true}),
-    calc:(bars,indicator)=>bars.map(b=>indicator.extendData.valueAt(b.timestamp)??{}),
+    calc:(bars,indicator)=>indicator.extendData.calculate(bars),
     createTooltipDataSource:({indicator,crosshair,chart})=>{
       const d=indicator.extendData as AnalysisRendererData,time=chart.getDataList()[crosshair.dataIndex??-1]?.timestamp,value=time===undefined?undefined:d.valueAt(time)
       const legends=d.type==='events'?d.events.filter(e=>e.timestamp===time).map(e=>({title:'',value:e.label})):
@@ -27,11 +29,11 @@ function drawAnalysis({ctx,chart,indicator,bounding,xAxis,yAxis}:IndicatorDrawPa
   ctx.save();ctx.strokeStyle=data.color;ctx.fillStyle=data.color;ctx.lineWidth=2
   const from=Math.max(0,range.from-1),to=Math.min(bars.length,range.to+1)
   if(data.type==='events'){
-    const indexes=new Map(bars.map((bar,index)=>[bar.timestamp,index])),lanes=new Map<number,number>()
-    for(const event of data.events){const index=indexes.get(event.timestamp);if(index===undefined||index<from||index>=to)continue
+    const lanes=new Map<number,number>()
+    for(const event of data.events){const index=data.indexAt(event.timestamp);if(index===undefined||index<from||index>=to)continue
       const x=xAxis.convertToPixel(index),lane=lanes.get(event.timestamp)??0,y=Math.max(12,bounding.height-20-lane*18);lanes.set(event.timestamp,lane+1)
       ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill()
-      if(event.endTimestamp!==undefined){const end=indexes.get(event.endTimestamp);if(end!==undefined){ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(xAxis.convertToPixel(end),y);ctx.stroke()}}
+      if(event.endTimestamp!==undefined){const end=data.indexAt(event.endTimestamp);if(end!==undefined){ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(xAxis.convertToPixel(end),y);ctx.stroke()}}
       ctx.font='11px sans-serif';ctx.fillText(event.label,x+8,y+3);hits.push({x,y,event})
     }
   }else if(data.type==='histogram'){

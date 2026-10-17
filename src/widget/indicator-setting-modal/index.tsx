@@ -15,7 +15,7 @@ const IndicatorSettingModal:Component<IndicatorSettingModalProps>=props=>{
   const schema=()=>props.descriptor.parameters
   return <Modal title={props.params.indicatorName} width={360} onClose={props.onClose} buttons={[{type:'confirm',children:i18n('confirm',props.locale),onClick:()=>{try{
     if(!schema())throw Error(i18n('indicator_readonly',props.locale))
-    validateIndicatorParams(props.descriptor,params());props.onConfirm(params() as IndicatorParameterValue[]);props.onClose()
+    validateIndicatorParams(props.descriptor,params(),props.locale);props.onConfirm(params() as IndicatorParameterValue[]);props.onClose()
   }catch(e){setError(e instanceof Error?e.message:String(e))}}}]}>
     <Show when={error()}><div role="alert">{error()}</div></Show>
     <div class="klinecharts-pro-indicator-setting-modal-content"><For each={params()}>{(value,index)=>{

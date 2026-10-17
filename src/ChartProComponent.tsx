@@ -38,6 +38,7 @@ import { SymbolInfo, Period, ChartProOptions, ChartPro } from './types'
 import { indicatorRegistry } from './indicator'
 import {configureIndicatorTooltip} from './indicator/instances'
 import {builtinIndicatorCatalog,copyIndicatorCatalog,validateIndicatorParams,indicatorInstance,type AddIndicatorOptions,type IndicatorHandle} from './indicator/catalog'
+import AnalysisEventList from './analysis/EventList'
 import { EngineDataLoader } from './core/engineDataLoader'
 import i18n from './i18n'
 import {AnalysisManager,type AnalysisView} from './analysis/manager'
@@ -127,25 +128,25 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const [indicatorInstances,setIndicatorInstances]=createSignal<import('./indicator/catalog').IndicatorInstance[]>([])
   let indicatorGeneration=0
   const refreshIndicators=()=>setIndicatorInstances(widget?.getIndicators().filter(i=>catalog.some(d=>d.name===i.name)).map(indicatorInstance)??[])
-  const descriptor=(name:string)=>{const d=catalog.find(d=>d.name===name);if(!d)throw Error(`指标 ${name} 不在当前目录中`);return d}
+  const descriptor=(name:string)=>{const d=catalog.find(d=>d.name===name);if(!d)throw Error(i18n('indicator_not_in_catalog',locale()).replace('{name}',name));return d}
   const addIndicator=async(options:AddIndicatorOptions):Promise<IndicatorHandle>=>{
     const d=descriptor(options.name),generation=indicatorGeneration
-    if(!d.placements.includes(options.placement))throw Error('指标不支持目标窗格')
-    if(options.calcParams!==undefined)validateIndicatorParams(d,options.calcParams)
+    if(!d.placements.includes(options.placement))throw Error(i18n('indicator_placement_invalid',locale()))
+    if(options.calcParams!==undefined)validateIndicatorParams(d,options.calcParams,locale())
     await indicatorRegistry.ensureRegistered(options.name)
-    if(disposed||generation!==indicatorGeneration||!widget)throw new DOMException('指标创建已取消','AbortError')
+    if(disposed||generation!==indicatorGeneration||!widget)throw new DOMException(i18n('indicator_creation_cancelled',locale()),'AbortError')
     const id=widget.createIndicator({name:options.name,paneId:options.placement==='main'?'candle_pane':undefined,calcParams:options.calcParams},true)
     const i=id?widget.getIndicators({id})[0]:undefined
-    if(!i||i.name!==options.name||!i.paneId||!i.yAxisId||!widget.getYAxes({id:i.yAxisId,paneId:i.paneId}).length||(options.placement==='main')!==(i.paneId==='candle_pane')){if(id)widget.removeIndicator({id});throw Error('指标未创建真实实例或窗格／价格轴绑定错误')}
-    try{validateIndicatorParams(d,i.calcParams)}catch(e){widget.removeIndicator({id:i.id});throw e}
+    if(!i||i.name!==options.name||!i.paneId||!i.yAxisId||!widget.getYAxes({id:i.yAxisId,paneId:i.paneId}).length||(options.placement==='main')!==(i.paneId==='candle_pane')){if(id)widget.removeIndicator({id});throw Error(i18n('indicator_binding_failed',locale()))}
+    try{validateIndicatorParams(d,i.calcParams,locale())}catch(e){widget.removeIndicator({id:i.id});throw e}
     configureIndicatorTooltip(widget,i,d)
     if(i.name==='VOL')widget.overrideYAxis({id:i.yAxisId,paneId:i.paneId,gap:{bottom:2}})
     refreshIndicators();return {id:i.id,name:i.name,paneId:i.paneId,yAxisId:i.yAxisId}
   }
-  const requireIndicator=(id:string)=>{const i=widget?.getIndicators({id})[0];if(!i)throw Error('指标实例已不存在');descriptor(i.name);return i}
-  const updateIndicator=(id:string,updates:{calcParams?:import('./indicator/catalog').IndicatorParameterValue[];visible?:boolean})=>{const i=requireIndicator(id);if(updates.calcParams!==undefined){if(!descriptor(i.name).parameters)throw Error('指标参数只读');validateIndicatorParams(descriptor(i.name),updates.calcParams)}if(updates.visible!==undefined&&typeof updates.visible!=='boolean')throw Error('指标显隐值无效');widget!.overrideIndicator({id,name:i.name,...updates});refreshIndicators()}
+  const requireIndicator=(id:string)=>{const i=widget?.getIndicators({id})[0];if(!i)throw Error(i18n('indicator_instance_missing',locale()));descriptor(i.name);return i}
+  const updateIndicator=(id:string,updates:{calcParams?:import('./indicator/catalog').IndicatorParameterValue[];visible?:boolean})=>{const i=requireIndicator(id);if(updates.calcParams!==undefined){if(!descriptor(i.name).parameters)throw Error(i18n('indicator_params_readonly',locale()));validateIndicatorParams(descriptor(i.name),updates.calcParams,locale())}if(updates.visible!==undefined&&typeof updates.visible!=='boolean')throw Error(i18n('indicator_visibility_invalid',locale()));widget!.overrideIndicator({id,name:i.name,...updates});refreshIndicators()}
   const removeIndicator=(id:string)=>{requireIndicator(id);widget!.removeIndicator({id});refreshIndicators()}
-  const openIndicatorSettings=(id:string)=>{const i=requireIndicator(id);if(!descriptor(i.name).parameters)throw Error('指标参数只读');setIndicatorSettingModalParams({visible:true,indicatorId:i.id,indicatorName:i.name,paneId:i.paneId,calcParams:i.calcParams})}
+  const openIndicatorSettings=(id:string)=>{const i=requireIndicator(id);if(!descriptor(i.name).parameters)throw Error(i18n('indicator_params_readonly',locale()));setIndicatorSettingModalParams({visible:true,indicatorId:i.id,indicatorName:i.name,paneId:i.paneId,calcParams:i.calcParams})}
 
   const [timezoneModalVisible, setTimezoneModalVisible] = createSignal(false)
   const [timezone, setTimezone] = createSignal<SelectDataSourceItem>({ key: props.timezone, text: translateTimezone(props.timezone, props.locale) })
@@ -281,7 +282,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     setLoadingVisible(false)
     // 暂停实时数据订阅，防止实时数据污染回放时间线
     const pos = startPosition ?? Math.floor(dataList.length * 0.5)
-    try{comparisons.enterReplay(dataList[Math.max(0,pos-1)]?.timestamp??dataList[0].timestamp)}catch(reason){setLoadError(`回放无法开始：${reason instanceof Error?reason.message:String(reason)}；请重读行情或移除不可比较成员`);return}
+    try{comparisons.enterReplay(dataList[Math.max(0,pos-1)]?.timestamp??dataList[0].timestamp)}catch(reason){setLoadError(i18n('replay_start_failure',locale()).replace('{reason}',reason instanceof Error?reason.message:String(reason)));return}
     props.onReplayActiveChange?.(true)
     const engine = new ReplayEngine({
       onDataChange: (data) => {
@@ -311,7 +312,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     setResuming(true)
     const engine=replayEngine,revision=replayRevision
     const current=()=>!disposed&&replayEngine===engine&&replayRevision===revision
-    const assertCurrent=()=>{if(!current())throw new DOMException('回放位置已改变，旧恢复已取消','AbortError')}
+    const assertCurrent=()=>{if(!current())throw new DOMException(i18n('replay_restore_outdated',locale()),'AbortError')}
     const retainedReplay=widget?.getDataList().map(bar=>({...bar}))??[],retainedRange=widget?.getVisibleRange(),retainedSpace=widget?.getBarSpace().bar
     const transaction=loader?.beginReplayResume()
     let mainRestored=false
@@ -331,7 +332,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     }).catch(error => {
       if(current()&&!mainRestored)transaction?.rollback()
       if(current()&&mainRestored){transaction?.rollback();props.onReplayReset?.(retainedReplay.at(-1)?.close,retainedReplay.at(-1)?.timestamp);if(retainedSpace!==undefined)widget?.setBarSpace(retainedSpace);if(retainedRange){widget?.scrollToDataIndex(Math.min(retainedReplay.length-1,retainedRange.to-1),0);if(retainedSpace!==undefined)widget?.scrollByDistance(retainedSpace/2,0)}}
-      if(!disposed)setLoadError(error instanceof DOMException&&error.name==='AbortError'?'回放恢复已取消，请重试退出回放':`回放恢复失败：${error instanceof Error?error.message:String(error)}`)
+      if(!disposed)setLoadError(error instanceof DOMException&&error.name==='AbortError'?i18n('replay_restore_cancelled',locale()):i18n('replay_restore_failure',locale()).replace('{reason}',error instanceof Error?error.message:String(error)))
     }).finally(() => {setResuming(false)})
   }
 
@@ -343,7 +344,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const editable=(overlay:OverlayLifecycleEvent['overlay'])=>overlay.name!=='alertLine'&&!overlay.id?.startsWith('alert_')&&(props.isDrawingEditable?.(overlay)??true)
   const applyDrawing=(id:string,value:DrawingSnapshot|null):DrawingSnapshot|null=>{
     if(!widget)throw Error(i18n('chart_not_ready',locale()))
-    if(value?.overlay.paneId&&!widget.getPaneOptions(value.overlay.paneId))throw Error('绘图所在副图不存在，请恢复对应指标后刷新标注')
+    if(value?.overlay.paneId&&!widget.getPaneOptions(value.overlay.paneId))throw Error(i18n('drawing_pane_missing',locale()))
     const selected=selectedOverlay()?.id===id
     applyingDrawing=true
     try{
@@ -587,7 +588,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         for(const name of props.mainIndicators){if(!widget?.getIndicators({name,paneId:'candle_pane'}).length)await addIndicator({name,placement:'main'})}
         for(const name of props.subIndicators){if(!widget?.getIndicators({name}).some(i=>i.paneId!=='candle_pane'))await addIndicator({name,placement:'sub'})}
         if(!disposed){refreshIndicators();setEngineReady(true)}
-      })().catch(error=>{if(!disposed){setLoadError('指标初始化失败，请重试');setLoadingVisible(false);props.onError?.({type:'indicator-init',message:'指标初始化失败',raw:error})}}).finally(()=>{initializing=false})
+      })().catch(error=>{if(!disposed){setLoadError(i18n('indicator_initialization_retry',locale()));setLoadingVisible(false);props.onError?.({type:'indicator-init',message:i18n('indicator_initialization_failed',locale()),raw:error})}}).finally(()=>{initializing=false})
     }
     retryInitialization()
     widget?.subscribeAction('onIndicatorTooltipFeatureClick', (event) => {
@@ -830,7 +831,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onConfirm={(params)=> {
             const modalParams = indicatorSettingModalParams()
             const indicator=modalParams.indicatorId?widget?.getIndicators({id:modalParams.indicatorId})[0]:undefined
-            if(!indicator||indicator.name!==modalParams.indicatorName||indicator.paneId!==modalParams.paneId){throw Error('待设置的指标实例已不存在，请重新打开指标设置')}
+            if(!indicator||indicator.name!==modalParams.indicatorName||indicator.paneId!==modalParams.paneId){throw Error(i18n('indicator_setting_target_missing',locale()))}
             updateIndicator(indicator.id,{calcParams:params})
           }}
         />
@@ -996,7 +997,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           <For each={analysisViews()}>{view=><div data-analysis-layer={view.state.id} data-analysis-status={view.state.status}>
             <label><input type="checkbox" checked={view.state.visible} onChange={e=>analysis.setVisible(view.state.id,e.currentTarget.checked)}/>{view.state.label}</label>
             <span role={view.state.status==='error'?'alert':'status'}>{i18n(`analysis_${view.state.status}`,locale())}{view.state.reason?` · ${view.state.reason}`:''}{view.state.unalignedCount?` (${view.state.unalignedCount})`:''}</span>
-            <Show when={view.state.type==='events'}><ul><For each={view.events}>{event=><li><button onClick={()=>analysis.selectEvent(view.state.id,event.id)}>{event.label} · {new Date(event.timestamp).toISOString()}{event.endTimestamp!==undefined?` → ${new Date(event.endTimestamp).toISOString()}`:''}</button></li>}</For></ul></Show>
+            <Show when={view.state.type==='events'}><AnalysisEventList events={view.events} onSelect={id=>analysis.selectEvent(view.state.id,id)}/></Show>
           </div>}</For>
         </div></Show>
         <For each={analysisViews().filter(v=>v.state.type==='label-series'&&v.state.visible)}>{view=><section data-analysis-label-series={view.state.id} aria-label={view.state.label}><strong>{view.state.label}</strong>

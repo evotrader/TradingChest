@@ -9,6 +9,7 @@ function setup(){
  let bars=[1,2,3,4].map(timestamp=>({timestamp,open:1,close:1,high:1,low:1})),next=0
  const indicators=new Map<string,any>(),axes=new Map<string,any>(),onEvent=vi.fn(),onPoint=vi.fn()
  const chart={getDataList:()=>bars,getIndicators:(f?:{id?:string})=>[...indicators.values()].filter(i=>!f?.id||i.id===f.id),createIndicator:(d:any)=>{const id=`i${++next}`,paneId=d.paneId??`p${next}`,yAxisId=`y${next}`;indicators.set(id,{...d,id,paneId,yAxisId});axes.set(yAxisId,{id:yAxisId,paneId});return id},overrideIndicator:(d:any)=>{indicators.set(d.id,{...indicators.get(d.id),...d})},removeIndicator:({id}:{id:string})=>{axes.delete(indicators.get(id)?.yAxisId);indicators.delete(id)},setPaneOptions:vi.fn()} as unknown as Chart
+ Object.assign(chart,{getPaneOptions:(id:string)=>({id,height:100,minHeight:30})})
  const manager=new AnalysisManager({chart:()=>chart,locale:()=> 'zh-CN',onAnalysisEventClick:onEvent,onAnalysisPointSelect:onPoint})
  const state:ConfirmedSeries={symbol:{ticker:'A'},period:{multiplier:1,timespan:'minute',text:'1m'},basis:'raw',confirmed:true,epoch:1,revision:1,replay:false}
  manager.sync(state)
@@ -35,6 +36,26 @@ describe('analysis ownership, source alignment and replay visibility',()=>{
   manager.add(context,{id:'e',label:'事件',type:'events',data:[{id:'x',label:'缺口',timestamp:1.5},{id:'a',label:'one',timestamp:2},{id:'b',label:'two',timestamp:2}]})
   expect(manager.views()[0].state.unalignedCount).toBe(1);expect([...indicators.values()][0].extendData.events.map((e:any)=>e.id)).toEqual(['a','b'])
   setBars([1,1.5,2,3,4].map(timestamp=>({timestamp,open:1,close:1,high:1,low:1})));manager.sync({...state,revision:2});expect(manager.views()[0].state.unalignedCount).toBe(0)
+ })
+ it('deep-copies nested event payloads and isolates callback mutations',()=>{
+  const {manager,onEvent}=setup(),data=[{id:'nested',label:'source',timestamp:1,data:{nested:{value:3}}}]
+  const layer=manager.add(manager.getContext()!,{id:'events',label:'events',type:'events',data})
+  data[0].data.nested.value=99;manager.selectEvent('events','nested')
+  expect(onEvent.mock.calls[0][0].event.data.nested.value).toBe(3)
+  onEvent.mock.calls[0][0].event.data.nested.value=88;manager.selectEvent('events','nested')
+  expect(onEvent.mock.calls[1][0].event.data.nested.value).toBe(3)
+  layer.replaceData(data);data[0].data.nested.value=77;manager.selectEvent('events','nested')
+  expect(onEvent.mock.calls[2][0].event.data.nested.value).toBe(99)
+ })
+ it('refreshes calculated values after replacement, visibility and replay changes',()=>{
+  const {manager,chart,state,indicators}=setup()
+  const layer=manager.add(manager.getContext()!,{id:'line',label:'line',type:'line',placement:'sub',valueType:'scalar',data:[{timestamp:1,value:3,availableAt:4}]})
+  const values=()=>[...indicators.values()][0].extendData.calculate(chart.getDataList())
+  expect(values()[0]).toEqual({value:3})
+  layer.replaceData([{timestamp:1,value:7,availableAt:4}]);expect(values()[0]).toEqual({value:7})
+  layer.setVisible(false);expect(values()[0]).toEqual({});layer.setVisible(true);expect(values()[0]).toEqual({value:7})
+  manager.sync({...state,replay:true,cutoff:2});expect(values()[0]).toEqual({})
+  manager.sync(state);expect(values()[0]).toEqual({value:7})
  })
  it('clips availability, interval metadata, lists and callbacks together',()=>{
   const {manager,state,onEvent,indicators}=setup(),context=manager.getContext()!

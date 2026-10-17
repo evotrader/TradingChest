@@ -73,17 +73,17 @@ export function copyIndicatorCatalog(input:IndicatorDescriptor[]):IndicatorDescr
   }
   return JSON.parse(JSON.stringify(input))
 }
-export function validateIndicatorParams(descriptor:IndicatorDescriptor,params:unknown[]):void{
-  if(!Array.isArray(params))throw Error('指标参数必须是数组')
+export function validateIndicatorParams(descriptor:IndicatorDescriptor,params:unknown[],locale='zh-CN'):void{
+  if(!Array.isArray(params))throw Error(i18n('indicator_params_array',locale))
   const schema=descriptor.parameters
   if(!schema)return
   const bounds=parameterBounds(schema),min=bounds.min+(schema.repeat?.minItems??0)
-  if(params.length<min||params.length>bounds.max)throw Error(`指标 ${descriptor.name} 参数数量无效`)
+  if(params.length<min||params.length>bounds.max)throw Error(i18n('indicator_params_count',locale).replace('{name}',descriptor.name))
   params.forEach((value,index)=>{const p=parameterAt(schema,index)!;let valid=false
     if(p.type==='boolean')valid=typeof value==='boolean'
     if(p.type==='select')valid=p.options.some(o=>o.value===value)
     if(p.type==='number'&&typeof value==='number'&&Number.isFinite(value)){const base=p.min??0;valid=(p.min===undefined||value>=p.min)&&(p.max===undefined||value<=p.max)&&(p.step===undefined||Math.abs((value-base)/p.step-Math.round((value-base)/p.step))<1e-7)}
-    if(!valid)throw Error(`指标 ${descriptor.name} 参数 ${index+1} 无效`)
+    if(!valid)throw Error(i18n('indicator_param_invalid',locale).replace('{name}',descriptor.name).replace('{index}',String(index+1)))
   })
 }
 export function indicatorInstance(i:Indicator):IndicatorInstance{return {id:i.id,name:i.name,paneId:i.paneId,yAxisId:i.yAxisId,calcParams:structuredClone(i.calcParams),visible:i.visible}}

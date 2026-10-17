@@ -35,7 +35,7 @@ window.sample = async (count, profileOnly=false) => {
 window.sampleWorkspace=async(count,layout)=>{
  const container=document.querySelector('#chart'),ticks=new Map(),proCharts=[],state={subscriptions:0}
  const t=performance.now()
- const workspace=new ChartWorkspace({container,context:'performance',symbols:[{ticker:'SYNTHETIC'}],initialSymbol:{ticker:'SYNTHETIC'},getPeriods:async()=>[{timespan:'minute',multiplier:1,text:'1m'}],mountCell:(host,cell)=>{
+ const workspace=new ChartWorkspace({container,height:layout===4?1160:780,context:'performance',symbols:[{ticker:'SYNTHETIC'}],initialSymbol:{ticker:'SYNTHETIC'},getPeriods:async()=>[{timespan:'minute',multiplier:1,text:'1m'}],mountCell:(host,cell)=>{
   const bars=makeBars(count);let resolve;const ready=new Promise(done=>resolve=done)
   const chart=new KLineChartPro({container:host,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:['VOL','MACD'],onDataReady:()=>resolve(chart),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,_from,to)=>to<bars[0].timestamp?[]:bars,subscribe:(_s,_p,cb)=>{state.subscriptions++;ticks.set(cell.cellId,{cb,bars})},unsubscribe:()=>{state.subscriptions--;ticks.delete(cell.cellId)}}})
   proCharts.push(chart);return {ready,dispose:()=>chart.dispose()}
@@ -43,6 +43,7 @@ window.sampleWorkspace=async(count,layout)=>{
  while(workspace.getCells().length!==1)await new Promise(r=>setTimeout(r,1))
  await workspace.setLayout(layout)
  await Promise.all(proCharts.map(p=>settled(p.getChart(),count)));await frame()
+ for(const chart of proCharts){const engine=chart.getChart();if((engine.getSize('candle_pane','main')?.height??0)<=0||indicators(engine).filter(i=>['MA','VOL','MACD'].includes(i.name)).some(i=>(engine.getSize(i.paneId,'main')?.height??0)<=0))throw Error('Workspace price or indicator pane is not drawable')}
  const cold=performance.now()-t,update=[],interaction=[]
  for(let i=0;i<100;i++){
   const start=performance.now(),expected=[]

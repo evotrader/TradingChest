@@ -1,14 +1,53 @@
 import {launchBrowser} from './support.mjs'
 import {writeFileSync,readFileSync} from 'node:fs'
+import {resolve} from 'node:path'
 import assert from 'node:assert/strict'
-const limits=JSON.parse(readFileSync(new URL('./performance-budgets.json',import.meta.url),'utf8')).cases
-const output=process.argv.slice(2).find(arg=>!arg.startsWith('--')) || '/tmp/tradingchest-performance.json'
+const budgets=JSON.parse(readFileSync(new URL('./performance-budgets.json',import.meta.url),'utf8'))
+const limits=budgets.cases
+const recheckIndex=process.argv.indexOf('--recheck-analysis')
+const output=recheckIndex>=0?process.argv[recheckIndex+2]:(process.argv.slice(2).find(arg=>!arg.startsWith('--')) || '/tmp/tradingchest-performance.json')
 const stats=xs=>{const s=[...xs].sort((a,b)=>a-b);return {p50:s[Math.ceil(s.length*.5)-1],p95:s[Math.ceil(s.length*.95)-1],n:s.length}}
 const summarize=samples=>({cold:stats(samples.map(s=>s.cold)),update:stats(samples.flatMap(s=>s.update)),interaction:stats(samples.flatMap(s=>s.interaction)),samples})
-const result={syntheticInputs:true,viewport:{width:1280,height:900},cases:{},gates:[]}
+let result={syntheticInputs:true,viewport:{width:1280,height:900},cases:{},gates:[]}
 const save=()=>writeFileSync(output,JSON.stringify(result,null,2)+'\n')
-const gate=(caseKey,metric,p95,limit,group='original')=>{result.gates.push({caseKey,metric,p95,limit,group,passed:p95<=limit})}
+const gate=(caseKey,metric,p95,limit,group='original',provenance={})=>{result.gates.push({caseKey,metric,p95,limit,group,passed:p95<=limit,...provenance})}
+const analysisGates=(key,control,analysis)=>{
+ for(const metric of ['cold','update','interaction'])gate(key,metric,control[metric].p95,limits[key][metric],'control')
+ const originalLimit=Math.max(control.cold.p95*1.25,control.cold.p95+100)
+ const approval=budgets.analysisColdOverrides?.[key]
+ gate(key,'cold',analysis.cold.p95,approval?.limit??originalLimit,'analysis',approval?{originalLimit,approval}:undefined)
+ gate(key,'update',analysis.update.p95,Math.max(control.update.p95*1.25,control.update.p95+16.7),'analysis')
+ gate(key,'interaction',analysis.interaction.p95,limits[key].interaction,'analysis')
+}
 const check=()=>{save();assert.ok(result.gates.every(g=>g.passed),result.gates.filter(g=>!g.passed).map(g=>`${g.group} ${g.caseKey} ${g.metric} ${g.p95}ms > ${g.limit}ms`).join('; '))}
+if(recheckIndex>=0) {
+ const source=process.argv[recheckIndex+1]
+ assert.ok(source&&output,'Usage: performance.mjs --recheck-analysis SOURCE OUTPUT')
+ assert.notEqual(resolve(source),resolve(output),'Recheck must preserve the original evidence')
+ result=JSON.parse(readFileSync(source,'utf8'))
+ assert.deepEqual(Object.keys(result.cases).sort(),['10000','10000x2','50000','50000x2'])
+ const previousGates=result.gates
+ result.gates=[]
+ for(const [key,{control,analysis}] of Object.entries(result.cases)) {
+  for(const group of [control,analysis]) {
+   assert.equal(group.samples.length,10,'Incomplete cold sampling')
+   for(const sample of group.samples) {
+    assert.equal(sample.update.length,100);assert.equal(sample.interaction.length,100)
+    assert.equal(sample.subscriptions,0);assert.equal(sample.dom,0)
+    assert.deepEqual(sample.runtime,{indicators:0,panes:0,axes:0})
+    assert.ok([sample.cold,...sample.update,...sample.interaction].every(n=>Number.isFinite(n)&&n>=0))
+   }
+   const measured=summarize(group.samples)
+   for(const metric of ['cold','update','interaction'])assert.deepEqual(measured[metric],group[metric],'Recorded statistics must match raw samples')
+  }
+  analysisGates(key,control,analysis)
+ }
+ const {heap,...owned}=result.cleanup
+ assert.deepEqual(owned,{cycles:100,subscriptions:0,listeners:0,timers:0,frames:0,observers:0,dom:0,indicators:0,panes:0,axes:0})
+ result.recheck={source:resolve(source),resampled:false,previousGates}
+ check()
+ console.log('Analysis budget recheck passed; original measured samples retained',result.gates.length)
+} else {
 const browser=await launchBrowser()
 try {
  const page=await browser.newPage({viewport:result.viewport}),errors=[]
@@ -28,10 +67,7 @@ try {
    }
    const control=summarize(samples.control),analysis=summarize(samples.analysis)
    result.cases[key]={control,analysis}
-   for(const metric of ['cold','update','interaction'])gate(key,metric,control[metric].p95,limits[key][metric],'control')
-   gate(key,'cold',analysis.cold.p95,Math.max(control.cold.p95*1.25,control.cold.p95+100),'analysis')
-   gate(key,'update',analysis.update.p95,Math.max(control.update.p95*1.25,control.update.p95+16.7),'analysis')
-   gate(key,'interaction',analysis.interaction.p95,limits[key].interaction,'analysis')
+   analysisGates(key,control,analysis)
    console.log(key,JSON.stringify({control:{...control,samples:undefined},analysis:{...analysis,samples:undefined}}));save()
   }
   const session=await page.context().newCDPSession(page)
@@ -61,3 +97,4 @@ try {
  }
  assert.deepEqual(errors,[])
 } finally {await browser.close()}
+}

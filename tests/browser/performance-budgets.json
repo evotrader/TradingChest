@@ -41,5 +41,17 @@
       "update": 323.8750000298023,
       "interaction": 55.7
     }
+  },
+  "analysisColdOverrides": {
+    "10000x2": {
+      "limit": 350,
+      "approvedOn": "2026-10-17",
+      "source": "Operator approved the proposed analysis-only dual-chart cold budget; all other gates unchanged"
+    },
+    "50000x2": {
+      "limit": 750,
+      "approvedOn": "2026-10-17",
+      "source": "Operator approved the proposed analysis-only dual-chart cold budget; all other gates unchanged"
+    }
   }
 }

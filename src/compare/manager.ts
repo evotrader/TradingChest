@@ -26,7 +26,8 @@ function abortable<T>(work:Promise<T>,signal:AbortSignal):Promise<T>{
   work.then(value=>{cleanup();resolve(value)},reason=>{cleanup();reject(reason)})
  })
 }
-type Member={handle:ComparisonHandle;feed:ComparisonDatafeed;bars:KLineData[];basis?:string;stream:number;subscribed:boolean;prices:Map<number,number>;returns?:(timestamp:number)=>number|undefined;returnBase?:number;returnPrices?:Map<number,number>}
+type PendingUpdate={bar:KLineData}|{snapshot:{bars:KLineData[];basis?:string}}|{error:string}
+type Member={handle:ComparisonHandle;feed:ComparisonDatafeed;bars:KLineData[];basis?:string;stream:number;subscribed:boolean;pending?:PendingUpdate[];prices:Map<number,number>;returns?:(timestamp:number)=>number|undefined;returnBase?:number;returnPrices?:Map<number,number>}
 interface Options {locale?:()=>string;chart:()=>Chart|null;symbol:()=>SymbolInfo;period:()=>Period;instanceId:string;onChange?:(state:ComparisonState)=>void}
 export class ComparisonManager {
  private members=new Map<string,Member>()
@@ -50,6 +51,7 @@ export class ComparisonManager {
  private mainIndicator:string|undefined
  private axisId:string|undefined
  private resumes=new Set<AbortController>()
+ private preparedResume:(()=>void)|null|undefined
  constructor(private options:Options){}
  private checkBase(bars:KLineData[],timestamp:number){return baseClose(bars,timestamp,this.options.locale?.()??'zh-CN')}
  private commonBase(main:KLineData[],maps:Map<number,number>[],from?:number,to?:number){return commonBaseWithPrices(main,maps,from,to,this.options.locale?.()??'zh-CN')}
@@ -93,6 +95,7 @@ export class ComparisonManager {
  cancel(id:string){const p=this.pending.get(id);if(!p)return;p.controller.abort();this.pending.delete(id);this.releasePending(p,this.options.period());this.emit()}
  remove(id:string){
   this.cancel(id);const m=this.members.get(id);if(!m)return
+  if(this.preparedResume!==undefined)this.preparedResume=null
   this.stop(m);comparisonOwners.delete(m.feed);m.feed.dispose?.();this.chart().removeIndicator({id:m.handle.indicatorId});this.members.delete(id);this.errorsByOwner.delete(id)
   for(const controller of this.resumes)controller.abort()
   if(!this.members.size){this.clearIndicators();this.base=undefined;this.referenceFrom=undefined;this.notice=undefined;this.error=undefined}
@@ -103,16 +106,24 @@ export class ComparisonManager {
  async retry(){this.valid();await this.fetchGroup(false)}
  private rebase(message:string){if(!this.members.size)return;const main=this.main();this.base=this.commonBase(main,[...this.members.values()].map(m=>m.prices),this.referenceFrom);this.notice=()=>`${this.text(message)} · ${this.text('comparison_common_base')}: ${new Date(this.base!).toISOString()}`;this.error=undefined;this.render()}
  private start(m:Member,preparing=false){
-  if((this.replay&&!preparing)||this.restoring||this.disposed||m.subscribed||this.members.get(m.handle.id)!==m)return
+  if((this.replay&&!preparing)||(this.restoring&&!preparing)||this.disposed||m.subscribed||this.members.get(m.handle.id)!==m)return
   const stream=++m.stream;m.subscribed=true
-  const active=()=>!this.disposed&&!this.replay&&m.stream===stream&&this.members.get(m.handle.id)===m
+  const pending:PendingUpdate[]=[];m.pending=pending
+  const owned=()=>!this.disposed&&m.stream===stream&&this.members.get(m.handle.id)===m
+  const preparingUpdate=()=>preparing&&(this.replay||this.restoring)
+  const active=()=>owned()&&!this.replay&&!this.restoring
   try {
-  if(m.feed.subscribeSnapshots)m.feed.subscribeSnapshots(m.handle.symbol,m.handle.period,value=>{if(active())this.update(m,value)},reason=>{if(active())this.fail(reason,m.handle.id)})
-  else m.feed.subscribe(m.handle.symbol,m.handle.period,bar=>{if(active())this.updateBar(m,bar)})
+  if(m.feed.subscribeSnapshots)m.feed.subscribeSnapshots(m.handle.symbol,m.handle.period,value=>{
+    if(!owned())return
+    if(preparingUpdate()){try{const snapshot=historySnapshot(value);pending.push({snapshot:{bars:copyBars(snapshot.bars),basis:snapshot.basis}})}catch(reason){pending.push({error:reason instanceof Error?reason.message:String(reason)})}}
+    else if(active())this.update(m,value)
+  },reason=>{if(!owned())return;if(preparingUpdate())pending.push({error:reason instanceof Error?reason.message:String(reason)});else if(active())this.fail(reason,m.handle.id)})
+  else m.feed.subscribe(m.handle.symbol,m.handle.period,bar=>{if(!owned())return;if(preparingUpdate())pending.push({bar:{...bar}});else if(active())this.updateBar(m,bar)})
   } catch(error) {this.stop(m);throw error}
  }
- private stop(m:Member){++m.stream;if(m.subscribed){m.subscribed=false;m.feed.unsubscribe(m.handle.symbol,m.handle.period)}}
- private cancelReads(){for(const controller of this.resumes)controller.abort();this.resumes.clear();this.restoring=false}
+ private flush(m:Member){const pending=m.pending??[],stream=m.stream;m.pending=undefined;try{for(const update of pending){if(this.disposed||this.replay||m.stream!==stream||this.members.get(m.handle.id)!==m)return;if('bar' in update)this.updateBar(m,update.bar);else if('snapshot' in update)this.update(m,update.snapshot);else this.fail(update.error,m.handle.id)}}finally{pending.length=0}}
+ private stop(m:Member){++m.stream;if(m.pending)m.pending.length=0;m.pending=undefined;if(m.subscribed){m.subscribed=false;m.feed.unsubscribe(m.handle.symbol,m.handle.period)}}
+ private cancelReads(){this.preparedResume=undefined;for(const controller of this.resumes)controller.abort();this.resumes.clear();this.restoring=false}
  private updateBar(m:Member,bar:KLineData){
   try{
    validateBars([bar]);if(bar.timestamp===this.base&&bar.close===0)throw Error(this.text('comparison_error_10'))
@@ -155,8 +166,9 @@ export class ComparisonManager {
   this.render();this.emit()
  }
  seek(cutoff:number){if(!this.replay)return;this.cancelReads();this.cutoff=cutoff;this.render();this.emit()}
- async prepareResume(){if(this.replay)await this.fetchGroup(false)}
- private async fetchGroup(rebase:boolean,window?:{from:number;to:number}){
+ async prepareResume(){this.preparedResume=undefined;if(this.replay)await this.fetchGroup(false,undefined,true)}
+ rollbackResume(){this.preparedResume=undefined;this.restoring=false;this.emit()}
+ private async fetchGroup(rebase:boolean,window?:{from:number;to:number},stage=false){
   if(!this.members.size)return
   if(this.restoring)throw Error(this.text('comparison_error_12'))
   const members=[...this.members.values()],epoch=this.generation,controller=new AbortController();this.resumes.add(controller);this.restoring=true
@@ -168,7 +180,7 @@ export class ComparisonManager {
     try{
       const result=await m.feed.getHistoryKLineData(m.handle.symbol,m.handle.period,from,to,{signal:controller.signal,reason:'resume'})
       if(this.disposed||epoch!==this.generation||controller.signal.aborted)throw abort()
-      const snapshot=this.mergeSnapshot(m,historySnapshot(result));this.errorsByOwner.delete(m.handle.id);return snapshot
+      const merged=this.mergeSnapshot(m,historySnapshot(result)),snapshot={bars:copyBars(merged.bars),basis:merged.basis};if(!stage)this.errorsByOwner.delete(m.handle.id);return snapshot
     }catch(reason){
       if(!controller.signal.aborted&&epoch===this.generation){const message=reason instanceof Error?reason.message:String(reason);this.errorsByOwner.set(m.handle.id,message);throw Error(`${m.handle.symbol.ticker}：${message}`)}
       throw reason
@@ -177,26 +189,37 @@ export class ComparisonManager {
    if(this.disposed||epoch!==this.generation||controller.signal.aborted||members.length!==this.members.size||members.some(m=>this.members.get(m.handle.id)!==m))throw abort()
    const base=rebase?this.commonBase(this.main(),snapshots.map(s=>priceMap(s.bars)),window?.from,window?.to):this.base!
    for(const snapshot of snapshots)this.checkBase(snapshot.bars,base)
-   let revised=false
-   for(let i=0;i<members.length;i++){const old=members[i].bars.find(b=>b.timestamp===base)?.close,current=snapshots[i].bars.find(b=>b.timestamp===base)?.close;if(old!==current)revised=true;members[i].bars=copyBars(snapshots[i].bars);members[i].prices=priceMap(members[i].bars);members[i].basis=snapshots[i].basis;members[i].handle={...members[i].handle,readAt:Date.now(),sourceTimestamp:snapshots[i].bars.at(-1)?.timestamp,basis:snapshots[i].basis}}
-   this.base=base;if(rebase)this.referenceFrom=window?.from
-   if(rebase||revised)this.notice=()=>`${this.text(rebase?'comparison_range_reset':'comparison_base_revised')}: ${new Date(base).toISOString()}`
-   this.error=undefined;for(const m of members)this.errorsByOwner.delete(m.handle.id);this.render();this.emit()
-  }catch(reason){if(!controller.signal.aborted&&epoch===this.generation&&!this.disposed)this.fail(reason);throw reason}finally{controller.abort();const current=this.resumes.delete(controller);if(current&&epoch===this.generation&&!this.disposed){this.restoring=false;if(!this.replay)for(const m of this.members.values())this.start(m);this.emit()}}
+   const apply=()=>{
+    if(this.disposed||epoch!==this.generation||members.length!==this.members.size||members.some(m=>this.members.get(m.handle.id)!==m))throw abort()
+    let revised=false
+    for(let i=0;i<members.length;i++){const old=members[i].bars.find(b=>b.timestamp===base)?.close,current=snapshots[i].bars.find(b=>b.timestamp===base)?.close;if(old!==current)revised=true;members[i].bars=snapshots[i].bars;members[i].prices=priceMap(members[i].bars);members[i].basis=snapshots[i].basis;members[i].handle={...members[i].handle,readAt:Date.now(),sourceTimestamp:snapshots[i].bars.at(-1)?.timestamp,basis:snapshots[i].basis}}
+    this.base=base;if(rebase)this.referenceFrom=window?.from
+    if(rebase||revised)this.notice=()=>`${this.text(rebase?'comparison_range_reset':'comparison_base_revised')}: ${new Date(base).toISOString()}`
+    this.error=undefined;for(const m of members)this.errorsByOwner.delete(m.handle.id)
+   }
+   if(stage)this.preparedResume=apply
+   else {apply();this.render();this.emit()}
+  }catch(reason){if(!controller.signal.aborted&&epoch===this.generation&&!this.disposed)this.fail(reason);throw reason}finally{controller.abort();const current=this.resumes.delete(controller);if(current&&epoch===this.generation&&!this.disposed){this.restoring=stage&&typeof this.preparedResume==='function';if(!this.replay)for(const m of this.members.values())this.start(m);this.emit()}}
  }
  leaveReplay(){
   if(!this.replay)return
+  if(this.preparedResume===null&&this.members.size)throw abort()
   const next=this.chart().getDataList();if(this.members.size)this.checkBase(next,this.base!)
-  const previous={cutoff:this.cutoff,fullMain:this.fullMain,mainPrices:this.mainPrices,notice:this.notice,mainReturnPrices:this.mainReturnPrices,mainReturnBase:this.mainReturnBase,mainReturns:this.mainReturns}
+  const previous={cutoff:this.cutoff,fullMain:this.fullMain,mainPrices:this.mainPrices,notice:this.notice,mainReturnPrices:this.mainReturnPrices,mainReturnBase:this.mainReturnBase,mainReturns:this.mainReturns,base:this.base,error:this.error,errorsByOwner:new Map(this.errorsByOwner)}
+  const previousMembers=[...this.members.values()].map(m=>({member:m,data:{handle:{...m.handle},bars:m.bars,basis:m.basis,prices:m.prices,returns:m.returns,returnBase:m.returnBase,returnPrices:m.returnPrices}}))
   const old=this.mainPrices.get(this.base!),current=next.find(b=>b.timestamp===this.base)?.close
   try {
     // Subscriptions may fail after partially attaching. Keep replay/cutoff until all are prepared.
     for(const m of this.members.values())this.start(m,true)
+    this.preparedResume?.()
     this.replay=false;this.cutoff=Infinity;this.fullMain=copyBars(next);this.mainPrices=priceMap(next)
     if(old!==current&&this.base!==undefined)this.notice=()=>`${this.text('comparison_main_revised')}${new Date(this.base!).toISOString()}`
-    this.render();this.errorsByOwner.delete('main');this.emit()
+    this.render();this.errorsByOwner.delete('main');this.preparedResume=undefined;this.restoring=false;for(const m of this.members.values())this.flush(m);this.emit()
   } catch(error) {
     for(const m of this.members.values())this.stop(m)
+    this.preparedResume=undefined
+    this.restoring=false
+    for(const {member,data} of previousMembers)if(this.members.get(data.handle.id)===member)Object.assign(member,data)
     this.replay=true;Object.assign(this,previous)
     this.render();this.emit();throw error
   }
@@ -220,6 +243,6 @@ export class ComparisonManager {
   for(const m of this.members.values()){if(m.returnPrices!==m.prices||m.returnBase!==this.base){m.returns=makeLookup(m.prices,this.base,this.options.locale?.()??'zh-CN');m.returnPrices=m.prices;m.returnBase=this.base}m.handle.indicatorId=apply(m.handle.indicatorId||undefined,m.handle.id,`${this.text('comparison_member_return')} ${m.handle.symbol.ticker}`,m.returns!,colors[index++%colors.length])}
  }
  private clearIndicators(){const chart=this.options.chart();if(this.mainIndicator)chart?.removeIndicator({id:this.mainIndicator});if(this.axisId)chart?.removeYAxis({id:this.axisId,paneId:'candle_pane'});this.mainIndicator=undefined;this.axisId=undefined;this.mainReturns=()=>undefined;this.mainReturnBase=undefined;this.mainReturnPrices=undefined;this.mainPrices.clear();this.errorsByOwner.delete('main')}
- clear(){++this.generation;for(const p of this.pending.values()){p.controller.abort();this.releasePending(p,this.options.period())}this.pending.clear();for(const m of this.members.values()){this.stop(m);comparisonOwners.delete(m.feed);m.feed.dispose?.();this.options.chart()?.removeIndicator({id:m.handle.indicatorId})}this.members.clear();for(const c of this.resumes)c.abort();this.clearIndicators();this.base=undefined;this.referenceFrom=undefined;this.notice=undefined;this.error=undefined;this.errorsByOwner.clear();this.replay=false;this.restoring=false;this.cutoff=Infinity;this.fullMain=[];this.emit()}
+ clear(){this.preparedResume=undefined;++this.generation;for(const p of this.pending.values()){p.controller.abort();this.releasePending(p,this.options.period())}this.pending.clear();for(const m of this.members.values()){this.stop(m);comparisonOwners.delete(m.feed);m.feed.dispose?.();this.options.chart()?.removeIndicator({id:m.handle.indicatorId})}this.members.clear();for(const c of this.resumes)c.abort();this.clearIndicators();this.base=undefined;this.referenceFrom=undefined;this.notice=undefined;this.error=undefined;this.errorsByOwner.clear();this.replay=false;this.restoring=false;this.cutoff=Infinity;this.fullMain=[];this.emit()}
  dispose(){if(this.disposed)return;this.disposed=true;this.clear()}
 }

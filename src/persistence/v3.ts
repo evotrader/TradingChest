@@ -1,6 +1,7 @@
 import {configureIndicatorTooltip} from '../indicator/instances'
 import {runtimeBindings} from '../analysis/bindings'
 import {resolveDrawingPane} from '../drawing/pane'
+import {getIdentityEpoch} from '../core/identityEpoch'
 import type {Chart,DeepPartial,Styles,YAxisOverride} from 'klinecharts'
 import type { ChartPro } from '../types'
 import {isChartLayoutV2, migrateLayoutV1, jsonSafe, type ChartLayoutV2, type LayoutIndicator, type LayoutJson} from './v2'
@@ -99,8 +100,11 @@ export function captureLayout(chartPro:ChartPro, options:{localDrawingIds?:strin
 export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3):Promise<void> {
   if(!isChartLayoutV3(layout))throw Error('布局结构无效')
   const chart=chartPro.getChart();if(!chart)throw Error('图表尚未就绪')
+  const epoch=getIdentityEpoch(chart),symbol=chartPro.getSymbol().ticker,period=chartPro.getPeriod()
   const assertReady=()=>{
     if(chartPro.getChart()!==chart)throw Error('图表实例已改变，请重新加载布局')
+    const current=chartPro.getPeriod()
+    if(getIdentityEpoch(chart)!==epoch||chartPro.getSymbol().ticker!==symbol||current.timespan!==period.timespan||current.multiplier!==period.multiplier)throw new DOMException('布局恢复期间标的或周期已改变','AbortError')
     if(layout.context?.ticker && layout.context.ticker!==chartPro.getSymbol().ticker)throw Error('布局标的与当前图表不匹配')
     if(chartPro.getDrawingHistoryState().pending)throw Error('绘图提交尚未确认，请完成后再恢复布局')
     if(chartPro.getDrawingHistoryState().uncertainLogicalIds.length)throw Error('绘图提交结果待确认，请刷新标注后恢复布局')

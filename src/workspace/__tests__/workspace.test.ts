@@ -107,7 +107,7 @@ describe('workspace ownership',()=>{
     const getPeriods=vi.fn().mockImplementationOnce(()=>new Promise(done=>release=done)).mockResolvedValue([period]);
     const w=new ChartWorkspace({container,context:'x',locale:'en-US',theme:'light',height:640,toolbar:{size:false},symbols:[{ticker:'A'}],initialSymbol:{ticker:'A'},initialPeriod:period,getPeriods,mountCell:()=>{
       mounted++;const engine={resize:vi.fn(),getDom:()=>null,subscribeAction:vi.fn(),unsubscribeAction:vi.fn(),getIndicators:()=>[],setStyles:vi.fn()};
-      const pro={getChart:()=>engine,getIndicatorCatalog:()=>[],getSymbol:()=>({ticker:'A'}),getShortcutManager:()=>({setEnabled:vi.fn()}),getDrawingHistoryState:()=>({pending:0,uncertainLogicalIds:[]}),getDrawings:()=>[],resetDrawingHistory:vi.fn(),setTheme:(value:string)=>chartThemes.push(value),setLocale:(value:string)=>chartLocales.push(value),setTimezone:vi.fn(),restoreDrawings:vi.fn()};
+      const pro={getChart:()=>engine,getIndicatorCatalog:()=>[],getSymbol:()=>({ticker:'A'}),getPeriod:()=>period,getShortcutManager:()=>({setEnabled:vi.fn()}),getDrawingHistoryState:()=>({pending:0,uncertainLogicalIds:[]}),getDrawings:()=>[],resetDrawingHistory:vi.fn(),setTheme:(value:string)=>chartThemes.push(value),setLocale:(value:string)=>chartLocales.push(value),setTimezone:vi.fn(),restoreDrawings:vi.fn()};
       return {ready:Promise.resolve(pro as unknown as ChartPro),dispose:()=>disposed++};
     }});instances.push(w);
     const restoring=w.restore(doc as import('../types').WorkspaceDocument);await settle();expect(mounted).toBe(0);expect(getPeriods).toHaveBeenCalledTimes(1);

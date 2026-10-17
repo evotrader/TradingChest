@@ -6,7 +6,7 @@ export interface AnalysisRendererData {
   valueAt:(timestamp:number)=>AnalysisResult|undefined;events:AnalysisEvent[]
   indexAt:(timestamp:number)=>number|undefined
   calculate:(bars:KLineData[])=>AnalysisResult[]
-  getHits:()=>Array<{x:number;y:number;event:AnalysisEvent}>
+  getHits:()=>Array<{x:number;y:number;endX?:number;event:AnalysisEvent}>
 }
 let registered=false
 export {runtimeBindings} from './bindings'
@@ -30,11 +30,13 @@ function drawAnalysis({ctx,chart,indicator,bounding,xAxis,yAxis}:IndicatorDrawPa
   const from=Math.max(0,range.from-1),to=Math.min(bars.length,range.to+1)
   if(data.type==='events'){
     const lanes=new Map<number,number>()
-    for(const event of data.events){const index=data.indexAt(event.timestamp);if(index===undefined||index<from||index>=to)continue
+    for(const event of data.events){const index=data.indexAt(event.timestamp),end=event.endTimestamp===undefined?undefined:data.indexAt(event.endTimestamp);if(index===undefined||index>=to||(end??index)<from)continue
       const x=xAxis.convertToPixel(index),lane=lanes.get(event.timestamp)??0,y=Math.max(12,bounding.height-20-lane*18);lanes.set(event.timestamp,lane+1)
       ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill()
-      if(event.endTimestamp!==undefined){const end=data.indexAt(event.endTimestamp);if(end!==undefined){ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(xAxis.convertToPixel(end),y);ctx.stroke()}}
-      ctx.font='11px sans-serif';ctx.fillText(event.label,x+8,y+3);hits.push({x,y,event})
+      const clip=(pixel:number)=>Math.max(1,Math.min(bounding.width-1,pixel))
+      let hitX=x,labelX=x,endX:number|undefined
+      if(end!==undefined){const pixel=xAxis.convertToPixel(end);ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(pixel,y);ctx.stroke();labelX=clip(x);hitX=clip(x);endX=clip(pixel)}
+      ctx.font='11px sans-serif';ctx.fillText(event.label,labelX+8,y+3);hits.push({x:hitX,y,endX,event})
     }
   }else if(data.type==='histogram'){
     const zero=yAxis.convertToPixel(0),width=Math.max(1,Math.min(20,chart.getBarSpace().bar*0.7))

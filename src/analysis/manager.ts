@@ -25,8 +25,8 @@ function validateData(spec:AnalysisLayerSpec,data:AnalysisLayerSpec['data'],loca
       if(typeof p.id!=='string'||!p.id||ids.has(p.id)||typeof p.label!=='string')throw Error(i18n('analysis_validation_4',locale));ids.add(p.id)
     }
     if(spec.type==='label-series'){if(!validValue((point as AnalysisLabelPoint).value))throw Error(i18n('analysis_validation_5',locale));continue}
-    const time=(point as {timestamp:number}).timestamp;if(!finite(time))throw Error(i18n('analysis_validation_6',locale))
-    if(spec.type==='events'){const end=(point as AnalysisEvent).endTimestamp;if(end!==undefined&&(!finite(end)||end<time))throw Error(i18n('analysis_validation_7',locale))}
+    const time=(point as {timestamp:number}).timestamp;if(!finite(time)||(spec.type==='events'&&Math.abs(time)>8640000000000000))throw Error(i18n('analysis_validation_6',locale))
+    if(spec.type==='events'){const end=(point as AnalysisEvent).endTimestamp;if(end!==undefined&&(!finite(end)||Math.abs(end)>8640000000000000||end<time))throw Error(i18n('analysis_validation_7',locale))}
     else {if(time<=previous)throw Error(i18n('analysis_validation_8',locale));previous=time
       if(spec.type==='band'){const p=point as import('./types').AnalysisBandPoint;if(!validValue(p.lower)||!validValue(p.upper)||(p.lower===null)!==(p.upper===null)||(p.lower!==null&&p.upper!==null&&p.lower>p.upper))throw Error(i18n('analysis_validation_9',locale))}
       else if(!validValue((point as import('./types').AnalysisPoint).value))throw Error(i18n('analysis_validation_10',locale))
@@ -131,7 +131,7 @@ export class AnalysisManager {
     for(const layer of this.layers.values()){
       const pane=chart.getDom(layer.paneId,'main');if(!pane?.contains(target))continue
       const rect=pane.getBoundingClientRect(),x=event.clientX-rect.left,y=event.clientY-rect.top
-      const hit=layer.renderer?.getHits().find(h=>Math.hypot(h.x-x,h.y-y)<=8)
+      const hit=layer.renderer?.getHits().find(h=>{const nearest=h.endX===undefined?h.x:Math.max(Math.min(h.x,h.endX),Math.min(Math.max(h.x,h.endX),x));return Math.hypot(nearest-x,h.y-y)<=8})
       if(hit){this.selectEvent(layer.spec.id,hit.event.id);return}
     }
   }

@@ -161,21 +161,31 @@ console.log('Legacy browser UMD and CSS paths PASS');
       const {root,sub}=await import('/mixed.mjs'),chart=window.analysisDemo.chart
       if(root.indicatorRegistry!==sub.indicatorRegistry)throw Error('Entrypoints split the global definition registry')
       root.registerIndicatorDefinition('PACKED/lazy',async()=>({name:'PACKED/lazy',calcParams:[],figures:[{key:'value',type:'line'}],calc:bars=>bars.map(bar=>({value:bar.close}))}))
-      const catalog=[...sub.builtinIndicatorCatalog,{name:'PACKED/lazy',label:'Lazy from root',category:'custom',placements:['main'],parameters:{items:[]}}]
+      let releaseLayout
+      root.registerIndicatorDefinition('PACKED/layout-lazy',()=>new Promise(resolve=>{releaseLayout=()=>resolve({name:'PACKED/layout-lazy',calcParams:[],figures:[{key:'value',type:'line'}],calc:bars=>bars.map(bar=>({value:bar.close}))})}))
+      const catalog=[...sub.builtinIndicatorCatalog,...['PACKED/lazy','PACKED/layout-lazy'].map(name=>({name,label:'Lazy from root',category:'custom',placements:['main'],parameters:{items:[]}}))]
       const host=document.createElement('div');host.style.cssText='height:700px;width:1000px';document.body.append(host)
-      let ready;const loaded=new Promise(resolve=>ready=resolve)
-      const other=new sub.KLineChartPro({container:host,indicatorCatalog:catalog,symbol:{ticker:'PACKED'},period:chart.getPeriod(),mainIndicators:[],subIndicators:[],onDataReady:ready,datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async()=>window.analysisDemo.bars,subscribe:()=>{},unsubscribe:()=>{}}})
+      let ready,readyCount=0;const loaded=new Promise(resolve=>ready=resolve)
+      const other=new sub.KLineChartPro({container:host,indicatorCatalog:catalog,symbol:{ticker:'PACKED'},period:chart.getPeriod(),mainIndicators:[],subIndicators:[],onDataReady:()=>{readyCount++;ready()},datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async()=>window.analysisDemo.bars,subscribe:()=>{},unsubscribe:()=>{}}})
       await loaded;const handle=await other.addIndicator({name:'PACKED/lazy',placement:'main'});other.removeIndicator(handle.id)
       other.addAnalysisLayer(other.getAnalysisContext(),{id:'mixed',label:'Mixed entrypoints',type:'line',placement:'sub',valueType:'scalar',data:[{timestamp:window.analysisDemo.bars[0].timestamp,value:1}]})
       const fromRoot=root.captureLayout(other),fromChart=sub.captureLayout(other)
       if(fromRoot.indicators.some(i=>i.name==='TC_ANALYSIS')||fromChart.indicators.some(i=>i.name==='TC_ANALYSIS'))throw Error('Mixed entrypoint capture serialized runtime layers')
       await root.restoreLayout(other,fromRoot)
       if(other.getChart().getIndicators({name:'TC_ANALYSIS'}).length!==1)throw Error('Mixed entrypoint restore removed an active runtime layer')
-      other.dispose();host.remove();return {sharedDefinitions:true,lazyAcrossEntries:true,runtimeExcluded:true,runtimeRetained:true}
+      const pendingLayout=root.captureLayout(other)
+      pendingLayout.indicators.push({id:'packed-stale-layout',name:'PACKED/layout-lazy',placement:'main',paneId:'candle_pane',calcParams:[],visible:true})
+      const restoring=root.restoreLayout(other,pendingLayout).then(()=>false,error=>error.name==='AbortError')
+      for(let i=0;i<1000&&!releaseLayout;i++)await new Promise(resolve=>setTimeout(resolve,1))
+      if(!releaseLayout)throw Error('Mixed entrypoint lazy layout was not requested')
+      for(const ticker of ['PACKED.OTHER','PACKED']){const previous=readyCount;other.setSymbol({ticker});for(let i=0;i<1000&&readyCount===previous;i++)await new Promise(resolve=>setTimeout(resolve,1));if(readyCount===previous)throw Error('Packed identity switch did not complete')}
+      releaseLayout()
+      if(!await restoring||other.getChart().getIndicators({id:'packed-stale-layout'}).length)throw Error('Mixed entrypoint restore crossed an identity epoch')
+      other.dispose();host.remove();return {sharedDefinitions:true,lazyAcrossEntries:true,runtimeExcluded:true,runtimeRetained:true,staleLayoutCancelled:true}
     })
     console.log('Packed mixed root/chart definitions, lazy registration and runtime ownership PASS',JSON.stringify(mixed))
     await page.evaluate(()=>window.analysisDemo.chart.dispose());assert.deepEqual(errors,[])
-    writeFileSync(path.join(evidence,'analysis-sdk.json'),JSON.stringify({passed:true,source:'installed tarball',rendered,original,updated,errors},null,2)+'\n')
+    writeFileSync(path.join(evidence,'analysis-sdk.json'),JSON.stringify({passed:true,source:'installed tarball',rendered,original,updated,mixed,errors},null,2)+'\n')
     console.log('Installed tarball analysis example: real Chromium API, numerical rendering, instances, layout and replay PASS')
   } catch(error) {
     await packagePage?.screenshot({path:path.join(evidence,'failure.png'),fullPage:true}).catch(()=>{})

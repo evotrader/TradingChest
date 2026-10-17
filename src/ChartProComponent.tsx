@@ -330,6 +330,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       props.onReplayActiveChange?.(false)
       props.onDataReady?.({symbol:symbol(),period:period()})
     }).catch(error => {
+      if(current())comparisons.rollbackResume()
       if(current()&&!mainRestored)transaction?.rollback()
       if(current()&&mainRestored){transaction?.rollback();props.onReplayReset?.(retainedReplay.at(-1)?.close,retainedReplay.at(-1)?.timestamp);if(retainedSpace!==undefined)widget?.setBarSpace(retainedSpace);if(retainedRange){widget?.scrollToDataIndex(Math.min(retainedReplay.length-1,retainedRange.to-1),0);if(retainedSpace!==undefined)widget?.scrollByDistance(retainedSpace/2,0)}}
       if(!disposed)setLoadError(error instanceof DOMException&&error.name==='AbortError'?i18n('replay_restore_cancelled',locale()):i18n('replay_restore_failure',locale()).replace('{reason}',error instanceof Error?error.message:String(error)))

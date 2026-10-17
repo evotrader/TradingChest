@@ -16,6 +16,12 @@ function setup(){
  return {manager,chart,state,indicators,axes,onEvent,onPoint,setBars:(b:typeof bars)=>{bars=b}}
 }
 describe('analysis ownership, source alignment and replay visibility',()=>{
+ it('rejects event dates outside the displayable Unix millisecond range before replacing confirmed data',()=>{
+  const {manager}=setup(),layer=manager.add(manager.getContext()!,{id:'events',label:'events',type:'events',data:[{id:'valid',label:'source',timestamp:1}]})
+  expect(()=>layer.replaceData([{id:'bad',label:'bad',timestamp:1e100}])).toThrow()
+  expect(()=>layer.replaceData([{id:'bad-end',label:'bad',timestamp:1,endTimestamp:1e100}])).toThrow()
+  expect(manager.views()[0].events).toEqual([{id:'valid',label:'source',timestamp:1}])
+ })
  it('requires a current context and its own matching price basis',()=>{
   const {manager,state}=setup(),context=manager.getContext()!
   expect(()=>manager.add(context,{id:'price',label:'p',type:'line',placement:'main',valueType:'price',dataBasis:null,data:[]})).toThrow('一致')

@@ -28,7 +28,7 @@ try {
   if(!response.ok)throw Error(`Vite is not ready: ${response.status}`)
   const tasks=process.argv.includes('--performance')
     ? [['performance-single',[]],['performance-comparison',['--compare']],['performance-workspace',['--workspace']],['performance-analysis',['--analysis']]].map(([name,args])=>({name,script:'performance',args}))
-    : ['lifecycle','widgets','upgrade-contracts','workspace','drawing-history','comparison','upgrade-audit','analysis','analysis-locale','workspace-embed'].map(script=>({name:script,script,args:[]}))
+    : (process.argv.includes('--audit-analysis')?['analysis-transactions']:['lifecycle','widgets','upgrade-contracts','workspace','drawing-history','comparison','upgrade-audit','analysis','analysis-locale','workspace-embed','analysis-transactions']).map(script=>({name:script,script,args:[]}))
   for(const {name,script,args} of tasks) {
     const directory=path.join(evidence,name);mkdirSync(directory,{recursive:true})
     const started=Date.now(), chunks=[]

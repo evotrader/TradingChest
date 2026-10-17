@@ -120,6 +120,8 @@ new KLineChartPro(
 
 `reloadData({preserveViewport:true})` 先成功读取，再替换数据。失败保留最后确认的行情、视窗与绘图；回放中须先用退出／重试入口恢复实时模式。币种等元数据缺失时显示未知，不从标的名称推断。
 
+重载完成还要求引擎应用数据和订阅准备成功；订阅挂接后抛错时 Promise 拒绝，保留原 bars／basis／scope 并撤销部分订阅。准备期间同步到达的普通 bar，以及回放退出时比较 provider 的 bar／snapshot，复制到本次订阅的临时队列，成功后消费，失败／切换／销毁时释放。公开 `applySnapshot` 在组合检查点内保留最新输入，成功提交后再处理。
+
 当前布局只通过 `captureLayout`、`saveLayoutV3`、`loadLayoutV3`、`restoreLayout`、`deleteLayoutV3`、`listLayoutsV3` 写读 v3。读取结果为 `ok`／`missing`／`error`；错误携带 code 和 message。旧 v1／v2 只在内存迁移，原键保留；新版损坏不会回落旧记录。恢复前先准备同身份、同周期的数据。后端标注只保存引用，本地绘图须显式提供 IDs，订单、成交、持仓及报警状态不写入布局。
 
 设置面板和快捷键使用 `getYAxes`／`overrideYAxis` 修改真实价格轴，名称为 `normal`／`percentage`／`logarithm`；价格轴类型不再写入 `styles.yAxis.type`。
@@ -128,6 +130,8 @@ new KLineChartPro(
 ## 快照 API
 
 `applySnapshot(snapshot: ChartSnapshot): Promise<void>` 将当前完整标的/周期的权威 OHLCV 快照交给唯一加载器。`ChartSnapshot` 包含 `symbol`、`period`、`bars` 和可选 `basis`。初始化和回放期间保留最新输入；历史修订和口径变化的 Promise 在预取/提交后完成，读取失败会拒绝并保留旧图。
+
+异步布局预检绑定开始时唯一 loader 的身份 epoch；即使空图或切走再切回同一标的／周期，旧恢复也以 AbortError 取消，取消发生在删除／重建之前。直接 restoreLayout 仍不承诺完整事务回滚。比较恢复在读取时立即复制来源数据，主／成员订阅全部准备成功后才应用；准备期间移除真实成员使本轮恢复取消并可重试剩余成员，移除未知 ID 不影响恢复。事件起止必须处于可显示的 Unix 毫秒日期范围；区间与视窗相交即显示其可见线段，点击仍返回原事件时标。
 
 
 `onDataState(state: ChartDataState)` 反映当前已应用数据及恢复状态；`onDataReady` 表示行情应用完成，不表示创建了新的 Chart 实例。

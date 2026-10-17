@@ -25,6 +25,7 @@ export const workspaceStyle = `
 .tc-workspace :is(.tc-workspace-toolbar,.tc-workspace-header) button:disabled {opacity:.55}
 .tc-workspace-notice {flex:none;overflow-wrap:anywhere}
 .tc-workspace-notice:empty {display:none}
+.tc-workspace [role="alertdialog"] {padding:8px;border:1px solid var(--tc-workspace-border);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .tc-workspace-grid {display:grid;gap:8px;min-width:0;min-height:0;flex:1;overflow:auto}
 .tc-workspace-cell {min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--tc-workspace-border);overflow:auto;background:var(--tc-workspace-background)}
 .tc-workspace-cell[data-active="true"] {border-color:var(--tc-workspace-active)}

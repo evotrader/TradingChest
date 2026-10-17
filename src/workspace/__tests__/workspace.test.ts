@@ -15,10 +15,10 @@ function setup(overrides:Partial<ChartWorkspaceOptions>={}){
   const disposed:string[]=[],mounts:string[]=[],charts:Record<string,any>={}
   const getPeriods=vi.fn(async()=>[period])
   const workspace=new ChartWorkspace({container,context:'original',symbols:[{ticker:'A.X'},{ticker:'B.X'}],initialSymbol:{ticker:'A.X'},initialPeriod:period,
-    getPeriods,storage:localStorage,mountCell:(_host,cell)=>{
+    getPeriods,store:{list:async()=>[],read:async()=>null,write:async()=>{throw Error('Unused isolated write')},remove:async()=>{}},mountCell:(_host,cell)=>{
       mounts.push(cell.context)
       const actions=new Map(),engine={resize:vi.fn(),getDom:()=>null,subscribeAction:vi.fn((name,cb)=>actions.set(name,cb)),unsubscribeAction:vi.fn(),getDataList:()=>[{timestamp:1,close:1}],getVisibleRange:()=>({from:0,to:1}),executeAction:vi.fn()}
-      const shortcut={setEnabled:vi.fn()},drawing={pending:0};charts[cell.cellId]={engine,shortcut,actions,drawing}
+      const shortcut={setEnabled:vi.fn()},drawing={pending:0,uncertainLogicalIds:[]};charts[cell.cellId]={engine,shortcut,actions,drawing}
       return {ready:Promise.resolve({getChart:()=>engine,getShortcutManager:()=>shortcut,getDrawingHistoryState:()=>drawing} as unknown as ChartPro),dispose:()=>disposed.push(cell.context)}
     },...overrides})
   instances.push(workspace);return {workspace,container,disposed,mounts,charts,getPeriods}
@@ -41,7 +41,7 @@ describe('workspace ownership',()=>{
     expect(groups).toHaveLength(4);expect(groups.every(group=>group.hidden)).toBe(true)
     expect(onLayoutChange).toHaveBeenLastCalledWith(1)
     await workspace.setLayout(2);expect(workspace.getCells()).toHaveLength(2);expect(onLayoutChange).toHaveBeenLastCalledWith(2)
-    workspace.deleteSaved();expect(container.textContent).toContain('当前图形保留')
+    const read=vi.fn(async()=>null);workspace['options'].store!.read=read;await expect(workspace.deleteSaved('missing')).rejects.toMatchObject({code:'WORKSPACE_NOT_FOUND'});expect(read).toHaveBeenCalledOnce()
   })
   it('updates existing chrome and library empty-state errors when locale changes',async()=>{
     const {workspace,container}=setup({getPeriods:async()=>[]});await settle()
@@ -51,7 +51,7 @@ describe('workspace ownership',()=>{
     expect(container.querySelector('[aria-label="Symbol primary"]')).not.toBeNull()
     expect(container.textContent).toContain('No market periods for A.X')
     expect(container.textContent).not.toContain('图表布局')
-    await expect(workspace.load()).rejects.toThrow('No saved workspace')
+    await expect(workspace.load('missing')).rejects.toThrow('No saved workspace')
     workspace.setLocale('ja');expect(container.textContent).toContain('No market periods for A.X')
   })
   it('retains host error details and chart identity when changing theme and locale',async()=>{
@@ -91,7 +91,7 @@ describe('workspace ownership',()=>{
   it('does not replace current cells or damaged saved data on load failure',async()=>{
     const {workspace}=setup();await settle();localStorage.setItem('trading-chest-workspace-v1-original','{"version":1,"layout":4}')
     const before=workspace.getCells()[0].chart
-    await expect(workspace.load()).rejects.toThrow('损坏')
+    await expect(workspace.importLegacy('旧布局')).rejects.toThrow('损坏')
     expect(workspace.getCells()[0].chart).toBe(before)
     expect(localStorage.getItem('trading-chest-workspace-v1-original')).toBe('{"version":1,"layout":4}')
   })

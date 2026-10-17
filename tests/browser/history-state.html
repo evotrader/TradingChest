@@ -1,0 +1,22 @@
+<!doctype html><html><body><div id="chart" style="width:1100px;height:700px"></div>
+<script type="module">
+import {KLineChartPro} from '/src/chart.ts'
+window.setup=(options={})=>{
+ const start=Date.parse('2026-10-12T01:30:00Z'),previous=Date.parse('2026-10-09T06:40:00Z')
+ const row=(timestamp)=>({timestamp,open:10,high:12,low:9,close:11,volume:2})
+ const source=[...Array.from({length:20},(_,i)=>row(previous+i*60000)),...Array.from({length:500},(_,i)=>row(start+i*60000))]
+ const state={source,requests:[],states:[],ready:0,barOwners:0,statusOwners:0,statusCallbacks:[],...options}
+ const feed={searchSymbols:async()=>[],getHistoryKLineData:async(s,p,q,c)=>{
+   state.requests.push({...q});c?.signal.throwIfAborted()
+   if(state.hold){await new Promise(resolve=>state.release=resolve)}
+   if(state.fail||(q.kind==='before'&&q.before<=start&&state.failPage))throw Object.assign(Error('隔离历史读取失败'),{code:'ISOLATED_READ_FAILED'})
+   const all=state.source.filter(b=>q.kind==='before'?b.timestamp<q.before:b.timestamp>=q.from&&b.timestamp<q.to)
+   const bars=q.kind==='before'?all.slice(-q.countBack):all
+   return {bars,basis:state.basis??'raw',metadata:state.partial?{state:'partial',sourceTimestamp:123,delayMs:900}:state.metadata,hasMoreBefore:state.missingMore?undefined:state.emptyMore?true:q.kind==='before'?all.length>bars.length:undefined,...(state.emptyMore?{bars:[]}:{} )}
+ },subscribeStatus:(s,p,accept)=>{if(state.failStatus)throw Error('隔离状态订阅失败');state.statusOwners++;state.statusCallbacks.push(accept);if(state.syncStatus)accept(state.syncStatus);let owned=true;return()=>{if(owned){owned=false;state.statusOwners--}}},subscribe:()=>{state.barOwners++;if(state.failSubscribe)throw Error('隔离订阅准备失败')},unsubscribe:()=>{state.barOwners--}}
+ const chart=new KLineChartPro({container:document.querySelector('#chart'),symbol:{ticker:'TEST'},period:options.period??{multiplier:1,timespan:'minute',text:'1m'},mainIndicators:[],subIndicators:[],datafeed:feed,onDataReady:()=>state.ready++,onDataState:s=>{state.states.push(structuredClone(s));state.onState?.(s)}})
+ window.test={chart,feed,state,first:start,lastState:()=>state.states.at(-1),older:()=>chart.getChart().scrollToDataIndex(0,0)}
+ return true
+}
+window.ready=true
+</script></body></html>

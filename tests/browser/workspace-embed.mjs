@@ -35,7 +35,7 @@ try {
     window.workspace=new ChartWorkspace({container:document.querySelector('#host'),height:700,locale:'en-US',theme:'light',toolbar:{layout:false,sync:false,storage:false,size:false},context:'hidden-isolated',symbols:[{ticker:'A.X'}],initialSymbol:{ticker:'A.X'},getPeriods:async()=>[{multiplier:1,timespan:'minute',text:'1m'}],mountCell:(host,cell)=>{
       let accept
       const ready=new Promise(resolve=>accept=resolve),bars=makeBars(1000)
-      const chart=new KLineChartPro({container:host,symbol:cell.symbol,period:cell.period,onDataReady:()=>accept(chart),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async()=>bars,subscribe:()=>{},unsubscribe:()=>{}}})
+      const chart=new KLineChartPro({container:host,symbol:cell.symbol,period:cell.period,onDataReady:()=>accept(chart),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>query.kind==='before'?{bars:bars.filter(bar=>bar.timestamp<query.before),hasMoreBefore:false}:{bars:bars.filter(bar=>bar.timestamp>=query.from&&bar.timestamp<query.to)},subscribe:()=>{},unsubscribe:()=>{}}})
       return {ready,dispose:()=>chart.dispose()}
     }})
     await workspace.setLayout(4)

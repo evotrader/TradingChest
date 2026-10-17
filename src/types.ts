@@ -38,9 +38,22 @@ export interface Period {
 
 export type DatafeedSubscribeCallback = (data: KLineData) => void
 
-/** Optional provenance belongs to this exact history response. */
-export type HistoryResult = KLineData[] | {bars: KLineData[]; basis?: string}
-export interface ChartSnapshot {
+export type HistoryQuery =
+  | {kind:'before';before:number;countBack:number}
+  | {kind:'range';from:number;to:number}
+export interface HistoryMetadata {
+  state:'ready'|'empty'|'partial'
+  sourceTimestamp?:number
+  delayMs?:number
+}
+/** Provenance and metadata belong to this exact response. */
+export interface HistorySnapshot {bars:KLineData[];basis?:string;metadata?:HistoryMetadata}
+export interface HistoryResult extends HistorySnapshot {hasMoreBefore?:boolean}
+export type DatafeedStatus =
+  | {type:'connection';state:'connected'|'disconnected'|'reconnecting'|'failed'}
+  | {type:'revision-required';message?:string}
+  | {type:'error';code?:string;message:string}
+export interface ChartSnapshot extends HistorySnapshot {
   symbol: SymbolInfo
   period: Period
   bars: KLineData[]
@@ -54,9 +67,15 @@ export interface ChartDataState {
   restoring: boolean
   replay: boolean
   error?: string
+  dataStatus:'unconfirmed'|'empty'|'ready'
+  lastRead?:{query:HistoryQuery;metadata?:HistoryMetadata;hasMoreBefore?:boolean}
+  connection:'unknown'|'connected'|'disconnected'|'reconnecting'|'failed'
+  revisionRequired:boolean
+  errorCode?:string
+  operation?:'initial'|'load-more'|'reload'
 }
 
-/** Optional request context. Legacy four-argument providers remain compatible.
+/** Optional request context.
  * Each chart owns its signals; providers should pass signal to their fetch calls.
  * A legacy single-callback provider instance must not be shared between charts.
  */
@@ -67,7 +86,8 @@ export interface DatafeedRequestContext {
 
 export interface Datafeed {
   searchSymbols (search?: string): Promise<SymbolInfo[]>
-  getHistoryKLineData (symbol: SymbolInfo, period: Period, from: number, to: number, context?: DatafeedRequestContext): Promise<HistoryResult>
+  getHistoryKLineData (symbol: SymbolInfo, period: Period, query:HistoryQuery, context?: DatafeedRequestContext): Promise<HistoryResult>
+  subscribeStatus?(symbol:SymbolInfo,period:Period,accept:(status:DatafeedStatus)=>void):()=>void
   subscribe (symbol: SymbolInfo, period: Period, callback: DatafeedSubscribeCallback): void
   unsubscribe (symbol: SymbolInfo, period: Period): void
   /** 释放 datafeed 持有的资源（如 WebSocket 连接）。可选实现。 */
@@ -165,6 +185,7 @@ export interface ChartPro {
   /** Navigate existing source time points only; never snap across missing data. */
   locateTimestamp(target: { ticker: string, period: Period, timestamp: number }): import('./core/locateTimestamp').TimestampLocation
   reloadData(options?: {preserveViewport?: boolean}): Promise<void>
+  retryData():Promise<void>
   applySnapshot(snapshot: ChartSnapshot): Promise<void>
   setTheme(theme: string): void
   getTheme(): string

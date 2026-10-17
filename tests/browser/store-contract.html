@@ -1,0 +1,50 @@
+<!doctype html><html><body><p>原生 IndexedDB 工作台存储契约测试</p>
+<script type="module">
+import {createIndexedDBWorkspaceStore} from '/src/workspace/indexedDBStore.ts'
+
+const stores=new Map(),connections=new Set(),events=[]
+const open=IDBFactory.prototype.open,close=IDBDatabase.prototype.close,transaction=IDBDatabase.prototype.transaction
+IDBFactory.prototype.open=function(...args){
+  const request=open.apply(this,args)
+  request.addEventListener('success',()=>connections.add(request.result))
+  return request
+}
+IDBDatabase.prototype.close=function(){connections.delete(this);return close.call(this)}
+IDBDatabase.prototype.transaction=function(...args){
+  const tx=transaction.apply(this,args),id=events.length
+  events.push({id,type:'transaction',mode:tx.mode})
+  tx.addEventListener('complete',()=>events.push({id,type:'complete'}))
+  tx.addEventListener('abort',()=>events.push({id,type:'abort'}))
+  return tx
+}
+const signal=()=>new AbortController().signal
+const document=(scope='scope',layout=1)=>({version:1,layout,activeCellId:'primary',sync:{symbol:false,period:false,crosshair:false,viewport:false},columnRatio:50,rowRatio:50,
+  cells:['primary','secondary-1','secondary-2','secondary-3'].slice(0,layout).map(cellId=>({cellId,context:cellId==='primary'?scope:`${scope}:${cellId}`,
+    symbol:{ticker:'A.X'},period:{multiplier:1,timespan:'minute',text:'1m'},
+    chart:{version:3,timestamp:1,theme:'dark',locale:'zh-CN',timezone:'UTC',styles:{},indicators:[],panes:[],axes:[],overlayData:[],context:{ticker:'A.X',period:{multiplier:1,timespan:'minute'}}}}))})
+const error=reason=>({name:reason.name,code:reason.code??null,message:reason.message})
+const result=async promise=>{try{return {ok:true,value:await promise}}catch(reason){return {ok:false,error:error(reason)}}}
+const rawOpen=(name,version=1)=>new Promise((resolve,reject)=>{const request=indexedDB.open(name,version);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})
+const rawWrite=async(name,row)=>{
+  const db=await rawOpen(name)
+  try{await new Promise((resolve,reject)=>{const tx=db.transaction('workspaces','readwrite');tx.objectStore('workspaces').put(row);tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error)})}finally{db.close()}
+}
+const hold=async name=>{
+  const db=await rawOpen(name),tx=db.transaction('workspaces','readwrite'),store=tx.objectStore('workspaces')
+  let active=true,release
+  const done=new Promise((resolve,reject)=>{tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error)})
+  await new Promise(resolve=>{
+    let first=true
+    const repeat=()=>{const request=store.get(['scope','id']);request.onsuccess=()=>{if(first){first=false;resolve()}if(active)repeat()}}
+    repeat()
+  })
+  return async()=>{active=false;try{await done}finally{db.close()}}
+}
+window.storageTest={
+  stores,connections,events,document,signal,error,result,rawOpen,rawWrite,hold,
+  create(key,databaseName){const store=createIndexedDBWorkspaceStore({databaseName});stores.set(key,store);return store},
+  disposeAll(){for(const store of stores.values())store.dispose();stores.clear()},
+  async deleteDatabase(name){await new Promise((resolve,reject)=>{const request=indexedDB.deleteDatabase(name);request.onsuccess=()=>resolve();request.onerror=()=>reject(request.error);request.onblocked=()=>reject(Error('Test database cleanup was blocked'))})},
+}
+window.ready=true
+</script></body></html>

@@ -15,11 +15,13 @@
   <img src="docs/public/image.png" alt="TradingChest Screenshot" width="800" />
 </p>
 
-## 0.7.0 generic analysis SDK
+## 0.8.0 data access and named workspaces
 
 Namespaced KLineChart templates, per-chart indicator catalogs and ID-addressed instances support number/select/boolean parameters and repeated names. External lines, signed histograms, price bands, read-only events and ordered label panels accept explicit host snapshots. Scope tokens, dataBasis and replay availableAt rules prevent stale or incorrectly aligned presentation. Workspace size/theme/locale/toolbars are host-configurable.
 
-See the [API](docs/en-US/api.md), [0.6.0 migration](docs/en-US/upgrade/0.7.0.md) and [standalone tarball example](examples/analysis-sdk/README.md). The library requires no EvoTrader backend or credentials; examples use explicitly isolated synthetic data. Hosts own computation, data, storage and business callbacks.
+History uses before/countBack or complete range queries, explicit exhaustion and optional source metadata. Charts expose confirmed data/connection state and retryData. Named workspaces use asynchronous scoped stores with revision checks; IndexedDB and explicit legacy import are supplied. Workspace v1 and chart v3 documents retain their formats.
+
+See the [0.7.0 migration](docs/en-US/upgrade/0.8.0.md), [data access](docs/en-US/data-access.md), [API](docs/en-US/api.md), [0.6.0 migration](docs/en-US/upgrade/0.7.0.md) and [standalone tarball example](examples/analysis-sdk/README.md). The library requires no EvoTrader backend or credentials; examples use explicitly isolated synthetic data. Hosts own computation, data, storage and business callbacks.
 
 `npm run test:package` verifies installed ESM/CJS/UMD/CSS and the standalone example in Chromium. `npx playwright install chromium && npm run test:browser` runs all library browser contracts on a self-managed free port; traces and results go to test-results. CI retains Node 22/24 checks and adds package/browser/docs verification.
 
@@ -104,22 +106,23 @@ Candle Solid, Candle Hollow, Up Hollow, Down Hollow, OHLC, Area, **Heikin Ashi**
 - **Keyboard Shortcuts**: 15+ default bindings (Alt+T trend line, Alt+F Fibonacci, etc.), fully customizable
 - **5 Theme Presets**: Dark, Light, Midnight Blue, Classic (TradingView-style), High Contrast
 - **Data Export**: CSV (visible range / all data), Screenshot (PNG / JPEG)
-- **Layout Persistence**: Save / Load / Delete chart layouts via localStorage
+- **Layout Persistence**: Single-chart localStorage layouts; named workspace CRUD via injected asynchronous stores / IndexedDB
 - **i18n**: Chinese (zh-CN), English (en-US)
 - **Timezone**: 14 timezone support
 
 ## Install
 
 ```bash
-npm install trading-chest@0.7.0 klinecharts@10.1.0
+npm install trading-chest@0.8.0 klinecharts@10.1.0
 ```
 
 ## Usage
 
 ```typescript
-import { KLineChartPro } from 'trading-chest'
+import { KLineChartPro } from 'trading-chest/chart'
 import 'trading-chest/dist/trading-chest.css'
 
+// hostHistory is the host adapter described in the data-access guide.
 const chart = new KLineChartPro({
   container: document.getElementById('chart'),
   symbol: {
@@ -131,13 +134,13 @@ const chart = new KLineChartPro({
   },
   period: { multiplier: 1, timespan: 'day', text: '1D' },
   datafeed: {
-    searchSymbols: async () => [],
-    getHistoryKLineData: async (symbol, period, from, to) => {
-      // Return KLineData[] — implement your data fetching logic
-      return []
+    searchSymbols: search => hostHistory.searchSymbols(search),
+    getHistoryKLineData: async (symbol, period, query, context) => {
+      // Read actual host history; confirm exhaustion only from provider evidence.
+      return hostHistory.read(symbol, period, query, context?.signal)
     },
-    subscribe: () => {},
-    unsubscribe: () => {},
+    subscribe: (symbol, period, callback) => hostHistory.subscribe(symbol, period, callback),
+    unsubscribe: (symbol, period) => hostHistory.unsubscribe(symbol, period),
   },
   theme: 'dark',
   locale: 'en-US',

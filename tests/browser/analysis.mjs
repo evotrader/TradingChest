@@ -64,7 +64,7 @@ try{
  await page.evaluate(()=>test.chart.stopReplay());await expect(page.locator('.klinecharts-pro-replay-bar')).toHaveCount(0);await expect(page.locator('[data-analysis-point-id="day1"]')).toBeVisible()
  // Main restored to a different basis, then comparison zero-base validation fails.
  const retained=await page.evaluate(async()=>{
-  const feed={searchSymbols:async()=>[],getHistoryKLineData:async()=>test.bars.map(b=>({...b,open:b.open*2,high:b.high*2,low:b.low*2,close:b.close*2})),subscribe:()=>{test.comparisonSubscriptions=(test.comparisonSubscriptions??0)+1;if(test.comparisonFailSubscribe)throw Error('Isolated comparison subscription failed after attaching')},unsubscribe:()=>{test.comparisonSubscriptions--},dispose:()=>{}}
+  const feed={searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>window.historyResult(query,test.bars.map(b=>({...b,open:b.open*2,high:b.high*2,low:b.low*2,close:b.close*2}))),subscribe:()=>{test.comparisonSubscriptions=(test.comparisonSubscriptions??0)+1;if(test.comparisonFailSubscribe)throw Error('Isolated comparison subscription failed after attaching')},unsubscribe:()=>{test.comparisonSubscriptions--},dispose:()=>{}}
   await test.chart.addComparison({ticker:'OTHER'},feed);test.chart.startReplay(5)
   test.before={token:test.context().token,basis:test.context().basis,bars:test.chart.getChart().getDataList(),bindings:test.bindings()};test.state.basis='adjusted';test.state.bars=test.bars.map((b,index)=>index?b:{...b,open:0,high:0,low:0,close:0})
   test.chart.stopReplay();return test.before

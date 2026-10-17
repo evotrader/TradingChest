@@ -1,0 +1,66 @@
+import {launchBrowser} from './support.mjs'
+import {createRequire} from 'node:module'
+import {createServer} from 'node:http'
+import {randomUUID} from 'node:crypto'
+import assert from 'node:assert/strict'
+import {mkdirSync,writeFileSync} from 'node:fs'
+const {expect}=createRequire(import.meta.url)('@playwright/test')
+const records=new Map();let delayWrite=false,writeCount=0
+const server=createServer(async(req,res)=>{
+ res.setHeader('Access-Control-Allow-Origin','*');res.setHeader('Access-Control-Allow-Methods','GET,POST,DELETE,OPTIONS');res.setHeader('Access-Control-Allow-Headers','Content-Type');res.setHeader('Content-Type','application/json')
+ if(req.method==='OPTIONS'){res.end('{}');return}
+ try{const url=new URL(req.url,'http://localhost'),scope=url.searchParams.get('scope'),id=decodeURIComponent(url.pathname.slice(1));let text='';for await(const part of req)text+=part;const body=text?JSON.parse(text):undefined;let result
+  const key=scope+'|'+id
+  if(req.method==='GET')result=id?(records.get(key)??null):[...records.values()].filter(r=>r.scope===scope).map(({document,scope,...summary})=>summary)
+  else if(req.method==='POST'){const current=records.get(scope+'|'+body.id);if(body.kind==='create'&&current||body.kind==='update'&&current?.revision!==body.expectedRevision){res.statusCode=409;res.end(JSON.stringify({code:'WORKSPACE_CONFLICT',message:'隔离 HTTP 存储冲突'}));return}result={scope,id:body.id,name:body.name,document:body.document,revision:randomUUID(),updatedAt:Date.now()};records.set(scope+'|'+body.id,result);writeCount++;if(delayWrite)await new Promise(resolve=>setTimeout(resolve,1500))}
+  else if(req.method==='DELETE'){const current=records.get(key);if(current?.revision!==body.expectedRevision){res.statusCode=409;res.end(JSON.stringify({code:'WORKSPACE_CONFLICT',message:'隔离 HTTP 删除冲突'}));return}records.delete(key);result=null}
+  res.end(JSON.stringify(result))
+ }catch(error){res.statusCode=500;res.end(JSON.stringify({code:'WORKSPACE_STORE_UNAVAILABLE',message:String(error)}))}
+});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const remote='http://127.0.0.1:'+server.address().port
+const browser=await launchBrowser(),page=await browser.newPage({viewport:{width:1500,height:1200}}),directory=process.env.TC_BROWSER_EVIDENCE??'/tmp/tradingchest-workspace-ui';mkdirSync(directory,{recursive:true})
+const results=[],errors=[];page.on('pageerror',e=>errors.push(e.message));const base=process.env.TC_BROWSER_BASE??'http://127.0.0.1:4173'
+const fresh=async(options={})=>{await page.goto(base+'/tests/browser/workspace-store.html');await page.waitForFunction(()=>window.ready);await page.evaluate(options=>setup({databaseName:crypto.randomUUID(),...options}),options)}
+const name=page.getByLabel('工作台名称',{exact:true}),button=key=>page.getByRole('button',{name:({保存:'保存工作台',加载:'加载工作台',删除:'删除工作台'})[key]??key,exact:true}),choice=page.getByLabel('已保存工作台',{exact:true})
+const run=async(title,work)=>{const count=errors.length;try{await fresh();await work();assert.deepEqual(errors.slice(count),[]);results.push({name:title,passed:true})}catch(error){results.push({name:title,passed:false,error:String(error)});console.error(title,String(error));await page.screenshot({path:directory+'/'+title+'.png'}).catch(()=>{})}finally{await page.evaluate(()=>{workspace.dispose();ownedStore.dispose()}).catch(()=>{})}}
+try{
+ await run('named-crud-manual-save-and-rename-keeps-stored-document',async()=>{
+  await page.getByLabel('图表布局',{exact:true}).selectOption('2');await page.waitForFunction(()=>workspace.getCells().length===2&&workspace.getCells().every(c=>c.chart));await name.fill('双图 A');await button('另存').click();await expect(page.locator('.tc-workspace-notice')).toContainText('已保存');const id=await choice.inputValue();assert.ok(id)
+  await page.getByLabel('图表布局',{exact:true}).selectOption('4');await page.waitForFunction(()=>workspace.getCells().length===4&&workspace.getCells().every(c=>c.chart));await name.fill('重命名 A');await button('重命名').click();await expect(choice.locator('option:checked')).toContainText('重命名 A');assert.equal(await page.evaluate(async id=>(await nativeStore.read('ui-isolated',id,new AbortController().signal)).document.layout,id),2);assert.equal(await page.evaluate(()=>workspace.getCells().length),4)
+  await name.fill('四图 B');await button('另存').click();await expect(choice.locator('option')).toHaveCount(3);await choice.selectOption(id);await page.waitForFunction(()=>workspace.getCells().length===2&&workspace.getCells().every(c=>c.chart));await button('保存').click();await expect(page.locator('.tc-workspace-notice')).toContainText('已保存')
+  await button('删除').click();await page.getByRole('alertdialog').getByRole('button',{name:'取消',exact:true}).click();assert.equal(await choice.locator('option').count(),3);await button('删除').click();await page.getByRole('alertdialog').getByRole('button',{name:'确认',exact:true}).click();await expect(choice.locator('option')).toHaveCount(2);assert.equal(await page.evaluate(()=>workspace.getCells().length),2)
+ })
+ await run('duplicate-names-stable-ids-and-real-reopen',async()=>{
+  await name.fill('同名');await button('另存').click();await expect(choice.locator('option')).toHaveCount(2);await button('另存').click();await expect(choice.locator('option')).toHaveCount(3);const before=await page.evaluate(()=>workspace.listSaved());assert.equal(new Set(before.map(v=>v.id)).size,2)
+  await page.evaluate(()=>{window.savedDatabase=ownedStore['databaseName'];window.savedOptions=state});const database=await page.evaluate(()=>state.databaseName);await page.reload();await page.waitForFunction(()=>window.ready);await page.evaluate(databaseName=>setup({databaseName}),database);await expect(choice.locator('option')).toHaveCount(3)
+ })
+ for(const version of ['workspace',1,2,3])await run(`explicit-legacy-${version}-preserves-original`,async()=>{
+  const key=await page.evaluate(async version=>{const scope='ui-isolated';let value,key
+   if(version==='workspace'){value=workspace.capture();key='trading-chest-workspace-v1-'+scope}
+   else if(version===3){value=workspace.capture().cells[0].chart;key='trading-chest-layout-v3-'+scope}
+   else{const old={version:1,timestamp:1,theme:'dark',locale:'zh-CN',timezone:'UTC',mainIndicators:['MA'],subIndicators:['VOL'],styles:{},overlayData:[]};value=version===1?old:(await import('/src/persistence/v2.ts')).migrateLayoutV1(old);key=(version===1?'trading-chest-layout-':'trading-chest-layout-v2-')+scope}
+   window.legacyOriginal=JSON.stringify(value);localStorage.setItem(key,legacyOriginal);return key
+  },version);await name.fill('导入 '+version);await button('导入旧布局').click();await expect(choice.locator('option')).toHaveCount(2);await choice.selectOption({label:await choice.locator('option').nth(1).textContent()});await expect(page.locator('.tc-workspace-notice')).toContainText('已恢复');assert.equal(await page.evaluate(key=>localStorage.getItem(key)===legacyOriginal,key),true);await page.evaluate(key=>localStorage.removeItem(key),key)
+ })
+ await run('unknown-indicator-and-drawing-uncertainty-preserve-old-workspace',async()=>{
+  const saved=await page.evaluate(async()=>{const doc=workspace.capture();doc.cells[0].chart.indicators.push({name:'DOES_NOT_EXIST',placement:'main',paneId:'candle_pane'});return nativeStore.write('ui-isolated',{kind:'create',id:crypto.randomUUID(),name:'坏指标',document:doc},new AbortController().signal)});await button('刷新').click();const before=await page.evaluate(()=>{window.original=workspace.getCells()[0].chart;return workspace.getCells().length});await choice.selectOption(saved.id);await expect(page.locator('.tc-workspace-notice')).toContainText('无法恢复指标');assert.equal(await page.evaluate(()=>workspace.getCells()[0].chart===original),true);assert.equal(await page.evaluate(()=>workspace.getCells().length),before)
+  assert.equal(await page.evaluate(async()=>{const chart=workspace.getCells()[0].chart,original=chart.getDrawingHistoryState.bind(chart);chart.getDrawingHistoryState=()=>({...original(),uncertainLogicalIds:['pending']});try{await workspace.saveAs('不应保存');return false}catch{return true}finally{chart.getDrawingHistoryState=original}}),true)
+ })
+ await run('slow-read-cancel-and-disposal-ignore-late-results',async()=>{
+  const saved=await page.evaluate(()=>workspace.saveAs('慢读取'));await page.evaluate(id=>{state.holdRead=true;window.old=workspace.getCells()[0].chart;window.cancelResult='pending';workspace.load(id).then(()=>cancelResult='loaded',()=>cancelResult='cancelled')},saved.id);await button('取消').click();await page.waitForFunction(()=>cancelResult==='cancelled');await page.evaluate(()=>state.releaseRead());assert.equal(await page.evaluate(()=>workspace.getCells()[0].chart===old),true)
+  await page.evaluate(id=>{state.holdRead=true;workspace.load(id).catch(()=>{});workspace.dispose();state.releaseRead()},saved.id);assert.equal(await page.locator('.tc-workspace').count(),0);assert.equal(await page.evaluate(()=>state.barOwners),0)
+ })
+ await run('external-revision-conflict-does-not-overwrite',async()=>{
+  const first=await page.evaluate(()=>workspace.saveAs('冲突'));await page.evaluate(async first=>{const record=await nativeStore.read('ui-isolated',first.id,new AbortController().signal);await nativeStore.write('ui-isolated',{kind:'update',id:first.id,expectedRevision:first.revision,name:'其他页面',document:record.document},new AbortController().signal)},first);await button('保存').click();await expect(page.locator('.tc-workspace-notice')).toContainText('WORKSPACE_CONFLICT');assert.equal(await page.evaluate(async first=>(await nativeStore.read('ui-isolated',first.id,new AbortController().signal)).name,first),'其他页面')
+ })
+ for(const action of ['cancel','dispose'])await run(`lazy-layout-${action}-releases-staged-cells-immediately`,async()=>{
+  const saved=await page.evaluate(async()=>{const {registerIndicatorDefinition}=await import('/src/chart.ts'),name='isolated:slow-'+crypto.randomUUID();registerIndicatorDefinition(name,()=>new Promise(resolve=>window.releaseSlow=()=>resolve({name,calcParams:[],figures:[{key:'value',type:'line'}],calc:bars=>bars.map(b=>({value:b.close}))})));state.extraCatalog=[{name,label:'Slow',category:'custom',placements:['sub']}];const document=workspace.capture();document.cells[0].chart.panes.push({id:'slow-pane'});document.cells[0].chart.indicators.push({name,placement:'sub',paneId:'slow-pane'});return nativeStore.write('ui-isolated',{kind:'create',id:crypto.randomUUID(),name:'慢指标',document},new AbortController().signal)})
+  await page.evaluate(id=>{window.loadResult='pending';window.oldChart=workspace.getCells()[0].chart;workspace.load(id).then(()=>loadResult='loaded',()=>loadResult='cancelled')},saved.id);await page.waitForFunction(()=>!!window.releaseSlow)
+  if(action==='cancel'){await button('取消').click();await page.waitForFunction(()=>loadResult==='cancelled'&&!workspace['busy']);assert.equal(await page.evaluate(()=>state.barOwners),1);assert.equal(await page.evaluate(()=>workspace.getCells()[0].chart===oldChart),true);await page.getByLabel('图表布局',{exact:true}).selectOption('2');await page.waitForFunction(()=>workspace.getCells().length===2);await page.evaluate(()=>workspace.dispose())}
+  else await page.evaluate(()=>workspace.dispose())
+  assert.equal(await page.evaluate(()=>state.barOwners),0);await page.evaluate(()=>releaseSlow());await page.waitForTimeout(50);assert.equal(await page.evaluate(()=>state.barOwners),0)
+ })
+ await run('http-adapter-unknown-write-confirmation-and-chart-remains-interactive',async()=>{
+  records.clear();writeCount=0;await page.evaluate(remote=>setup({remote}),remote);delayWrite=true;await name.fill('远端确认');await button('另存').click();await expect(button('取消')).toBeEnabled();const rectangle=await page.locator('.klinecharts-pro-widget').boundingBox();const before=await page.evaluate(()=>charts.primary.getChart().getVisibleRange().from);await page.mouse.move(rectangle.x+300,rectangle.y+200);await page.mouse.down();await page.mouse.move(rectangle.x+500,rectangle.y+200,{steps:6});await page.mouse.up();assert.notEqual(await page.evaluate(()=>charts.primary.getChart().getVisibleRange().from),before);await button('取消').click();await expect(page.locator('.tc-workspace-notice')).toContainText('结果待确认');await button('刷新').click();await expect(choice.locator('option')).toHaveCount(2);assert.equal(writeCount,1);assert.equal(await choice.inputValue(),[...records.values()][0].id);delayWrite=false
+ })
+}finally{delayWrite=false;await browser.close();await new Promise(resolve=>server.close(resolve));writeFileSync(process.argv[2]??directory+'/evidence.json',JSON.stringify({results,errors},null,2)+'\n')}
+if(results.some(r=>!r.passed)||errors.length){console.error(JSON.stringify({results,errors},null,2));process.exitCode=1}else console.log(`Workspace UI/store acceptance: ${results.length} passed`)

@@ -18,13 +18,13 @@ describe('v3 layouts and read-only migration',()=>{
  })
  it('rejects an unsupported indicator before changing the existing drawing or layout',async()=>{
   const resetDrawingHistory=vi.fn(),removeIndicator=vi.fn(),chart={removeIndicator};
-  const pro={getIndicatorCatalog:()=>builtinIndicatorCatalog,getChart:()=>chart,getSymbol:()=>({ticker:'A'}),getPeriod:()=>({multiplier:1,timespan:'day',text:'1d'}),getDrawingHistoryState:()=>({pending:0,uncertainLogicalIds:[]}),resetDrawingHistory} as unknown as ChartPro;
+  const pro={getIndicatorCatalog:()=>builtinIndicatorCatalog,getChart:()=>chart,getSymbol:()=>({ticker:'A'}),getPeriod:()=>({multiplier:1,timespan:'day',text:'1d'}),getDrawingHistoryState:()=>({pending:0,uncertainLogicalIds:[]}),retryData:async()=>{},resetDrawingHistory} as unknown as ChartPro;
   const layout={...old,version:3,axes:[],panes:[{id:'candle_pane'}],indicators:[{name:'UNAVAILABLE',placement:'main',paneId:'candle_pane',calcParams:[],visible:true}]} as unknown as ChartLayoutV3;
   await expect(restoreLayout(pro,layout)).rejects.toThrow('不在当前目录');expect(resetDrawingHistory).not.toHaveBeenCalled();expect(removeIndicator).not.toHaveBeenCalled();
  })
  it('does not treat a null engine creation result as a restored indicator',async()=>{
   const restoreDrawings=vi.fn(),chart={getIndicators:()=>[],setStyles:vi.fn(),createIndicator:vi.fn(()=>null)};
-  const pro={getIndicatorCatalog:()=>builtinIndicatorCatalog,getChart:()=>chart,getSymbol:()=>({ticker:'A'}),getPeriod:()=>({multiplier:1,timespan:'day',text:'1d'}),getDrawingHistoryState:()=>({pending:0,uncertainLogicalIds:[]}),getDrawings:()=>[],resetDrawingHistory:vi.fn(),setTheme:vi.fn(),setLocale:vi.fn(),setTimezone:vi.fn(),restoreDrawings} as unknown as ChartPro;
+  const pro={getIndicatorCatalog:()=>builtinIndicatorCatalog,getChart:()=>chart,getSymbol:()=>({ticker:'A'}),getPeriod:()=>({multiplier:1,timespan:'day',text:'1d'}),getDrawingHistoryState:()=>({pending:0,uncertainLogicalIds:[]}),getDrawings:()=>[],retryData:async()=>{},resetDrawingHistory:vi.fn(),setTheme:vi.fn(),setLocale:vi.fn(),setTimezone:vi.fn(),restoreDrawings} as unknown as ChartPro;
   const layout={...old,version:3,axes:[],panes:[{id:'candle_pane'}],indicators:[{name:'MA',placement:'main',paneId:'candle_pane',calcParams:[5],visible:true}]} as unknown as ChartLayoutV3;
   await expect(restoreLayout(pro,layout)).rejects.toThrow('创建结果');expect(restoreDrawings).not.toHaveBeenCalled();
  })

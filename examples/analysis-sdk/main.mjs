@@ -3,6 +3,7 @@ import 'trading-chest/dist/trading-chest.css'
 
 // Deterministic fixtures stay in this isolated example, never in product datafeeds.
 export const bars=Array.from({length:120},(_,i)=>{const close=100+Math.sin(i/7);return {timestamp:1700000000000+i*60000,open:close-.1,close,high:close+1,low:close-1,volume:100+i}})
+const historyResult=query=>query.kind==='before'?{bars:bars.filter(bar=>bar.timestamp<query.before),hasMoreBefore:false,basis:'example-unadjusted'}:{bars:bars.filter(bar=>bar.timestamp>=query.from&&bar.timestamp<query.to),basis:'example-unadjusted'}
 const name='EXAMPLE/MovingAverage'
 registerIndicatorDefinition(name,{name,shortName:'Example MA',calcParams:[5,'close',true],figures:[{key:'value',title:'Example: ',type:'line'}],calc:(rows,indicator)=>{
  const [length,field,enabled]=indicator.calcParams
@@ -14,7 +15,7 @@ const status=document.querySelector('#status')
 let chart,ready,handles=[],saved
 export const loaded=new Promise(resolve=>ready=resolve)
 const show=message=>status.textContent=message
-chart=new KLineChartPro({container:document.querySelector('#chart'),symbol:{ticker:'ISOLATED.EXAMPLE',name:'隔离示例'},period:{multiplier:1,timespan:'minute',text:'1m'},mainIndicators:['MA'],subIndicators:['VOL'],indicatorCatalog:catalog,onDataReady:()=>ready(),onAnalysisEventClick:({layerId,event,timestamp})=>show(`${layerId}：${event.id}，原始时间 ${timestamp}`),onAnalysisPointSelect:({layerId,point})=>show(`${layerId}：${point.label} = ${point.value}`),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_symbol,_period,_from,to)=>({bars:to<bars[0].timestamp?[]:bars,basis:'example-unadjusted'}),subscribe:()=>{},unsubscribe:()=>{}}})
+chart=new KLineChartPro({container:document.querySelector('#chart'),symbol:{ticker:'ISOLATED.EXAMPLE',name:'隔离示例'},period:{multiplier:1,timespan:'minute',text:'1m'},mainIndicators:['MA'],subIndicators:['VOL'],indicatorCatalog:catalog,onDataReady:()=>ready(),onAnalysisEventClick:({layerId,event,timestamp})=>show(`${layerId}：${event.id}，原始时间 ${timestamp}`),onAnalysisPointSelect:({layerId,point})=>show(`${layerId}：${point.label} = ${point.value}`),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_symbol,_period,query)=>historyResult(query),subscribe:()=>{},unsubscribe:()=>{}}})
 await loaded
 const context=chart.getAnalysisContext()
 if(!context)throw Error('示例没有已确认行情')

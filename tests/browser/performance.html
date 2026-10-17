@@ -8,6 +8,7 @@ window.syntheticInputs = true
 import {makeBars,oracleInputs} from './syntheticBars.ts'
 window.makeBars=makeBars
 const indicators = chart => chart.getIndicators ? chart.getIndicators() : [...chart.getIndicatorByPaneId().values()].flatMap(value => [...value.values()])
+const historyResult=(query,bars,extra={})=>query.kind==='before'?{...extra,bars:bars.filter(bar=>bar.timestamp<query.before),hasMoreBefore:false}:{...extra,bars:bars.filter(bar=>bar.timestamp>=query.from&&bar.timestamp<query.to)}
 const settled = async (chart, count, close) => {
   const start=performance.now()
   while (true) {
@@ -24,7 +25,7 @@ window.sample = async (count, profileOnly=false) => {
  const loaded = new Promise(resolve=>{ready=resolve})
  const t = performance.now()
  const chart = new KLineChartPro({container,symbol:{ticker:'SYNTHETIC'},period:{timespan:'minute',multiplier:1,text:'1m'},mainIndicators:['MA'],subIndicators:['VOL','MACD'],onDataReady:ready,
- datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,_from,to)=>to<bars[0].timestamp?[]:bars,subscribe:(_s,_p,cb)=>{state.subscriptions++;tick=cb},unsubscribe:()=>{state.subscriptions=Math.max(0,state.subscriptions-1)}}})
+ datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>historyResult(query,bars),subscribe:(_s,_p,cb)=>{state.subscriptions++;tick=cb},unsubscribe:()=>{state.subscriptions=Math.max(0,state.subscriptions-1)}}})
  await loaded; await settled(chart.getChart(),count); await frame()
  const cold = performance.now()-t, update=[],interaction=[]
  for(let i=0;i<(profileOnly?0:100);i++) {const start=performance.now();const next={...bars.at(-1),close:bars.at(-1).close+i/10000},expected=(bars.slice(-5,-1).reduce((sum,b)=>sum+b.close,0)+next.close)/5;tick(next);await settled(chart.getChart(),count,expected);await frame();update.push(performance.now()-start)}
@@ -37,7 +38,7 @@ window.sampleWorkspace=async(count,layout)=>{
  const t=performance.now()
  const workspace=new ChartWorkspace({container,height:layout===4?1160:780,context:'performance',symbols:[{ticker:'SYNTHETIC'}],initialSymbol:{ticker:'SYNTHETIC'},getPeriods:async()=>[{timespan:'minute',multiplier:1,text:'1m'}],mountCell:(host,cell)=>{
   const bars=makeBars(count);let resolve;const ready=new Promise(done=>resolve=done)
-  const chart=new KLineChartPro({container:host,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:['VOL','MACD'],onDataReady:()=>resolve(chart),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,_from,to)=>to<bars[0].timestamp?[]:bars,subscribe:(_s,_p,cb)=>{state.subscriptions++;ticks.set(cell.cellId,{cb,bars})},unsubscribe:()=>{state.subscriptions--;ticks.delete(cell.cellId)}}})
+  const chart=new KLineChartPro({container:host,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:['VOL','MACD'],onDataReady:()=>resolve(chart),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>historyResult(query,bars),subscribe:(_s,_p,cb)=>{state.subscriptions++;ticks.set(cell.cellId,{cb,bars})},unsubscribe:()=>{state.subscriptions--;ticks.delete(cell.cellId)}}})
   proCharts.push(chart);return {ready,dispose:()=>chart.dispose()}
  }})
  while(workspace.getCells().length!==1)await new Promise(r=>setTimeout(r,1))
@@ -56,7 +57,7 @@ window.sampleWorkspace=async(count,layout)=>{
 window.sampleComparisons=async(count,profileOnly=false)=>{
  const main=makeBars(count),state={subscriptions:0},ticks=new Map(),series=new Map(),container=document.querySelector('#chart');series.set('SYNTHETIC',main)
  for(let i=0;i<3;i++)series.set(`COMPARE${i}`,main.map((b,index)=>{const factor=i+2,extra=(index%7)*(i+1)/10;return {...b,open:b.open*factor+extra,high:b.high*factor+extra,low:b.low*factor+extra,close:b.close*factor+extra}}))
- const feed=(key)=>({searchSymbols:async()=>[],getHistoryKLineData:async(symbol,_period,_from,to)=>{const bars=series.get(symbol.ticker==='MAIN_RETURN'?'SYNTHETIC':symbol.ticker);return to<bars[0].timestamp?[]:bars},subscribe:(_s,_p,cb)=>{state.subscriptions++;ticks.set(key,cb)},unsubscribe:()=>{if(ticks.has(key)){state.subscriptions--;ticks.delete(key)}}})
+ const feed=(key)=>({searchSymbols:async()=>[],getHistoryKLineData:async(symbol,_period,query)=>{const bars=series.get(symbol.ticker==='MAIN_RETURN'?'SYNTHETIC':symbol.ticker);return historyResult(query,bars)},subscribe:(_s,_p,cb)=>{state.subscriptions++;ticks.set(key,cb)},unsubscribe:()=>{if(ticks.has(key)){state.subscriptions--;ticks.delete(key)}}})
  let ready;const loaded=new Promise(done=>ready=done),start=performance.now(),chart=new KLineChartPro({container,symbol:{ticker:'SYNTHETIC'},period:{multiplier:1,timespan:'minute',text:'1m'},mainIndicators:['MA'],subIndicators:['VOL','MACD'],datafeed:feed('main'),onDataReady:ready})
  await loaded;await settled(chart.getChart(),count)
  const modern=typeof chart.getComparisons==='function'
@@ -83,7 +84,7 @@ window.sampleAnalysis = async (count,layout,enabled,profileOnly=false) => {
  const tasks=Array.from({length:layout},(_,index)=>{
   const host=document.createElement('div');host.style.cssText=`width:${1200/layout}px;height:700px;min-width:0`;root.append(host);hosts.push(host)
   let ready;const loaded=new Promise(resolve=>ready=resolve)
-  const chart=new KLineChartPro({container:host,symbol:{ticker:`SYNTHETIC-${index}`},period:{timespan:'minute',multiplier:1,text:'1m'},mainIndicators:['MA'],subIndicators:['VOL','MACD'],onDataReady:ready,datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,_from,to)=>({bars:to<bars[0].timestamp?[]:bars,basis:'isolated-synthetic'}),subscribe:(_s,_p,cb)=>{state.subscriptions++;ticks[index]=cb},unsubscribe:()=>{if(ticks[index]){state.subscriptions--;ticks[index]=undefined}}}})
+  const chart=new KLineChartPro({container:host,symbol:{ticker:`SYNTHETIC-${index}`},period:{timespan:'minute',multiplier:1,text:'1m'},mainIndicators:['MA'],subIndicators:['VOL','MACD'],onDataReady:ready,datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>historyResult(query,bars,{basis:'isolated-synthetic'}),subscribe:(_s,_p,cb)=>{state.subscriptions++;ticks[index]=cb},unsubscribe:()=>{if(ticks[index]){state.subscriptions--;ticks[index]=undefined}}}})
   charts.push(chart)
   return loaded.then(async()=>{
    if(enabled){

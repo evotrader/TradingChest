@@ -43,6 +43,10 @@ export default defineConfig({
             link: '/api'
           },
           {
+            text: '升级到 0.8.0',
+            link: '/upgrade/0.8.0'
+          },
+          {
             text: '定制主题',
             link: '/theme'
           },
@@ -86,6 +90,10 @@ export default defineConfig({
           {
             text: 'API',
             link: '/en-US/api'
+          },
+          {
+            text: 'Upgrade to 0.8.0',
+            link: '/en-US/upgrade/0.8.0'
           },
           {
             text: 'Theme',

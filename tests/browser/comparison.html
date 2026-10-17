@@ -1,10 +1,18 @@
 <!doctype html><html><body><div id="one" style="width:1100px;height:650px"></div><div id="two" style="width:1100px;height:650px"></div><script type="module">
 import {KLineChartPro} from '/src/index.ts'
 import {makeBars} from './syntheticBars.ts'
+const historyResult=(query,rows)=>{
+ if(query.kind==='before'){
+  const eligible=rows.filter(bar=>bar.timestamp<query.before),selected=eligible.slice(-query.countBack)
+  return {bars:selected,hasMoreBefore:eligible.length>selected.length}
+ }
+ return {bars:rows.filter(bar=>bar.timestamp>=query.from&&bar.timestamp<query.to)}
+}
+window.historyResult=historyResult
 window.charts={};window.feeds={};window.mainBars={};window.resources={subscriptions:0,providers:0};window.errors=[]
 window.makeFeed=(key,bars)=>{
  resources.providers++;let active=false,disposed=false,callback,full=bars
- const feed={searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,_from,to)=>to<full[0].timestamp?[]:full,subscribe:(_s,_p,cb)=>{if(!active){active=true;resources.subscriptions++}callback=cb},unsubscribe:()=>{if(active){active=false;resources.subscriptions--}},dispose:()=>{if(disposed)return;disposed=true;feed.unsubscribe();resources.providers--}}
+ const feed={searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>historyResult(query,full),subscribe:(_s,_p,cb)=>{if(!active){active=true;resources.subscriptions++}callback=cb},unsubscribe:()=>{if(active){active=false;resources.subscriptions--}},dispose:()=>{if(disposed)return;disposed=true;feed.unsubscribe();resources.providers--}}
  feeds[key]={feed,push:bar=>callback?.(bar),replace:bars=>full=bars};return feed
 }
 window.setup=async()=>{

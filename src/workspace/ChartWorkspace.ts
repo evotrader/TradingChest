@@ -1,9 +1,12 @@
 import type { Chart, Crosshair } from 'klinecharts'
 import type { ChartPro, Period, SymbolInfo } from '../types'
-import {captureLayout,isChartLayoutV3,restoreLayout,loadLayoutV3} from '../persistence/v3'
-import {jsonSafe} from '../persistence/v2'
+import {captureLayout,restoreLayout} from '../persistence/v3'
+import {isWorkspaceDocument} from './document'
+export {isWorkspaceDocument} from './document'
 import {hideCrosshair,syncCrosshair,syncViewport,visibleTimestamps} from './viewportSync'
 import translate from '../i18n'
+import {WorkspaceStoreError,type WorkspaceSummary,type WorkspaceWrite,type StoredWorkspace,type WorkspaceStore} from './store'
+import {readLegacyWorkspace} from './legacy'
 import {workspaceStyle} from './style'
 import type {ChartWorkspaceOptions,WorkspaceBinding,WorkspaceCell,WorkspaceDocument,WorkspaceLayout,WorkspaceSync} from './types'
 
@@ -16,16 +19,6 @@ class WorkspaceError extends Error {
 }
 type Runtime={cell:WorkspaceCell; element:HTMLElement;body:HTMLElement;status:HTMLElement;symbolSelect:HTMLSelectElement;periodSelect:HTMLSelectElement;controller:AbortController;binding?:WorkspaceBinding;pro?:ChartPro;unsubscribe?:()=>void;unsubscribeReady?:()=>void;restoredIds:string[];identitySeq:number;disposed?:boolean;transitioning?:boolean}
 
-export function isWorkspaceDocument(value:unknown):value is WorkspaceDocument {
-  if(!value||typeof value!=='object'||!jsonSafe(value))return false
-  const d=value as WorkspaceDocument
-  return d.version===1&&[1,2,4].includes(d.layout)&&Array.isArray(d.cells)&&d.cells.length===d.layout
-    &&d.cells.every((c,i)=>c.cellId===ids[i]&&typeof c.context==='string'&&typeof c.symbol?.ticker==='string'&&!!c.symbol.ticker
-      &&typeof c.period?.timespan==='string'&&Number.isInteger(c.period.multiplier)&&c.period.multiplier>0&&isChartLayoutV3(c.chart)
-      &&c.chart.context?.ticker===c.symbol.ticker&&c.chart.context?.period?.multiplier===c.period.multiplier&&c.chart.context?.period?.timespan===c.period.timespan)
-    &&d.cells.some(c=>c.cellId===d.activeCellId)&&!!d.sync&&Object.keys(emptySync()).every(k=>typeof d.sync[k as keyof WorkspaceSync]==='boolean')
-    &&[d.columnRatio,d.rowRatio].every(n=>Number.isFinite(n)&&n>=25&&n<=75)
-}
 
 /** The host owns data and persistence; this class owns all workspace interaction. */
 export class ChartWorkspace {
@@ -35,6 +28,7 @@ export class ChartWorkspace {
   private notice:HTMLElement
   private cells:Runtime[]=[]
   private pending=new Set<Runtime>()
+  private staged=new Set<Runtime>()
   private layout:WorkspaceLayout=1
   private active='primary'
   private sync=emptySync()
@@ -51,6 +45,15 @@ export class ChartWorkspace {
   private observer:ResizeObserver|null=null
   private controls:HTMLInputElement[]=[]
   private layoutSelect:HTMLSelectElement
+  private saved:WorkspaceSummary[]=[]
+  private selected?:WorkspaceSummary
+  private savedSelect!:HTMLSelectElement
+  private nameInput!:HTMLInputElement
+  private storeButtons:HTMLButtonElement[]=[]
+  private io?:{controller:AbortController;kind:'read'|'write'}
+  private unknownWrite?:{kind:'write';input:WorkspaceWrite;select:boolean}|{kind:'remove';id:string}
+  private lastStorageAction?:()=>Promise<unknown>
+  private deleteDialog?:HTMLElement
 
   constructor(options:ChartWorkspaceOptions){
     this.options={...options,locale:options.locale??'zh-CN',theme:options.theme??'dark',height:options.height??'100%'}
@@ -73,10 +76,12 @@ export class ChartWorkspace {
       input.onchange=()=>{if(this.busy){input.checked=this.sync[key];this.error(this.failure('workspace_sync_busy'));return}this.sync[key]=input.checked;if(input.checked)void this.align(key).catch(e=>this.error(e));else ++this.syncVersion[key]}
       label.append(input,this.caption(`workspace_sync_${key}`));syncGroup.append(label);this.controls.push(input)
     }
-    for(const [key,action] of [['workspace_save',()=>this.save()],['workspace_load',()=>this.load()],['workspace_delete',()=>this.deleteSaved()]] as const){
-      const button=document.createElement('button');this.message(button,key);button.type='button';button.disabled=!options.storage
-      button.onclick=()=>void Promise.resolve().then(action).catch(e=>this.error(e));storageGroup.append(button)
-    }
+    this.savedSelect=document.createElement('select');this.aria(this.savedSelect,'workspace_saved_list')
+    this.savedSelect.onchange=()=>{const id=this.savedSelect.value;if(id)void this.load(id).catch(e=>{this.renderSaved();this.error(e)})};storageGroup.append(this.savedSelect)
+    this.nameInput=document.createElement('input');this.nameInput.type='text';this.nameInput.maxLength=80;this.aria(this.nameInput,'workspace_name');storageGroup.append(this.nameInput)
+    const actions:Array<[string,()=>Promise<unknown>|void]>=[['workspace_save',()=>this.save()],['workspace_save_as',()=>this.saveAs(this.nameInput.value)],['workspace_load',()=>this.load(this.savedSelect.value)],['workspace_rename',()=>this.renameSaved(this.savedSelect.value,this.nameInput.value)],['workspace_delete',()=>this.confirmDelete()],['workspace_refresh',()=>this.unknownWrite?this.confirmPending():this.listSaved()],['workspace_import',()=>this.importLegacy(this.nameInput.value)],['workspace_storage_retry',()=>this.unknownWrite?this.confirmPending():this.lastStorageAction?.()],['workspace_cancel',()=>this.io?.controller.abort()]]
+    for(const [key,action] of actions){const button=document.createElement('button');button.type='button';button.dataset.storageAction=key;this.message(button,key);button.onclick=()=>void Promise.resolve().then(action).catch(e=>this.error(e));storageGroup.append(button);this.storeButtons.push(button)}
+    storageGroup.append(this.caption('workspace_manual_save'))
     for(const key of ['columnRatio','rowRatio'] as const){
       const label=document.createElement('label'),input=document.createElement('input');input.type='range';input.min='25';input.max='75';input.value='50';input.dataset.ratio=key;this.aria(input,`workspace_${key}`)
       input.oninput=()=>{this[key]=Number(input.value);this.geometry()};label.append(this.caption(`workspace_${key}`),input);sizeGroup.append(label)
@@ -85,6 +90,8 @@ export class ChartWorkspace {
     this.grid=document.createElement('div');this.grid.className='tc-workspace-grid'
     this.root.append(style,toolbar,this.notice,this.grid);options.container.append(this.root)
     if(typeof ResizeObserver!=='undefined'){this.observer=new ResizeObserver(()=>this.resize());this.observer.observe(this.grid)}
+    this.renderSaved()
+    if(options.store)void this.listSaved().catch(e=>this.error(e));else this.message(this.notice,'workspace_storage_disabled')
     this.initialization=this.createCell({cellId:'primary',symbol:options.initialSymbol,period:options.initialPeriod??{multiplier:1,timespan:'day',text:'1d'},context:options.context},this.grid).then(c=>{
       if(this.disposed){this.disposeCell(c);return}this.cells=[c];this.geometry();this.setActive('primary');this.options.onLayoutChange?.(this.layout)
     }).catch(e=>this.error(e)).finally(()=>{this.initialization=undefined;this.busy=false})
@@ -97,13 +104,13 @@ export class ChartWorkspace {
   }
   private aria(element:HTMLElement,key:string,values:MessageValues={}){element.dataset.i18nAria=key;element.dataset.i18nAriaValues=JSON.stringify(values);element.setAttribute('aria-label',this.t(key,values))}
   private failure(key:string,values:MessageValues={}){return new WorkspaceError(key,values,this.t(key,values))}
-  private reason(element:HTMLElement,reason:unknown){if(reason instanceof WorkspaceError)this.message(element,reason.key,reason.values);else {this.message(element,null);element.textContent=reason instanceof Error?reason.message:String(reason)}}
+  private reason(element:HTMLElement,reason:unknown){if(reason instanceof WorkspaceError)this.message(element,reason.key,reason.values);else {this.message(element,null);element.textContent=reason instanceof WorkspaceStoreError?`${reason.code}: ${reason.message}`:reason instanceof Error?reason.message:String(reason)}}
   private validateHeight(height:number|'100%'){if(height!=='100%'&&(!Number.isFinite(height)||height<=0))throw this.failure('workspace_invalid_height')}
   setLocale(locale:string){
     this.options.locale=locale;this.root.dataset.locale=locale
     for(const element of this.root.querySelectorAll<HTMLElement>('[data-i18n]'))this.message(element,element.dataset.i18n!,JSON.parse(element.dataset.i18nValues??'{}'))
     for(const element of this.root.querySelectorAll<HTMLElement>('[data-i18n-aria]'))this.aria(element,element.dataset.i18nAria!,JSON.parse(element.dataset.i18nAriaValues??'{}'))
-    this.resize()
+    this.renderSaved();this.resize()
   }
   setTheme(theme:string){this.options.theme=theme;this.root.dataset.theme=theme;this.resize()}
   resize(height?:number|'100%'){
@@ -111,15 +118,14 @@ export class ChartWorkspace {
     if(height!==undefined){this.validateHeight(height);this.options.height=height;this.root.style.height=typeof height==='number'?`${height}px`:height}
     for(const cell of this.cells)cell.pro?.getChart()?.resize()
   }
-  private key(){return this.options.storageKey??`trading-chest-workspace-v1-${this.options.context}`}
-  private error(reason:unknown){if(this.disposed)return;const error=reason instanceof Error?reason:new Error(String(reason));this.reason(this.notice,error);this.options.onError?.(error)}
+  private error(reason:unknown){if(this.disposed||reason instanceof DOMException&&reason.name==='AbortError')return;const error=reason instanceof Error?reason:new Error(String(reason));this.reason(this.notice,error);if(this.unknownWrite)this.notice.textContent=this.t('workspace_result_unknown')+' · '+this.notice.textContent;this.options.onError?.(error)}
   private geometry(){
     this.grid.style.gridTemplateColumns=this.layout===1?'minmax(0,1fr)':`minmax(0,${this.columnRatio}fr) minmax(0,${100-this.columnRatio}fr)`
     this.grid.style.gridTemplateRows=this.layout===4?`minmax(240px,${this.rowRatio}fr) minmax(240px,${100-this.rowRatio}fr)`:'minmax(240px,1fr)'
     for(const c of this.cells)c.pro?.getChart()?.resize()
     this.layoutSelect.value=String(this.layout)
   }
-  private async createCell(cell:WorkspaceCell,parent:HTMLElement,strict=false,staged=false):Promise<Runtime>{
+  private async createCell(cell:WorkspaceCell,parent:HTMLElement,strict=false,staged=false,signal?:AbortSignal):Promise<Runtime>{
     const element=document.createElement('section');element.dataset.cellId=cell.cellId;element.tabIndex=0;element.className='tc-workspace-cell'
     if(strict||staged)element.dataset.cellId=`${cell.cellId}-pending`
     if(staged)element.style.display='none'
@@ -136,14 +142,15 @@ export class ChartWorkspace {
     const retry=document.createElement('button');retry.type='button';this.message(retry,'workspace_retry');this.aria(retry,'workspace_retry_cell',{id:cell.cellId})
     header.append(activate,symbolSelect,periodSelect,retry,status);element.append(header,body);parent.append(element)
     const runtime:Runtime={cell:{...cell},element,body,status,symbolSelect,periodSelect,controller:new AbortController(),restoredIds:[],identitySeq:0}
-    retry.onclick=()=>void (runtime.pro?runtime.pro.reloadData({preserveViewport:true}):this.changeIdentity(runtime,{})).catch(e=>this.error(e))
-    this.pending.add(runtime)
+    const cancel=()=>runtime.controller.abort();signal?.addEventListener('abort',cancel,{once:true});if(signal?.aborted)cancel()
+    retry.onclick=()=>void (runtime.pro?runtime.pro.retryData():this.changeIdentity(runtime,{})).catch(e=>this.error(e))
+    this.pending.add(runtime);if(strict)this.staged.add(runtime)
     element.onpointerdown=()=>this.setActive(cell.cellId);element.addEventListener('focusin',()=>this.setActive(cell.cellId))
     element.addEventListener('keydown',event=>{if(!this.busy&&!runtime.transitioning&&runtime.cell.cellId===this.active)runtime.pro?.getShortcutManager()?.getHandler()?.(event)})
     symbolSelect.onchange=()=>{const symbol=this.options.symbols.find(s=>s.ticker===symbolSelect.value);if(symbol)void this.changeIdentity(runtime,{symbol}).catch(e=>{this.resetSelectors(runtime);this.error(e)})}
     periodSelect.onchange=()=>{const value=JSON.parse(periodSelect.value) as Period;void this.changeIdentity(runtime,{period:value}).catch(e=>{this.resetSelectors(runtime);this.error(e)})}
     try{
-      const periods=await this.options.getPeriods(cell.symbol,runtime.controller.signal)
+      const periods=await this.abortable(this.options.getPeriods(cell.symbol,runtime.controller.signal),runtime.controller.signal)
       runtime.controller.signal.throwIfAborted()
       if(!periods.length)throw this.failure('workspace_no_periods',{ticker:cell.symbol.ticker})
       if(!periods.some(p=>equalPeriod(p,cell.period))){if(strict)throw this.failure('workspace_stale_period',{ticker:cell.symbol.ticker});runtime.cell.period=periods[0]}
@@ -153,9 +160,9 @@ export class ChartWorkspace {
       const accept=(pro:ChartPro)=>{if(runtime.controller.signal.aborted||runtime.pro===pro)return;runtime.unsubscribe?.();runtime.pro=pro;this.message(runtime.status,null);pro.getChart()?.resize();this.bindActions(runtime);pro.getShortcutManager()?.setEnabled(runtime.cell.cellId===this.active)}
       runtime.unsubscribeReady=runtime.binding.subscribeReady?.(accept)
       const ready=runtime.binding.ready.then(accept)
-      if(strict)await Promise.race([ready,new Promise<never>((_,reject)=>{const timer=setTimeout(()=>reject(this.failure('workspace_timeout')),30000);ready.finally(()=>clearTimeout(timer)).catch(()=>{})})])
+      if(strict){const timer=setTimeout(()=>runtime.controller.abort(new DOMException(this.t('workspace_timeout'),'TimeoutError')),30000);try{await this.abortable(ready,runtime.controller.signal)}finally{clearTimeout(timer)}}
       else void ready.catch(e=>{this.reason(runtime.status,e)})
-    }catch(e){if(strict){this.disposeCell(runtime);throw e}this.reason(runtime.status,e)}
+    }catch(e){if(strict){this.disposeCell(runtime);throw e}this.reason(runtime.status,e)}finally{signal?.removeEventListener('abort',cancel)}
     this.pending.delete(runtime)
     return runtime
   }
@@ -168,7 +175,7 @@ export class ChartWorkspace {
     const dom=chart.getDom();dom?.addEventListener('mouseleave',leave)
     c.unsubscribe=()=>{dom?.removeEventListener('mouseleave',leave);chart.unsubscribeAction('onCrosshairChange',crosshair);chart.unsubscribeAction('onVisibleRangeChange',viewport)}
   }
-  private disposeCell(c:Runtime){if(c.disposed)return;c.disposed=true;this.pending.delete(c);c.controller.abort();c.unsubscribeReady?.();c.unsubscribe?.();c.binding?.dispose();c.element.remove()}
+  private disposeCell(c:Runtime){if(c.disposed)return;c.disposed=true;this.pending.delete(c);this.staged.delete(c);c.controller.abort();c.unsubscribeReady?.();c.unsubscribe?.();c.binding?.dispose();c.element.remove()}
   setActive(id:string){const c=this.cells.find(c=>c.cell.cellId===id);if(!c)return;this.active=id;for(const item of this.cells){item.element.dataset.active=String(item===c);item.pro?.getShortcutManager()?.setEnabled(item===c)}this.options.onActiveCell?.({...c.cell})}
   async setLayout(layout:WorkspaceLayout){
     if(this.initialization)await this.initialization
@@ -222,41 +229,131 @@ export class ChartWorkspace {
   }
   capture():WorkspaceDocument {
     if(this.busy||this.cells.length!==this.layout||this.cells.some(c=>c.transitioning))throw this.failure('workspace_not_ready')
-    const cells=this.cells.map(c=>{if(!c.pro)throw this.failure('workspace_cell_not_ready',{id:c.cell.cellId});if(c.pro.getDrawingHistoryState().pending)throw this.failure('workspace_drawing_save');const options=c.binding?.captureOptions?.()??{};return {...c.cell,chart:captureLayout(c.pro,{...options,localDrawingIds:[...(options.localDrawingIds??[]),...c.restoredIds,...c.pro.getDrawings().filter(d=>d.owner==='local').map(d=>d.logicalId)],context:{ticker:c.cell.symbol.ticker,period:{multiplier:c.cell.period.multiplier,timespan:c.cell.period.timespan}}})}})
+    const cells=this.cells.map(c=>{if(!c.pro)throw this.failure('workspace_cell_not_ready',{id:c.cell.cellId});if(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)throw this.failure('workspace_drawing_save');const options=c.binding?.captureOptions?.()??{};return {...c.cell,chart:captureLayout(c.pro,{...options,localDrawingIds:[...(options.localDrawingIds??[]),...c.restoredIds,...c.pro.getDrawings().filter(d=>d.owner==='local').map(d=>d.logicalId)],context:{ticker:c.cell.symbol.ticker,period:{multiplier:c.cell.period.multiplier,timespan:c.cell.period.timespan}}})}})
     const doc:WorkspaceDocument={version:1,layout:this.layout,activeCellId:this.active,sync:{...this.sync},columnRatio:this.columnRatio,rowRatio:this.rowRatio,cells}
     if(!isWorkspaceDocument(doc))throw this.failure('workspace_invalid_save')
     return doc
   }
-  save(){if(!this.options.storage)throw this.failure('workspace_storage_disabled');this.options.storage.setItem(this.key(),JSON.stringify(this.capture()));this.message(this.notice,'workspace_saved')}
-  deleteSaved(){if(!this.options.storage)throw this.failure('workspace_storage_disabled');this.options.storage.removeItem(this.key());this.message(this.notice,'workspace_deleted')}
-  async load(){
-    const storage=this.options.storage;if(!storage)throw this.failure('workspace_storage_disabled')
-    const raw=storage.getItem(this.key())
-    if(raw===null){
-      const old=loadLayoutV3(this.options.context,storage as Storage);if(old.status==='error')throw Error(old.message);if(old.status==='missing')throw this.failure('workspace_no_saved')
-      const current=this.cells[0];if(!current?.pro)throw this.failure('workspace_primary_not_ready')
-      const symbol=old.value.context?.ticker?this.options.symbols.find(s=>s.ticker===old.value.context!.ticker):current.cell.symbol
-      if(!symbol)throw this.failure('workspace_legacy_symbol_missing')
-      const savedPeriod=old.value.context?.period,period=savedPeriod?{...savedPeriod,text:`${savedPeriod.multiplier} ${savedPeriod.timespan}`}:current.cell.period
-      const doc=this.capture();doc.layout=1;doc.activeCellId='primary';doc.cells=[{...current.cell,symbol,period,chart:{...old.value,context:{...old.value.context,ticker:symbol.ticker,period:{multiplier:period.multiplier,timespan:period.timespan}}}}];await this.restore(doc);return
-    }
-    const doc:unknown=JSON.parse(raw);if(!isWorkspaceDocument(doc))throw this.failure('workspace_corrupt')
-    await this.restore(doc)
+  private storageFailure(code:ConstructorParameters<typeof WorkspaceStoreError>[0],message:string):WorkspaceStoreError{return new WorkspaceStoreError(code,message)}
+  private copy<T>(value:T):T{return structuredClone(value)}
+  private summary(value:WorkspaceSummary):WorkspaceSummary {
+    if(!value||typeof value.id!=='string'||!value.id||typeof value.revision!=='string'||!value.revision||!Number.isFinite(value.updatedAt)||typeof value.name!=='string'||value.name!==value.name.trim()||!value.name.length||value.name.length>80)throw this.storageFailure('WORKSPACE_INVALID_DOCUMENT',this.t('workspace_corrupt'))
+    return {id:value.id,name:value.name,revision:value.revision,updatedAt:value.updatedAt}
   }
-  async restore(doc:WorkspaceDocument){
+  private stored(value:StoredWorkspace,id:string):StoredWorkspace {
+    const summary=this.summary(value)
+    if(summary.id!==id||!isWorkspaceDocument(value.document)||value.document.cells.some(c=>c.context!==(c.cellId==='primary'?this.options.context:`${this.options.context}:${c.cellId}`)))throw this.storageFailure('WORKSPACE_INVALID_DOCUMENT',this.t('workspace_invalid_document'))
+    return {...summary,document:this.copy(value.document)}
+  }
+  private name(value:string):string {const name=value.trim();if(!name||name.length>80)throw this.storageFailure('WORKSPACE_INVALID_DOCUMENT',this.t('workspace_name_invalid'));return name}
+  private renderSaved():void {
+    if(!this.savedSelect)return
+    this.savedSelect.replaceChildren(new Option(this.t(this.saved.length?'workspace_choose_saved':'workspace_no_saved'),''))
+    for(const item of this.saved)this.savedSelect.add(new Option(`${item.name} · ${new Date(item.updatedAt).toLocaleString(this.options.locale)}`,item.id))
+    this.savedSelect.value=this.selected?.id??''
+    this.updateStoreControls()
+  }
+  private updateStoreControls():void {
+    const unavailable=!this.options.store,pending=!!this.io,unknown=!!this.unknownWrite
+    this.savedSelect.disabled=unavailable||pending||unknown||!this.saved.length
+    this.nameInput.disabled=unavailable||pending||unknown
+    for(const button of this.storeButtons){const action=button.dataset.storageAction
+      button.disabled=action==='workspace_cancel'?!pending:unavailable||pending||unknown&&!['workspace_refresh','workspace_storage_retry'].includes(action!)||['workspace_save','workspace_load','workspace_rename','workspace_delete'].includes(action!)&&!this.selected
+    }
+  }
+  private async runStorage<T>(kind:'read'|'write',work:(store:WorkspaceStore,signal:AbortSignal)=>Promise<T>):Promise<T> {
+    if(this.disposed)throw this.failure('workspace_closed')
+    const store=this.options.store;if(!store)throw this.failure('workspace_storage_disabled')
+    if(kind==='write'&&this.unknownWrite)throw this.storageFailure('WORKSPACE_STORE_UNAVAILABLE',this.t('workspace_result_unknown'))
+    if(this.io){if(this.io.kind==='write'||kind==='write')throw this.failure('workspace_busy');this.io.controller.abort()}
+    const io={controller:new AbortController(),kind};this.io=io;this.updateStoreControls();this.message(this.notice,'workspace_storage_pending')
+    const timeout=setTimeout(()=>io.controller.abort(new DOMException('Workspace store timed out','TimeoutError')),30000)
+    try{const result=await this.abortable(work(store,io.controller.signal),io.controller.signal);if(this.disposed||this.io!==io)throw new DOMException('Workspace operation cancelled','AbortError');return result}
+    finally{clearTimeout(timeout);if(this.io===io){this.io=undefined;this.updateStoreControls()}}
+  }
+  private abortable<T>(work:Promise<T>,signal:AbortSignal):Promise<T> {
+    return new Promise((resolve,reject)=>{const cleanup=()=>signal.removeEventListener('abort',cancel),cancel=()=>{cleanup();reject(signal.reason??new DOMException('Workspace operation cancelled','AbortError'))};if(signal.aborted){cancel();return}signal.addEventListener('abort',cancel,{once:true});work.then(value=>{cleanup();if(signal.aborted)cancel();else resolve(value)},error=>{cleanup();reject(error)})})
+  }
+  async listSaved():Promise<WorkspaceSummary[]> {
+    return this.runStorage('read',async(store,signal)=>{const values=(await this.abortable(store.list(this.options.context,signal),signal)).map(value=>this.summary(value));if(new Set(values.map(v=>v.id)).size!==values.length)throw this.storageFailure('WORKSPACE_INVALID_DOCUMENT',this.t('workspace_corrupt'));signal.throwIfAborted();this.saved=values;if(this.selected&&!values.some(v=>v.id===this.selected!.id))this.selected=undefined;this.renderSaved();this.message(this.notice,values.length?'workspace_manual_save':'workspace_no_saved');return this.copy(values)})
+  }
+  private acceptStored(value:StoredWorkspace,select=true):WorkspaceSummary {
+    const summary=this.summary(value);if(select||this.selected?.id===summary.id)this.selected=summary;this.saved=[summary,...this.saved.filter(v=>v.id!==summary.id)];if(select)this.nameInput.value=summary.name;this.renderSaved();this.message(this.notice,'workspace_saved');return this.copy(summary)
+  }
+  private async writeInput(input:WorkspaceWrite,select=true):Promise<WorkspaceSummary> {
+    this.lastStorageAction=()=>this.writeInput(input,select)
+    try{return await this.runStorage('write',async(store,signal)=>{
+      return this.persistInput(store,signal,input,select)
+    })}finally{this.updateStoreControls()}
+  }
+  private async persistInput(store:WorkspaceStore,signal:AbortSignal,input:WorkspaceWrite,select=true):Promise<WorkspaceSummary> {
+    try {const result=this.stored(await this.abortable(store.write(this.options.context,this.copy(input),signal),signal),input.id);signal.throwIfAborted();if(result.name!==input.name||!this.jsonEqual(result.document,input.document))throw this.storageFailure('WORKSPACE_INVALID_DOCUMENT',this.t('workspace_confirmation_mismatch'));return this.acceptStored(result,select)}
+    catch(error){if(!(error instanceof WorkspaceStoreError)||!['WORKSPACE_CONFLICT','WORKSPACE_INVALID_DOCUMENT','WORKSPACE_NOT_FOUND'].includes(error.code)){this.unknownWrite={kind:'write',input:this.copy(input),select};this.message(this.notice,'workspace_result_unknown')}throw error}
+    finally{this.updateStoreControls()}
+  }
+  async saveAs(name:string):Promise<WorkspaceSummary> {if(this.initialization)await this.initialization;return this.writeInput({kind:'create',id:crypto.randomUUID(),name:this.name(name),document:this.capture()})}
+  async save():Promise<WorkspaceSummary> {if(!this.selected)throw this.failure('workspace_choose_saved');const selected=this.copy(this.selected);return this.writeInput({kind:'update',id:selected.id,expectedRevision:selected.revision,name:selected.name,document:this.capture()})}
+  async load(id:string):Promise<void> {
+    if(!id)throw this.failure('workspace_choose_saved')
+    this.deleteDialog?.remove()
+    this.lastStorageAction=()=>this.load(id)
+    return this.runStorage('read',async(store,signal)=>{const raw=await this.abortable(store.read(this.options.context,id,signal),signal);if(!raw)throw this.storageFailure('WORKSPACE_NOT_FOUND',this.t('workspace_no_saved'));const stored=this.stored(raw,id);signal.throwIfAborted();await this.restore(stored.document,()=>!signal.aborted&&!this.disposed,signal);signal.throwIfAborted();this.selected=this.summary(stored);this.nameInput.value=stored.name;this.renderSaved();this.message(this.notice,'workspace_restored')})
+  }
+  async renameSaved(id:string,name:string):Promise<WorkspaceSummary> {
+    name=this.name(name);const expected=this.selected?.id===id?this.selected:this.saved.find(v=>v.id===id)
+    return this.runStorage('write',async(store,signal)=>{
+      const raw=await this.abortable(store.read(this.options.context,id,signal),signal);if(!raw)throw this.storageFailure('WORKSPACE_NOT_FOUND',this.t('workspace_no_saved'));const stored=this.stored(raw,id);if(expected&&expected.revision!==stored.revision)throw this.storageFailure('WORKSPACE_CONFLICT',this.t('workspace_conflict'))
+      const input:WorkspaceWrite={kind:'update',id,expectedRevision:stored.revision,name,document:stored.document},select=this.selected?.id===id;this.lastStorageAction=()=>this.writeInput(input,select)
+      return this.persistInput(store,signal,input,select)
+    })
+  }
+  async deleteSaved(id:string):Promise<void> {
+    if(!id)throw this.failure('workspace_choose_saved')
+    const expected=this.selected?.id===id?this.copy(this.selected):this.saved.find(v=>v.id===id)
+    this.lastStorageAction=()=>this.deleteSaved(id)
+    try{return await this.runStorage('write',async(store,signal)=>{
+      let revision=expected?.revision
+      if(!revision){const raw=await this.abortable(store.read(this.options.context,id,signal),signal);if(!raw)throw this.storageFailure('WORKSPACE_NOT_FOUND',this.t('workspace_no_saved'));revision=this.stored(raw,id).revision}
+      try{await this.abortable(store.remove(this.options.context,id,revision,signal),signal);signal.throwIfAborted();this.saved=this.saved.filter(v=>v.id!==id);if(this.selected?.id===id)this.selected=undefined;this.renderSaved();this.message(this.notice,'workspace_deleted')}
+      catch(error){if(!(error instanceof WorkspaceStoreError)||!['WORKSPACE_CONFLICT','WORKSPACE_NOT_FOUND','WORKSPACE_INVALID_DOCUMENT'].includes(error.code)){this.unknownWrite={kind:'remove',id};this.message(this.notice,'workspace_result_unknown')}throw error}
+    })}finally{this.updateStoreControls()}
+  }
+  private async confirmPending():Promise<void> {
+    const pending=this.unknownWrite;if(!pending){await this.listSaved();return}
+    await this.runStorage('read',async(store,signal)=>{const id=pending.kind==='write'?pending.input.id:pending.id,raw=await this.abortable(store.read(this.options.context,id,signal),signal),stored=raw?this.stored(raw,id):null;signal.throwIfAborted()
+      if(pending!==this.unknownWrite)return
+      if(pending.kind==='write'&&stored&&stored.name===pending.input.name&&this.jsonEqual(stored.document,pending.input.document)){this.unknownWrite=undefined;this.acceptStored(stored,pending.select);return}
+      if(pending.kind==='remove'&&!stored){this.unknownWrite=undefined;this.saved=this.saved.filter(v=>v.id!==id);if(this.selected?.id===id)this.selected=undefined;this.renderSaved();this.message(this.notice,'workspace_deleted');return}
+      this.unknownWrite=undefined;this.updateStoreControls();throw this.storageFailure(stored?'WORKSPACE_CONFLICT':'WORKSPACE_NOT_FOUND',this.t('workspace_confirmation_mismatch'))
+    })
+  }
+  private jsonEqual(a:unknown,b:unknown):boolean {const stable=(v:unknown):string=>JSON.stringify(v,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.keys(value).sort().map(k=>[k,value[k]])):value);return stable(a)===stable(b)}
+  async importLegacy(name:string):Promise<WorkspaceSummary> {
+    const primary=this.cells[0]?.cell??{symbol:this.options.initialSymbol,period:this.options.initialPeriod??{multiplier:1,timespan:'day',text:'1d'}}
+    const document=readLegacyWorkspace(this.options.context,{symbols:this.options.symbols,fallback:primary});if(!document)throw this.failure('workspace_no_legacy')
+    return this.writeInput({kind:'create',id:crypto.randomUUID(),name:this.name(name),document},false)
+  }
+  private confirmDelete():void {
+    const selected=this.selected;if(!selected)return
+    this.deleteDialog?.remove();const dialog=document.createElement('div');dialog.setAttribute('role','alertdialog');this.aria(dialog,'workspace_delete_confirm');dialog.append(this.caption('workspace_delete_target',{name:selected.name}))
+    for(const confirm of [true,false]){const button=document.createElement('button');button.type='button';this.message(button,confirm?'workspace_confirm':'workspace_cancel');button.onclick=()=>{dialog.remove();if(confirm)void this.deleteSaved(selected.id).catch(e=>this.error(e))};dialog.append(button)}
+    this.deleteDialog=dialog;this.root.insertBefore(dialog,this.grid)
+  }
+  async restore(doc:WorkspaceDocument,isCurrent:()=>boolean=()=>true,signal?:AbortSignal){
     if(this.initialization)await this.initialization
     if(this.disposed)throw this.failure('workspace_closed')
     if(this.busy)throw this.failure('workspace_busy')
-    if(this.cells.some(c=>c.pro?.getDrawingHistoryState().pending))throw this.failure('workspace_drawing_load')
+    if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
+    if(this.cells.some(c=>c.pro&&(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)))throw this.failure('workspace_drawing_load')
     if(!isWorkspaceDocument(doc))throw this.failure('workspace_invalid_document')
     for(const cell of doc.cells){if(!this.options.symbols.some(s=>s.ticker===cell.symbol.ticker))throw this.failure('workspace_symbol_missing',{ticker:cell.symbol.ticker});const context=cell.cellId==='primary'?this.options.context:`${this.options.context}:${cell.cellId}`;if(cell.context!==context)throw this.failure('workspace_context_mismatch')}
     this.busy=true;for(const c of this.cells){c.body.inert=true;c.pro?.getShortcutManager()?.setEnabled(false)}++this.alignment;const staged:Runtime[]=[];const stage=document.createElement('div');stage.style.cssText='position:absolute;visibility:hidden;pointer-events:none;width:'+this.grid.clientWidth+'px';this.root.append(stage)
     try{
-      for(const cell of doc.cells){const c=await this.createCell(cell,stage,true);staged.push(c);if(!c.pro)throw this.failure('workspace_restored_not_ready');await restoreLayout(c.pro,cell.chart);c.restoredIds=cell.chart.overlayData.flatMap(o=>o.id?[o.id]:[])}
-      if(this.disposed)throw this.failure('workspace_closed')
+      for(const cell of doc.cells){if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');const c=await this.createCell(cell,stage,true,false,signal);staged.push(c);if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');if(!c.pro)throw this.failure('workspace_restored_not_ready');await this.abortable(restoreLayout(c.pro,cell.chart),signal??c.controller.signal);c.restoredIds=cell.chart.overlayData.flatMap(o=>o.id?[o.id]:[])}
+      if(this.disposed||!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
       this.assertDrawingIdle(this.cells)
       for(const c of this.cells)this.disposeCell(c)
-      this.cells=staged;for(const c of staged){this.grid.append(c.element);this.publishLabels(c)}
+      this.cells=staged;for(const c of staged){this.staged.delete(c);this.grid.append(c.element);this.publishLabels(c)}
       this.layout=doc.layout;this.sync={...doc.sync};this.columnRatio=doc.columnRatio;this.rowRatio=doc.rowRatio
       for(const control of this.controls)control.checked=this.sync[control.dataset.sync as keyof WorkspaceSync]
       for(const [key,value] of [['columnRatio',this.columnRatio],['rowRatio',this.rowRatio]] as const)(this.root.querySelector(`[data-ratio="${key}"]`) as HTMLInputElement).value=String(value)
@@ -264,9 +361,9 @@ export class ChartWorkspace {
       for(const c of staged){const viewport=doc.cells.find(saved=>saved.cellId===c.cell.cellId)?.chart.viewport;if(viewport&&c.pro?.getChart()&&!syncViewport(c.pro.getChart()!,{from:viewport.fromTimestamp,to:viewport.toTimestamp}))this.message(c.status,'workspace_restored_viewport_limited')}
     }catch(e){for(const c of staged)this.disposeCell(c);throw e}finally{stage.remove();this.busy=false;for(const c of this.cells){c.body.inert=false;c.pro?.getShortcutManager()?.setEnabled(c.cell.cellId===this.active)}}
   }
-  private assertDrawingIdle(cells:Runtime[]){if(cells.some(c=>c.pro?.getDrawingHistoryState().pending))throw this.failure('workspace_drawing_switch')}
+  private assertDrawingIdle(cells:Runtime[]){if(cells.some(c=>c.pro&&(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)))throw this.failure('workspace_drawing_switch')}
   getCells(){return this.cells.map(c=>({...c.cell,chart:c.pro}))}
   private publishLabels(c:Runtime){c.element.style.display='flex';c.element.dataset.cellId=c.cell.cellId;this.aria(c.symbolSelect,'workspace_symbol',{id:c.cell.cellId});this.aria(c.periodSelect,'workspace_period',{id:c.cell.cellId})}
   private resetSelectors(c:Runtime){c.symbolSelect.value=c.cell.symbol.ticker;c.periodSelect.value=[...c.periodSelect.options].find(o=>equalPeriod(JSON.parse(o.value),c.cell.period))?.value??''}
-  dispose(){this.disposed=true;++this.operation;this.observer?.disconnect();for(const c of [...this.cells,...this.pending])this.disposeCell(c);this.cells=[];this.root.remove()}
+  dispose(){this.disposed=true;this.io?.controller.abort();this.deleteDialog?.remove();++this.operation;this.observer?.disconnect();for(const c of [...this.cells,...this.pending,...this.staged])this.disposeCell(c);this.cells=[];this.root.remove()}
 }

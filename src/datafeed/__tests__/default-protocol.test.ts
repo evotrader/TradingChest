@@ -6,6 +6,7 @@ vi.mock('../ReconnectingWebSocket',()=>({ReconnectingWebSocket:class {
 }}))
 import DefaultDatafeed from '../../DefaultDatafeed'
 const s={ticker:'A',market:'stocks'},p={multiplier:1,timespan:'minute',text:'1m'}
+const query={kind:'range',from:0,to:10} as const
 const emit=(socket:any,messages:unknown)=>socket.onmessage({data:JSON.stringify(messages)})
 const agg=(sym='A',time=60000)=>({ev:'AM',sym,s:time,o:10,h:12,l:8,c:11,v:2,vw:10.5})
 beforeEach(()=>{sockets.length=0})
@@ -53,14 +54,14 @@ describe('default demo protocol boundaries',()=>{
   it('requests explicit historical adjustment and never interprets vw as turnover',async()=>{
     const fetch=vi.fn().mockResolvedValue({ok:true,json:async()=>({results:[{t:1,o:10,h:12,l:8,c:11,v:2,vw:10.5}]})})
     vi.stubGlobal('fetch',fetch)
-    const result=await new DefaultDatafeed('fixture',{adjusted:false}).getHistoryKLineData(s,p,0,10)
+    const result=await new DefaultDatafeed('fixture',{adjusted:false}).getHistoryKLineData(s,p,query)
     expect(fetch.mock.calls[0][0]).toContain('adjusted=false&sort=asc')
-    expect(result[0].providerVwap).toBe(10.5);expect(result[0].turnover).toBeUndefined()
+    expect(result.bars[0].providerVwap).toBe(10.5);expect(result.bars[0].turnover).toBeUndefined()
   })
   it('does not disguise HTTP/permission/pagination errors as an empty market',async()=>{
     for(const response of [{ok:false,status:403},{ok:true,json:async()=>({status:'NOT_AUTHORIZED'})},{ok:true,json:async()=>({results:[],next_url:'unused'})}]){
       vi.stubGlobal('fetch',vi.fn().mockResolvedValue(response))
-      await expect(new DefaultDatafeed('fixture').getHistoryKLineData(s,p,0,10)).rejects.toThrow()
+      await expect(new DefaultDatafeed('fixture').getHistoryKLineData(s,p,query)).rejects.toThrow()
     }
   })
 })

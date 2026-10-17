@@ -116,6 +116,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const [engineReady, setEngineReady] = createSignal(false)
   let retryInitialization: (()=>void) | undefined
   const [loadError, setLoadError] = createSignal('')
+  const [dataState,setDataState]=createSignal<import('./types').ChartDataState>()
 
   const [theme, setTheme] = createSignal(props.theme)
   const [styles, setStyles] = createSignal(props.styles)
@@ -444,6 +445,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     resetDrawingHistory:()=>drawingHistory.reset(),
     undoDrawing:()=>drawingHistory.undo(),
     redoDrawing:()=>drawingHistory.redo(),
+    retryData:()=>replayEngine?Promise.reject(new Error('回放中请先退出回放')):loader?.retry()??Promise.resolve(),
     reloadData: options => replayEngine ? Promise.reject(new Error('回放中请先退出回放，再重新加载行情')) : loader?.reload(options?.preserveViewport ?? true) ?? Promise.resolve(),
     applySnapshot: snapshot => loader?.applySnapshot(snapshot) ?? Promise.reject(new Error(i18n('chart_not_ready',locale()))),
     setTheme,
@@ -570,7 +572,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
     if (widget) loader = new EngineDataLoader(widget, props.datafeed, {
       committed:state=>analysis.sync(state),
-      state: state=>{comparisons.mainChanged();props.onDataState?.(state)},
+      state: state=>{setDataState(state);setLoadError(state.error?`${state.errorCode??state.operation??'data'}: ${state.error}`:'');comparisons.mainChanged();props.onDataState?.(state)},
       loading: active => {setLoading(active);setLoadingVisible(active)},
       ready: identity => {setLoadError('');if(!resuming())props.onDataReady?.(identity)},
       error: error => {setLoadError(error.message);props.onError?.(error)},
@@ -897,7 +899,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       />
       <div
         class="klinecharts-pro-content">
-        <Show when={loadError()}><div role="alert" class="klinecharts-pro-data-error">{loadError()} <button onClick={() => {!engineReady() ? retryInitialization?.() : replayEngine ? stopReplay() : void loader?.reload(true).catch(()=>{})}}>{i18n('retry',locale())}</button></div></Show>
+        <Show when={dataState()}>{state=><div role="status" class="klinecharts-pro-data-state">
+          {i18n(`data_${state().dataStatus}`,locale())} · {i18n(`connection_${state().connection}`,locale())}
+          <Show when={state().lastRead?.metadata?.state==='partial'}> · {i18n('data_partial',locale())}</Show>
+          <Show when={state().lastRead}>{read=><span> · {i18n('data_last_read',locale())}: {read().query.kind==='before'?i18n('data_before',locale()):i18n('data_range',locale())} · {i18n('data_observed',locale())}: {read().metadata?.sourceTimestamp===undefined?i18n('data_unknown',locale()):new Date(read().metadata!.sourceTimestamp!).toISOString()} · {i18n('data_delay',locale())}: {read().metadata?.delayMs===undefined?i18n('data_unknown',locale()):`${read().metadata!.delayMs}ms`}</span>}</Show>
+          <Show when={state().revisionRequired}><button onClick={()=>void loader?.reload(true).catch(()=>{})}>{i18n('data_revision',locale())}</button></Show>
+        </div>}</Show>
+        <Show when={loadError()}><div role="alert" class="klinecharts-pro-data-error">{loadError()} <button onClick={() => {!engineReady() ? retryInitialization?.() : replayEngine ? stopReplay() : void loader?.retry().catch(()=>{})}}>{i18n('retry',locale())}</button></div></Show>
         <Show when={loadingVisible()}>
           <Loading/>
         </Show>

@@ -1,0 +1,62 @@
+import {launchBrowser} from './support.mjs'
+import {createRequire} from 'node:module'
+import assert from 'node:assert/strict'
+import {mkdirSync,writeFileSync} from 'node:fs'
+const {expect}=createRequire(import.meta.url)('@playwright/test')
+const browser=await launchBrowser(),page=await browser.newPage({viewport:{width:1440,height:1000}})
+const directory=process.env.TC_BROWSER_EVIDENCE??'/tmp/tradingchest-history-state';mkdirSync(directory,{recursive:true})
+const results=[],errors=[];page.on('pageerror',e=>errors.push(e.message))
+const fresh=async options=>{await page.goto((process.env.TC_BROWSER_BASE??'http://127.0.0.1:4173')+'/tests/browser/history-state.html');await page.waitForFunction(()=>window.ready);await page.evaluate(options=>setup(options),options)}
+const run=async(name,work,options)=>{const count=errors.length;try{await fresh(options);await work();assert.deepEqual(errors.slice(count),[]);results.push({name,passed:true})}catch(e){results.push({name,passed:false,error:String(e)});await page.screenshot({path:`${directory}/${name}.png`}).catch(()=>{})}finally{await page.evaluate(()=>test.chart.dispose()).catch(()=>{})}}
+try{
+ await run('weekend-count-back-and-confirmed-exhaustion',async()=>{
+  await page.waitForFunction(()=>test.state.ready===1);assert.equal(await page.evaluate(()=>test.chart.getChart().getDataList().length),500)
+  await page.evaluate(()=>test.older());await page.waitForFunction(()=>test.chart.getChart().getDataList().length===520)
+  const result=await page.evaluate(()=>({requests:test.state.requests,state:test.lastState(),first:test.chart.getChart().getDataList()[0].timestamp}));assert.equal(result.requests[1].kind,'before');assert.equal(result.requests[1].before,Date.parse('2026-10-12T01:30:00Z'));assert.equal(result.state.lastRead.hasMoreBefore,false);assert.equal(result.state.dataStatus,'ready');assert.equal(result.first,Date.parse('2026-10-09T06:40:00Z'))
+ })
+ await run('page-failure-retries-original-anchor-and-preserves-viewport',async()=>{
+  await page.waitForFunction(()=>test.state.ready===1);await page.evaluate(()=>{test.state.failPage=true;test.older()});await expect(page.locator('.klinecharts-pro-data-error')).toContainText('ISOLATED_READ_FAILED')
+  const before=await page.evaluate(()=>({anchor:test.chart.getChart().getDataList()[Math.min(499,Math.max(0,test.chart.getChart().getVisibleRange().to-1))]?.timestamp,query:test.state.requests.at(-1),token:test.chart.getAnalysisContext().token}));await page.evaluate(()=>test.state.failPage=false);await page.locator('.klinecharts-pro-data-error button').click();await page.waitForFunction(()=>test.chart.getChart().getDataList().length===520);assert.deepEqual(await page.evaluate(()=>test.state.requests.at(-1)),before.query)
+  const after=await page.evaluate(()=>({anchor:test.chart.getChart().getDataList()[Math.min(519,Math.max(0,test.chart.getChart().getVisibleRange().to-1))]?.timestamp,more:test.lastState().lastRead.hasMoreBefore}));assert.equal(after.anchor,before.anchor);assert.equal(after.more,false);assert.equal(await page.evaluate(()=>test.lastState().operation),'load-more');await expect(page.locator('.klinecharts-pro-data-error')).toHaveCount(0)
+ })
+ for(const [key,message] of [['missingMore','缺少 hasMoreBefore'],['emptyMore','空页尚未确认']])await run(`reject-${key}-then-real-retry`,async()=>{
+  await expect(page.locator('.klinecharts-pro-data-error')).toContainText(message);assert.equal(await page.evaluate(()=>test.lastState().dataStatus),'unconfirmed');await page.evaluate(key=>test.state[key]=false,key);await page.locator('.klinecharts-pro-data-error button').click();await page.waitForFunction(()=>test.chart.getChart().getDataList().length===500)
+ },{[key]:true})
+ await run('empty-page-does-not-empty-confirmed-series',async()=>{
+  await page.waitForFunction(()=>test.state.ready===1);await page.evaluate(()=>{test.state.source=test.state.source.slice(20);test.older()});await page.waitForFunction(()=>test.lastState().lastRead?.hasMoreBefore===false);assert.equal(await page.evaluate(()=>test.lastState().dataStatus),'ready');assert.equal(await page.evaluate(()=>test.chart.getChart().getDataList().length),500)
+ })
+ await run('partial-range-and-failed-preparation-rollback-metadata',async()=>{
+  await page.waitForFunction(()=>test.state.ready===1);const before=await page.evaluate(()=>({read:test.lastState().lastRead,token:test.chart.getAnalysisContext().token,connection:test.lastState().connection}));assert.equal(await page.evaluate(async()=>{test.state.partial=true;try{await test.chart.reloadData();return false}catch{return true}}),true);assert.deepEqual(await page.evaluate(()=>test.lastState().lastRead),before.read);assert.equal(await page.evaluate(()=>test.chart.getAnalysisContext().token),before.token)
+  assert.equal(await page.evaluate(async()=>{test.state.partial=false;test.state.metadata={state:'ready',sourceTimestamp:999};test.state.syncStatus={type:'connection',state:'connected'};test.state.failSubscribe=true;try{await test.chart.reloadData();return false}catch{return true}}),true);assert.deepEqual(await page.evaluate(()=>test.lastState().lastRead),before.read);assert.equal(await page.evaluate(()=>test.lastState().connection),before.connection);assert.equal(await page.evaluate(()=>test.state.statusOwners),0)
+  await page.evaluate(async()=>{test.state.failSubscribe=false;await test.chart.retryData()});assert.equal(await page.evaluate(()=>test.lastState().lastRead.metadata.sourceTimestamp),999);assert.equal(await page.evaluate(()=>test.lastState().operation),'reload');assert.equal(await page.evaluate(()=>test.lastState().connection),'connected')
+ })
+ await run('status-generation-revision-and-disposal',async()=>{
+  await page.waitForFunction(()=>test.state.ready===1);await page.evaluate(()=>test.state.statusCallbacks.at(-1)({type:'revision-required',message:'隔离来源修订'}));await expect(page.locator('.klinecharts-pro-data-state')).toContainText('数据已修订');assert.equal(await page.evaluate(()=>test.lastState().revisionRequired),true)
+  await page.evaluate(async()=>{await test.chart.reloadData();test.oldStatus=test.state.statusCallbacks.at(-1);test.chart.setSymbol({ticker:'OTHER'})});await page.waitForFunction(()=>test.lastState().symbol.ticker==='OTHER'&&test.lastState().dataStatus==='ready');await page.evaluate(()=>test.oldStatus({type:'connection',state:'failed'}));assert.equal(await page.evaluate(()=>test.lastState().connection),'unknown');assert.equal(await page.evaluate(()=>test.state.statusOwners),1);await page.evaluate(()=>test.chart.dispose());assert.equal(await page.evaluate(()=>test.state.statusOwners),0);assert.equal(await page.evaluate(()=>test.state.barOwners),0)
+ })
+ await run('cancelled-retry-settles-even-when-provider-ignores-abort',async()=>{
+  await page.waitForFunction(()=>test.state.ready===1);await page.evaluate(()=>{test.state.failPage=true;test.older()});await expect(page.locator('.klinecharts-pro-data-error')).toBeVisible();await page.evaluate(()=>{test.state.failPage=false;test.state.hold=true;test.retryResult='pending';test.chart.retryData().then(()=>test.retryResult='resolved',()=>test.retryResult='cancelled')});await page.waitForFunction(()=>!!test.state.release);await page.evaluate(()=>{test.state.hold=false;test.chart.setSymbol({ticker:'OTHER'})});await page.waitForFunction(()=>test.retryResult==='cancelled');await page.waitForFunction(()=>test.lastState().symbol.ticker==='OTHER'&&test.lastState().dataStatus==='ready');await page.evaluate(()=>test.state.release());assert.equal(await page.evaluate(()=>test.state.statusOwners),1)
+ })
+ for(const period of [{multiplier:3,timespan:'second',text:'3s'},{multiplier:7,timespan:'minute',text:'7m'}])await run(`sparse-long-holiday-${period.text}`,async()=>{
+  await page.waitForFunction(()=>test.state.ready===1);await page.evaluate(()=>{test.state.source[0]={...test.state.source[0],timestamp:Date.parse('2020-01-01')};test.older()});await page.waitForFunction(()=>test.chart.getChart().getDataList().length===520);assert.equal(await page.evaluate(()=>test.chart.getChart().getDataList()[0].timestamp),Date.parse('2020-01-01'))
+ },{period})
+ await run('short-page-continues-and-range-end-is-exclusive',async()=>{
+  await page.waitForFunction(()=>test.state.ready===1);await page.evaluate(()=>{const original=test.feed.getHistoryKLineData;test.feed.getHistoryKLineData=async(s,p,q,c)=>{const value=await original(s,p,q,c);if(q.kind==='before'&&q.before<=test.first&&value.bars.length>3)return {...value,bars:value.bars.slice(-3),hasMoreBefore:true};return value};test.older()});await page.waitForFunction(()=>test.chart.getChart().getDataList().length>=503);assert.equal(await page.evaluate(()=>test.state.states.some(s=>s.lastRead?.query.kind==='before'&&s.lastRead.query.before<=test.first&&s.lastRead.hasMoreBefore===true)),true);await page.evaluate(()=>test.older());await page.waitForFunction(()=>test.chart.getChart().getDataList().length===520)
+ })
+ await run('sync-status-commit-reentry-does-not-overwrite-successor',async()=>{
+  await page.waitForFunction(()=>test.state.ready===1)
+  await page.evaluate(()=>{test.state.metadata={state:'ready',sourceTimestamp:123};test.state.syncStatus={type:'connection',state:'connected'};test.state.onState=state=>{if(state.symbol.ticker==='X'&&state.dataStatus==='ready'&&state.connection==='connected'){test.state.onState=undefined;test.state.fail=true;test.chart.setSymbol({ticker:'Y'})}};test.chart.setSymbol({ticker:'X'})})
+  await page.waitForFunction(()=>test.lastState().symbol.ticker==='Y'&&!!test.lastState().error);assert.equal(await page.evaluate(()=>test.lastState().lastRead),undefined);await page.evaluate(async()=>{test.state.fail=false;await test.chart.retryData()});await page.waitForFunction(()=>test.lastState().symbol.ticker==='Y'&&test.lastState().dataStatus==='ready');assert.equal(await page.evaluate(()=>test.state.requests.length),4)
+ })
+ await run('failed-status-installation-remains-retryable',async()=>{
+  await page.waitForFunction(()=>test.state.ready===1);await page.evaluate(()=>{test.state.failStatus=true;test.chart.setSymbol({ticker:'Y'})});await expect(page.locator('.klinecharts-pro-data-error')).toContainText('状态订阅失败');const before=await page.evaluate(()=>test.state.requests.length);await page.evaluate(async()=>{test.state.failStatus=false;await test.chart.retryData()});await page.waitForFunction(()=>test.lastState().dataStatus==='ready');assert.equal(await page.evaluate(()=>test.state.requests.length),before+1)
+ })
+ await run('synchronous-status-disposal-releases-returned-owner',async()=>{
+  await page.waitForFunction(()=>test.state.ready===1);await page.evaluate(()=>{test.state.syncStatus={type:'connection',state:'connected'};test.state.onState=state=>{if(state.symbol.ticker==='Y'&&state.connection==='connected')test.chart.dispose()};test.chart.setSymbol({ticker:'Y'})});await page.waitForFunction(()=>test.state.statusOwners===0);assert.equal(await page.evaluate(()=>test.state.barOwners),0)
+ })
+ await run('failed-initial-bar-subscription-restores-read-state-and-retries',async()=>{
+  await expect(page.locator('.klinecharts-pro-data-error')).toContainText('订阅准备失败');assert.equal(await page.evaluate(()=>test.lastState().lastRead),undefined);assert.equal(await page.evaluate(()=>test.lastState().dataStatus),'unconfirmed');const before=await page.evaluate(()=>test.state.requests.length);await page.evaluate(async()=>{test.state.failSubscribe=false;await test.chart.retryData()});await page.waitForFunction(()=>test.chart.getChart().getDataList().length===500);assert.equal(await page.evaluate(()=>test.state.requests.length),before+1);assert.equal(await page.evaluate(()=>test.state.barOwners),1)
+ },{failSubscribe:true,metadata:{state:'ready',sourceTimestamp:123}})
+ await run('metadata-observation-and-delay-are-explicit',async()=>{await page.waitForFunction(()=>test.state.ready===1);await expect(page.locator('.klinecharts-pro-data-state')).toContainText('1970-01-01T00:00:00.123Z');await expect(page.locator('.klinecharts-pro-data-state')).toContainText('900ms');assert.equal(await page.evaluate(()=>test.lastState().connection),'unknown')},{metadata:{state:'ready',sourceTimestamp:123,delayMs:900}})
+}finally{await browser.close();writeFileSync(process.argv[2]??`${directory}/evidence.json`,JSON.stringify({results,errors},null,2)+'\n')}
+if(results.some(r=>!r.passed)||errors.length){console.error(JSON.stringify({results,errors},null,2));process.exitCode=1}else console.log(`History/state acceptance: ${results.length} passed`)

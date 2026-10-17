@@ -4,47 +4,48 @@ const symbol={ticker:'TEST',market:'stocks',exchange:'X',priceCurrency:'USD'}
 const period={multiplier:1,timespan:'minute',text:'1m'}
 const identity:SeriesIdentity={source:'fixture',ticker:'TEST',market:'stocks',exchange:'X',currency:'USD',multiplier:1,timespan:'minute',adjustment:'raw',sessionFilter:'regular',timezone:'America/New_York'}
 const bar=(timestamp:number,close=10)=>({timestamp,open:10,high:20,low:1,close,volume:2})
+const query={kind:'before',before:10,countBack:10} as const
 function fixture(batch: Partial<HistoryBatch> = {}) {
   const listeners:Array<(update:SessionUpdate)=>void>=[]
-  const stop=vi.fn(),dispose=vi.fn(),history=vi.fn(async()=>({identity,bars:[bar(1),bar(2)],state:'ready' as const,sourceTimestamp:100,...batch}))
+  const stop=vi.fn(),dispose=vi.fn(),history=vi.fn(async()=>({identity,bars:[bar(1),bar(2)],hasMoreBefore:false,metadata:{state:'ready' as const,sourceTimestamp:100},...batch}))
   const provider={searchSymbols:vi.fn(async()=>[symbol]),openSession:vi.fn(()=>({identity,getHistory:history,subscribe:(callback:(update:SessionUpdate)=>void)=>{listeners.push(callback);return stop},dispose}))}
   const status=vi.fn(),revision=vi.fn()
   const feed=createSessionDatafeed(provider,{onStatus:status,onRevisionRequired:revision})
   return {feed,provider,listeners,stop,dispose,history,status,revision}
 }
 describe('opt-in session-to-legacy adapter',()=>{
-  it('preserves legacy four-argument calls and deduplicates only within the full identity',async()=>{
+  it('preserves query calls and deduplicates only within the full identity',async()=>{
     const f=fixture({bars:[bar(3),bar(1),bar(3,15)]})
-    expect((await f.feed.getHistoryKLineData(symbol,period,0,10)).map(b=>[b.timestamp,b.close])).toEqual([[1,10],[3,15]])
+    expect((await f.feed.getHistoryKLineData(symbol,period,query)).bars.map(b=>[b.timestamp,b.close])).toEqual([[1,10],[3,15]])
     expect(f.status).toHaveBeenLastCalledWith(expect.objectContaining({state:'ready',sourceTimestamp:100}))
   })
   it('rejects mismatched adjustment/currency/period instead of mixing data',async()=>{
     for(const changed of [{adjustment:'split'},{currency:'CNY'},{multiplier:5}]){
       const f=fixture({identity:{...identity,...changed}})
-      await expect(f.feed.getHistoryKLineData(symbol,period,0,10)).rejects.toThrow('identity mismatch')
+      await expect(f.feed.getHistoryKLineData(symbol,period,query)).rejects.toThrow('identity mismatch')
     }
   })
   it('distinguishes explicit empty/partial states from failure',async()=>{
-    const f=fixture({state:'partial',bars:[],delayMs:1000})
-    await expect(f.feed.getHistoryKLineData(symbol,period,0,10)).resolves.toEqual([])
+    const f=fixture({metadata:{state:'partial',delayMs:1000},bars:[],hasMoreBefore:false})
+    await expect(f.feed.getHistoryKLineData(symbol,period,query)).resolves.toMatchObject({bars:[],hasMoreBefore:false})
     expect(f.status).toHaveBeenLastCalledWith(expect.objectContaining({state:'partial',delayMs:1000}))
-    const bad=fixture({state:'ready',bars:[]})
-    await expect(bad.feed.getHistoryKLineData(symbol,period,0,10)).rejects.toThrow('Invalid history batch')
+    const bad=fixture({metadata:{state:'ready'},bars:[],hasMoreBefore:false})
+    await expect(bad.feed.getHistoryKLineData(symbol,period,query)).rejects.toThrow('历史元数据无效')
   })
   it('forwards caller cancellation and rejects a late history result after close',async()=>{
     const f=fixture();const controller=new AbortController()
     const context={signal:controller.signal,reason:'initial' as const}
-    await f.feed.getHistoryKLineData(symbol,period,0,10,context)
-    expect(f.history).toHaveBeenCalledWith(0,10,context)
+    await f.feed.getHistoryKLineData(symbol,period,query,context)
+    expect(f.history).toHaveBeenCalledWith(query,context)
     let resolve!:(batch:HistoryBatch)=>void
     f.history.mockImplementationOnce(()=>new Promise(r=>{resolve=r}))
-    const pending=f.feed.getHistoryKLineData(symbol,period,0,10)
+    const pending=f.feed.getHistoryKLineData(symbol,period,query)
     f.feed.unsubscribe(symbol,period)
-    resolve({identity,bars:[bar(1)],state:'ready',sourceTimestamp:100})
+    resolve({identity,bars:[bar(1)],hasMoreBefore:false,metadata:{state:'ready',sourceTimestamp:100}})
     await expect(pending).rejects.toMatchObject({name:'AbortError'})
   })
   it('routes historical revisions separately and never emits them as new prices',async()=>{
-    const f=fixture();await f.feed.getHistoryKLineData(symbol,period,0,10)
+    const f=fixture();await f.feed.getHistoryKLineData(symbol,period,query)
     const price=vi.fn();f.feed.subscribe(symbol,period,price)
     f.listeners[0]({identity,bar:bar(1,15),kind:'update'})
     f.listeners[0]({identity,bar:bar(2,15),kind:'revision'})
@@ -81,6 +82,15 @@ describe('opt-in session-to-legacy adapter',()=>{
   it('requires complete identity and rejects calls after disposal',async()=>{
     expect(()=>seriesIdentityKey({...identity,adjustment:''})).toThrow()
     const f=fixture();f.feed.dispose?.()
-    await expect(f.feed.getHistoryKLineData(symbol,period,0,10)).rejects.toThrow('disposed')
+    await expect(f.feed.getHistoryKLineData(symbol,period,query)).rejects.toThrow('disposed')
   })
+})
+
+describe('session status installation ownership',()=>{
+ it('reopens a session after status installation throws',async()=>{
+  let opened=0,disposed=0
+  const feed=createSessionDatafeed({searchSymbols:async()=>[],openSession:()=>{const index=++opened;let closed=false;return {identity,getHistory:async()=>{if(closed)throw Error('disposed session');return {identity,bars:[bar(1)],hasMoreBefore:false}},subscribe:()=>()=>{},subscribeStatus:()=>{if(index===1)throw Error('isolated status failure');return()=>{}},dispose:()=>{closed=true;disposed++}}}})
+  await expect(feed.getHistoryKLineData(symbol,period,{kind:'before',before:10,countBack:500})).rejects.toThrow('status failure')
+  await expect(feed.getHistoryKLineData(symbol,period,{kind:'before',before:10,countBack:500})).resolves.toMatchObject({bars:[bar(1)]});expect(opened).toBe(2);expect(disposed).toBe(1);feed.dispose?.()
+ })
 })

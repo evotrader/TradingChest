@@ -141,7 +141,7 @@ new KLineChartPro(
 
 库提供布局、活动窗格、尺寸比例、四项同步、保存／加载／删除控件。同步默认关闭，十字线只匹配真实时标；视窗按目标可绘制宽度和实际时间交集计算，并校验引擎应用结果。原价格不在不同品种间同步。
 
-`primary` 保留宿主原 context，新增窗格为 `${context}:secondary-N`。`WorkspaceDocument.version=1` 存储稳定 ID、每窗格 v3 布局、活动窗格、同步项和尺寸比例。宿主显式传入 storage 才启用存储；加载先验证目录、读取各图并恢复成功，之后替换当前工作台。失败保留当前工作台及保存原件。系统绘图不进入捕获；后端标注仅保存引用，由宿主重新读取。
+`primary` 保留宿主原 context，新增窗格为 `${context}:secondary-N`。`WorkspaceDocument.version=1` 存储稳定窗格 ID、每窗格 v3 布局、活动窗格、同步项和尺寸比例。宿主显式传入异步 store 才启用存储；加载先验证目录、读取各图并恢复成功，之后替换当前工作台。失败保留当前工作台及保存原件。系统绘图不进入捕获；后端标注仅保存引用，由宿主重新读取。
 
 公共 `ChartPro.getShortcutManager()` 和 `getReplayEngine()` 返回对应对象的公开结构接口，避免不同声明入口的私有字段造成类型身份冲突；运行时返回同一对象，全部公开方法仍可调用。
 
@@ -212,7 +212,94 @@ scope 在标的／周期切换（含切走再切回）及确认 basis 变化时�
 
 `ChartWorkspaceOptions` 增 `locale/theme/height?:number|'100%'`（默认 100%，父容器须有高度）及 `toolbar?:{layout?,sync?,storage?,size?}`。隐藏组只隐藏入口，程序 API 仍可用。`setLocale(locale)`、`setTheme(theme)`、`resize()` 更新工作台呈现，ResizeObserver 根据实际容器调整图表。每 cell 自有 v3 主题／语言恢复语义保留；workspace chrome 的配置由宿主决定。
 
-中文和英文库自有 chrome 完整覆盖；ja／ko 缺失项按英文回退。用户标签和后端错误保留原文。显式 storage adapter 才启用保存；本轮不提供异步云端存储接口。
+中文和英文库自有 chrome 完整覆盖；ja／ko 缺失项按英文回退。用户标签和后端错误保留原文。显式注入异步 WorkspaceStore 才启用命名管理，详见下方存储接口。
 
 
-工作台 `onLayoutChange(layout)` 通知宿主调整外部高度，不改变持久文档。EvoTrader 使用单／双 780px、四图 1160px；其他宿主按自身容器配置。外部模板 tooltip 的名称、单位与 legends 保留，新增／恢复共用管理按钮；无 schema 不提供设置入口。分析更新失败显示错误并保留最后确认图形；未知价格口径副图明确标识。组合退出还会恢复消费回放期间排队的行情快照。
+工作台 `onLayoutChange(layout)` 通知宿主调整外部高度，不改变持久文档。宿主按自身窗格需要配置容器尺寸。外部模板 tooltip 的名称、单位与 legends 保留，新增／恢复共用管理按钮；无 schema 不提供设置入口。分析更新失败显示错误并保留最后确认图形；未知价格口径副图明确标识。组合退出还会恢复消费回放期间排队的行情快照。
+
+
+## 0.8.0 数据接口
+
+```typescript
+import type {HistoryQuery,HistoryMetadata,HistorySnapshot,HistoryResult,
+  DatafeedStatus,ChartDataState} from 'trading-chest/chart'
+
+type HistoryQuery =
+  | {kind:'before'; before:number; countBack:number}
+  | {kind:'range'; from:number; to:number}
+interface HistoryMetadata {
+  state:'ready'|'empty'|'partial'
+  sourceTimestamp?:number
+  delayMs?:number
+}
+interface HistorySnapshot {bars:KLineData[]; basis?:string; metadata?:HistoryMetadata}
+interface HistoryResult extends HistorySnapshot {hasMoreBefore?:boolean}
+type DatafeedStatus =
+  | {type:'connection';state:'connected'|'disconnected'|'reconnecting'|'failed'}
+  | {type:'revision-required';message?:string}
+  | {type:'error';code?:string;message:string}
+
+// Datafeed
+getHistoryKLineData(symbol:SymbolInfo,period:Period,query:HistoryQuery,
+  context?:DatafeedRequestContext):Promise<HistoryResult>
+subscribeStatus?(symbol:SymbolInfo,period:Period,
+  accept:(status:DatafeedStatus)=>void):()=>void
+
+// ChartPro
+retryData():Promise<void>
+```
+
+时标为 Unix 毫秒，before 严格不含上界，countBack 是期望根数；range 为完整 `[from,to)`。before 的 hasMoreBefore 必须为 boolean，虽为共享类型的可选字段，运行时缺失仍报契约错误。短页／空窗口不证明穷尽；空页加 true 被拒绝。range 可省略该字段，partial range 不得确认完整恢复。数组返回与旧位置参数已移除。
+
+`ChartDataState` 保留 symbol、period、basis?、timestamp?、restoring、replay、error?，新增：
+
+| 字段 | 类型及含义 |
+| --- | --- |
+| dataStatus | unconfirmed / empty / ready，整个已确认数据集 |
+| lastRead? | `{query:HistoryQuery;metadata?:HistoryMetadata;hasMoreBefore?:boolean}`，本次成功提交读取 |
+| connection | unknown / connected / disconnected / reconnecting / failed |
+| revisionRequired | boolean，需要重载而非新增实时 bar |
+| errorCode? | string，错误码 |
+| operation? | initial / load-more / reload |
+
+来源观察时刻 sourceTimestamp／延迟 delayMs 未声明时显示未知，不从 HTTP 或 bar 时刻推导。retryData 重试原失败请求，分页重试保留 before 锚点；无失败请求幂等完成。失败保留已确认图形，切换身份／销毁使旧请求失效。完整语义见[数据接入](./data-access)。
+
+## 工作台存储接口
+
+```typescript
+import {ChartWorkspace,createIndexedDBWorkspaceStore,WorkspaceStoreError,
+  readLegacyWorkspace} from 'trading-chest/chart'
+import type {WorkspaceStore,WorkspaceSummary,StoredWorkspace,WorkspaceWrite}
+  from 'trading-chest/chart'
+
+interface WorkspaceSummary {id:string;name:string;updatedAt:number;revision:string}
+interface StoredWorkspace extends WorkspaceSummary {document:WorkspaceDocument}
+type WorkspaceWrite =
+  | {kind:'create';id:string;name:string;document:WorkspaceDocument}
+  | {kind:'update';id:string;expectedRevision:string;name:string;document:WorkspaceDocument}
+interface WorkspaceStore {
+  list(scope:string,signal:AbortSignal):Promise<WorkspaceSummary[]>
+  read(scope:string,id:string,signal:AbortSignal):Promise<StoredWorkspace|null>
+  write(scope:string,input:WorkspaceWrite,signal:AbortSignal):Promise<StoredWorkspace>
+  remove(scope:string,id:string,expectedRevision:string,signal:AbortSignal):Promise<void>
+}
+createIndexedDBWorkspaceStore(options?:{databaseName?:string}):WorkspaceStore & {dispose():void}
+readLegacyWorkspace(scope:string,options:{symbols:SymbolInfo[];
+  fallback:{symbol:SymbolInfo;period:Period};storage?:Pick<Storage,'getItem'>}):WorkspaceDocument|null
+```
+
+`ChartWorkspaceOptions.store?:WorkspaceStore` 替换 storage/storageKey，无旧 runtime shim。scope 为原 context，不解析或裁剪；ID／revision 不透明，ID 由工作台生成，不让用户手输。名称 trim 后 1–80 字符，可重名，身份以 ID 为准。read 不存在返回 null。更新／删除以 expectedRevision 原子比较，IndexedDB 在 readwrite 事务完成后才返回成功。适配器须复制并验证文档和 scope；自定义远端适配器同样要落实持久化和比较语义。
+
+| ChartWorkspace 方法 | 返回及行为 |
+| --- | --- |
+| listSaved() | `Promise<WorkspaceSummary[]>`，刷新列表 |
+| saveAs(name) | `Promise<WorkspaceSummary>`，新增并选中当前视图 |
+| save() | `Promise<WorkspaceSummary>`，更新已确认选中的 ID／revision |
+| load(id) | `Promise<void>`，全部窗格准备成功才替换并选中 |
+| renameSaved(id,name) | `Promise<WorkspaceSummary>`，保留已存文档，不顺带保存当前改动 |
+| deleteSaved(id) | `Promise<void>`，删除指定记录；库内 UI 先明确确认目标 |
+| importLegacy(name) | `Promise<WorkspaceSummary>`，新增可选条目，须后续选择／加载 |
+
+错误类 `WorkspaceStoreError.code` 为 WORKSPACE_NOT_FOUND、WORKSPACE_STORE_UNAVAILABLE、WORKSPACE_INVALID_DOCUMENT 或 WORKSPACE_CONFLICT。冲突不自动覆盖，刷新后重新选择或另存。取消／超时可能已有写入，界面显示结果待确认并读取同 scope/ID 核对；核对前禁用新存储变更。每实例仅一个存储变更，图表交互保持可用。
+
+省略 store 时禁用管理并说明原因；IndexedDB 失败不回落其他存储。保存为显式手动操作，切换前应保存未保存改动。导入只读旧工作台键及 loadLayoutV3 支持的单图 v1/v2/v3 键，不自动加载或修改旧键。内容仍为 WorkspaceDocument v1 与单图 v3，外层持有名称／ID／revision，行情与运行时分析不入文档。销毁顺序为 workspace.dispose()，随后自有 store.dispose()；借用者不关闭共享 store。单图 saveLayoutV3/listLayoutsV3 保留原职责。

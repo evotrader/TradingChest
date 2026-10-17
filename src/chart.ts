@@ -76,7 +76,7 @@ export { getTradeVisHitTargets, cleanupTradeVisInstance } from './indicator/trad
 export type { TradeRecord, TradeVisExtendData } from './indicator/trade/tradeVisualization'
 export type { ConnectionState } from './DefaultDatafeed'
 
-export type { DatafeedRequestContext, ChartSnapshot, HistoryResult, ChartDataState } from './types'
+export type { DatafeedRequestContext, ChartSnapshot, HistoryQuery, HistoryMetadata, HistorySnapshot, HistoryResult, DatafeedStatus, ChartDataState } from './types'
 
 export { calculateSessionVwap } from './indicator/volume/sessionVwap'
 export type { BarSession, SessionKLineData, SessionVwapMethod, SessionVwapPoint } from './indicator/volume/sessionVwap'
@@ -104,3 +104,8 @@ export type {IndicatorDescriptor,IndicatorParameter,IndicatorParameterSchema,Ind
 export type {IndicatorLoader} from './indicator/registry'
 
 export type {AnalysisContext,AnalysisPoint,AnalysisBandPoint,AnalysisLabelPoint,AnalysisEvent,AnalysisLayerSpec,AnalysisLayerState,AnalysisLayerHandle,AnalysisOptions} from './analysis/types'
+
+export {WorkspaceStoreError} from './workspace/store'
+export type {WorkspaceSummary,StoredWorkspace,WorkspaceWrite,WorkspaceStore,WorkspaceStoreErrorCode} from './workspace/store'
+export {createIndexedDBWorkspaceStore} from './workspace/indexedDBStore'
+export {readLegacyWorkspace} from './workspace/legacy'

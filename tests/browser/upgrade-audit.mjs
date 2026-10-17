@@ -51,7 +51,8 @@ try{
       getPeriods:async()=>{if(++reads===1)await new Promise(resolve=>releaseInitial=resolve);return [period]},
       mountCell:(container,cell)=>{
         let resolve;const ready=new Promise(done=>resolve=done);let active=false;
-        const chart=new KLineChartPro({container,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:[],onDataReady:()=>resolve(chart),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,_from,to)=>to<bars[0].timestamp?[]:bars,subscribe:()=>{if(!active){active=true;subscriptions++}},unsubscribe:()=>{if(active){active=false;subscriptions--}}}});
+        const historyResult=query=>query.kind==='before'?{bars:bars.filter(bar=>bar.timestamp<query.before),hasMoreBefore:false}:{bars:bars.filter(bar=>bar.timestamp>=query.from&&bar.timestamp<query.to)};
+        const chart=new KLineChartPro({container,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:[],onDataReady:()=>resolve(chart),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>historyResult(query),subscribe:()=>{if(!active){active=true;subscriptions++}},unsubscribe:()=>{if(active){active=false;subscriptions--}}}});
         mounted++;return {ready,dispose:()=>{disposed++;chart.dispose()}};
       }});
     const doc={version:1,layout:1,activeCellId:'primary',sync:{symbol:false,period:false,crosshair:false,viewport:false},columnRatio:50,rowRatio:50,cells:[{cellId:'primary',context:'audit',symbol:{ticker:'A.X'},period,chart:{...template,overlayData:[],context:{ticker:'A.X',period:{multiplier:1,timespan:'minute'}}}}]};

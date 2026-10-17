@@ -1,6 +1,6 @@
 import type { Chart, DataLoader, DataLoaderGetBarsParams, KLineData, Period as EnginePeriod } from 'klinecharts'
-import type { Datafeed, Period, SymbolInfo, ChartProOptions, HistoryResult, ChartSnapshot } from '../types'
-import { adjustFromTo } from './adjustFromTo'
+import type { Datafeed, Period, SymbolInfo, ChartProOptions, HistorySnapshot, HistoryResult, HistoryQuery, ChartDataState, DatafeedStatus, ChartSnapshot } from '../types'
+import {readHistory,validateHistorySnapshot} from '../datafeed/history'
 import {bindIdentityEpoch} from './identityEpoch'
 
 export function toEnginePeriod(period: Period): EnginePeriod {
@@ -21,13 +21,13 @@ export function validateBars(bars: KLineData[]): void {
     previous = bar.timestamp
   }
 }
-export function historySnapshot(result: HistoryResult): {bars: KLineData[]; basis?: string} {
-  const snapshot = Array.isArray(result) ? {bars:result} : result
-  validateBars(snapshot.bars)
-  return snapshot
+export function historySnapshot<T extends HistorySnapshot>(result:T):T {
+  validateHistorySnapshot(result)
+  return result
 }
 const changed = (a: KLineData, b: KLineData): boolean => ['open','high','low','close','volume'].some(key => a[key] !== b[key])
 export interface ConfirmedSeries {symbol:SymbolInfo;period:Period;basis?:string;confirmed:boolean;epoch:number;revision:number;replay:boolean;cutoff?:number}
+type ReadingState=Pick<ChartDataState,'lastRead'|'connection'|'revisionRequired'|'errorCode'|'operation'>&{hasMoreBefore?:boolean}
 interface Hooks {
   committed?:(state:ConfirmedSeries)=>void
   state?: ChartProOptions['onDataState']
@@ -38,16 +38,22 @@ interface Hooks {
 }
 /** One writer and one subscription per chart; all asynchronous work belongs to its generation. */
 export class EngineDataLoader implements DataLoader {
+  private publishing=0
   private alignmentRevision=0
   private identityEpoch=0
-  private resumeCheckpoint?:{bars:KLineData[];basis?:string;confirmed:boolean;replay?:KLineData[];suspended:boolean;anchor?:number;space:number}
+  private resumeCheckpoint?:{reading:ReadingState;bars:KLineData[];basis?:string;confirmed:boolean;replay?:KLineData[];suspended:boolean;anchor?:number;anchorX?:number;space:number}
   private generation = 0
   private pageSequence = 0
   private requests = new Set<AbortController>()
   private current?: {symbol: SymbolInfo; period: Period}
   private subscription?: {symbol: SymbolInfo; period: Period;pending:KLineData[]}
   private stream?: (bar: KLineData) => void
-  private prepared?: {bars: KLineData[]; basis?: string;completion?:{resolve:()=>void;reject:(error:unknown)=>void}}
+  private prepared?: HistoryResult & {read?:ChartDataState['lastRead'];completion?:{resolve:()=>void;reject:(error:unknown)=>void}}
+  private reading:ReadingState={connection:'unknown',revisionRequired:false}
+  private stopStatus?:()=>void
+  private statusQueue?:DatafeedStatus[]
+  private failed?:{query:HistoryQuery;operation:'initial'|'load-more'|'reload';requireComplete?:boolean;earliestTimestamp?:number}
+  private retryTask?:Promise<void>
   private basis?: string
   private pendingSnapshot?: ChartSnapshot
   private snapshotTask?: Promise<void>
@@ -59,17 +65,19 @@ export class EngineDataLoader implements DataLoader {
   private readError?: string
   constructor(private chart: Chart, private feed: Datafeed, private hooks: Hooks) {bindIdentityEpoch(chart,()=>this.identityEpoch);chart.setDataLoader(this)}
   private emitState():void {
-    if(this.resumeCheckpoint)return
+    if(this.resumeCheckpoint||this.publishing)return
     if(this.current&&!this.disposed)this.hooks.committed?.({...this.current,basis:this.basis,confirmed:this.confirmed,epoch:this.identityEpoch,revision:this.alignmentRevision,replay:!!this.replay,cutoff:this.replay?.at(-1)?.timestamp})
-    if(this.current && !this.disposed)this.hooks.state?.({...this.current,basis:this.basis,timestamp:this.chart.getDataList().at(-1)?.timestamp,restoring:this.restoring,replay:!!this.replay,error:this.readError})
+    if(this.current && !this.disposed)this.hooks.state?.({...this.current,basis:this.basis,timestamp:this.chart.getDataList().at(-1)?.timestamp,restoring:this.restoring,replay:!!this.replay,error:this.readError,...this.reading,dataStatus:!this.confirmed?'unconfirmed':this.chart.getDataList().length?'ready':'empty'})
   }
   private setLoading(active:boolean):void {this.restoring=active;this.hooks.loading(active);this.emitState()}
-  private reportError(error:Parameters<NonNullable<ChartProOptions['onError']>>[0]):void {this.readError=error.message;this.hooks.error(error);this.emitState()}
+  private reportError(error:Parameters<NonNullable<ChartProOptions['onError']>>[0]):void {this.readError=error.message;this.reading.errorCode=(error.raw as {code?:string})?.code;this.hooks.error(error);this.emitState()}
   private invalidate(): void {
     ++this.generation
+    this.prepared?.completion?.reject(new DOMException('History cancelled','AbortError'));this.prepared=undefined
     for (const request of this.requests) request.abort()
     this.requests.clear()
     this.stopSubscription()
+    this.stopStatus?.();this.stopStatus=undefined;this.statusQueue=undefined
     this.stream = undefined
   }
   private stopSubscription(): void {
@@ -88,6 +96,7 @@ export class EngineDataLoader implements DataLoader {
     this.snapshotTask = undefined
     this.suspended = false
     this.readError=undefined
+    this.reading={connection:'unknown',revisionRequired:false};this.failed=undefined;this.retryTask=undefined
     this.replay = undefined
     this.current = {symbol: {...symbol}, period: {...period}}
     this.emitState()
@@ -118,29 +127,47 @@ export class EngineDataLoader implements DataLoader {
     this.requests.add(controller)
     this.setLoading(true)
     let prepared:typeof this.prepared
+    let attempt:typeof this.failed
+    let previous:{reading:ReadingState;basis?:string;confirmed:boolean;error?:string}|undefined
     try {
-      let bars: KLineData[]
-      let basis: string | undefined
-      if (request.type === 'init' && this.prepared) {prepared=this.prepared;({bars,basis}=prepared);this.prepared=undefined}
+      const query:HistoryQuery={kind:'before',before:request.type==='init'?Date.now():(request.timestamp??0),countBack:500}
+      const operation=request.type==='init'?'initial':'load-more'
+      if(!(request.type==='init'&&this.prepared))this.reading.operation=operation
+      let result:HistoryResult,read:ChartDataState['lastRead']
+      if(request.type==='init'&&this.prepared){prepared=this.prepared;this.prepared=undefined;result=prepared;read=prepared.read}
       else {
-        const end = request.type === 'init' ? Date.now() : (request.timestamp ?? 0) - 1
-        const [from, to] = adjustFromTo(identity.period, end, 500)
-        ;({bars,basis}=historySnapshot(await this.feed.getHistoryKLineData(identity.symbol, identity.period, from, to, {signal:controller.signal, reason:request.type === 'init' ? 'initial' : 'load-more'})))
-        if (request.type === 'forward') bars = bars.filter(bar => bar.timestamp < (request.timestamp ?? Infinity))
+        attempt={query,operation};this.failed=attempt
+        this.startStatus()
+        if(!active()||controller.signal.aborted)return
+        result=await readHistory(this.feed,identity.symbol,identity.period,query,{signal:controller.signal,reason:operation})
+        read={query:{...query},metadata:result.metadata&&{...result.metadata},hasMoreBefore:result.hasMoreBefore}
       }
-      validateBars(bars)
+      const {bars,basis}=historySnapshot(result)
       if (!active() || controller.signal.aborted) return
+      previous={reading:structuredClone(this.reading),basis:this.basis,confirmed:this.confirmed,error:this.readError}
       if (request.type === 'init') {this.confirmed = true;this.basis=basis;this.suspended=false}
       else if (bars.length>0 && basis !== this.basis) throw new Error('历史复权口径已变化，请重试重新加载行情')
-      request.callback(bars, {forward:bars.length > 0, backward:false})
-      ++this.alignmentRevision
+      this.reading.lastRead=read
+      this.reading.hasMoreBefore=result.hasMoreBefore
+      this.reading.errorCode=undefined
       this.readError=undefined
+      // Engine callbacks may synchronously install subscriptions and reenter host code.
+      // Publish one complete commit, and never let an old callback mutate its successor.
+      ++this.publishing
+      try{request.callback(bars,{forward:result.hasMoreBefore??true,backward:false})}
+      finally{--this.publishing}
+      if(this.disposed||generation!==this.generation||controller.signal.aborted){prepared?.completion?.reject(new DOMException('History cancelled','AbortError'));this.emitState();return}
+      if(this.failed===attempt)this.failed=undefined
+      ++this.alignmentRevision
       this.emitState()
+      if(!active()||controller.signal.aborted){prepared?.completion?.reject(new DOMException('History cancelled','AbortError'));return}
       if (request.type === 'init'&&!this.resumeCheckpoint) this.hooks.ready(identity)
       prepared?.completion?.resolve()
     } catch (error) {
       if(prepared?.completion){prepared.completion.reject(error);return}
       if (!active() || controller.signal.aborted) return
+      if(previous){this.reading=previous.reading;this.basis=previous.basis;this.confirmed=previous.confirmed;this.readError=previous.error}
+      if(attempt)this.failed=attempt
       if (request.type === 'init') this.confirmed = false
       this.reportError({type:request.type === 'init' ? 'data-fetch' : 'load-more',message:error instanceof Error ? error.message : '行情读取失败',raw:error})
       // An init callback clears the data; only first/new identities use this failure path.
@@ -160,6 +187,7 @@ export class EngineDataLoader implements DataLoader {
   }
   private startSubscription():void {
     if(!this.current)return
+    this.startStatus()
     const identity=this.current,generation=this.generation
     const subscription={...identity,pending:[] as KLineData[]}
     this.subscription=subscription
@@ -169,7 +197,32 @@ export class EngineDataLoader implements DataLoader {
       this.push(bar)
     })} catch(error) {this.stopSubscription();throw error}
   }
+  private acceptStatus(status:DatafeedStatus):void {
+    if(status.type==='connection')this.reading.connection=status.state
+    else if(status.type==='revision-required'){this.reading.revisionRequired=true;this.readError=status.message??'历史数据已修订，请重新加载';this.reading.errorCode='REVISION_REQUIRED'}
+    else {this.readError=status.message;this.reading.errorCode=status.code}
+    this.emitState()
+  }
+  private startStatus():void {
+    if(this.stopStatus||!this.current||!this.feed.subscribeStatus)return
+    const identity=this.current,generation=this.generation
+    let owned=true,release:(()=>void)|undefined
+    const stop=()=>{owned=false;release?.();release=undefined}
+    this.stopStatus=stop
+    try {
+      const cleanup=this.feed.subscribeStatus(identity.symbol,identity.period,status=>{
+        if(!owned||this.disposed||generation!==this.generation)return
+        if(this.resumeCheckpoint){(this.statusQueue??=[]).push({...status});return}
+        this.acceptStatus(status)
+      })
+      if(!owned||this.disposed||generation!==this.generation||this.stopStatus!==stop){cleanup();if(this.stopStatus===stop)this.stopStatus=undefined}
+      else release=cleanup
+    }catch(error){owned=false;if(this.stopStatus===stop)this.stopStatus=undefined;throw error}
+  }
+
   private flushSubscription():void {
+    const statuses=this.statusQueue??[];this.statusQueue=undefined
+    for(const status of statuses)this.acceptStatus(status)
     const subscription=this.subscription;if(!subscription)return
     const pending=subscription.pending;subscription.pending=[]
     for(const bar of pending){if(this.disposed||this.subscription!==subscription)return;this.push(bar)}
@@ -180,6 +233,7 @@ export class EngineDataLoader implements DataLoader {
     try { validateBars([bar]) } catch (error) {this.reportError({type:'invalid-bar',message:String(error),raw:bar});return}
     const latest = this.chart.getDataList().at(-1)
     if (latest && bar.timestamp < latest.timestamp) {
+      this.reading.revisionRequired=true
       this.reportError({type:'historical-revision',message:'历史修订需要重载，不进入实时报警',raw:bar});return
     }
     this.stream(bar)
@@ -188,7 +242,7 @@ export class EngineDataLoader implements DataLoader {
   }
   applySnapshot(snapshot: ChartSnapshot): Promise<void> {
     if (!this.current || !sameSeries(snapshot,this.current) || this.disposed) return Promise.reject(new Error('行情快照与当前标的或周期不匹配'))
-    try {validateBars(snapshot.bars)} catch(error) {return Promise.reject(error)}
+    try {validateHistorySnapshot(snapshot)} catch(error) {return Promise.reject(error)}
     this.pendingSnapshot = {...snapshot,bars:snapshot.bars.map(bar=>({...bar}))}
     return this.drainSnapshots()
   }
@@ -214,8 +268,16 @@ export class EngineDataLoader implements DataLoader {
     this.snapshotTask=task
     return this.snapshotTask
   }
+  retry():Promise<void> {
+    if(this.retryTask)return this.retryTask
+    const failed=this.failed
+    if(!failed)return Promise.resolve()
+    const task=this.reload(true,failed.requireComplete,failed.earliestTimestamp,failed.operation==='load-more'?failed.query:undefined)
+      .finally(()=>{if(this.retryTask===task)this.retryTask=undefined})
+    this.retryTask=task;return task
+  }
   /** Prefetch before reset; failure leaves the confirmed data, drawings and viewport intact. */
-  async reload(preserveViewport = true, requireComplete = false, earliestTimestamp = Infinity): Promise<void> {
+  async reload(preserveViewport = true, requireComplete = false, earliestTimestamp = Infinity, retryQuery?:HistoryQuery): Promise<void> {
     if (this.disposed || !this.current) throw new DOMException('行情恢复已取消或图表尚未就绪','AbortError')
     const generation = this.generation, identity = this.current, controller = new AbortController()
     this.requests.add(controller)
@@ -226,11 +288,16 @@ export class EngineDataLoader implements DataLoader {
     let transaction:ReturnType<EngineDataLoader['beginRestore']>|undefined
     const data = this.chart.getDataList(), range = this.chart.getVisibleRange(), space = this.chart.getBarSpace().bar
     const anchor = data[Math.min(data.length-1, Math.max(0,range.to-1))]?.timestamp
-    const [defaultFrom, to] = adjustFromTo(identity.period, Date.now(), 500)
+    const anchorX=anchor===undefined?undefined:(this.chart.convertToPixel({timestamp:anchor},{paneId:'candle_pane'}) as {x?:number}|undefined)?.x
+    const query:HistoryQuery=retryQuery??(data.length?{kind:'range',from:Math.min(data[0].timestamp,earliestTimestamp),to:Math.max(Date.now(),data.at(-1)!.timestamp+1)}:{kind:'before',before:Date.now(),countBack:500})
+    this.failed={query,operation:retryQuery?'load-more':'reload',requireComplete,earliestTimestamp}
+    this.reading.operation=retryQuery?'load-more':'reload'
     try {
-      const result = historySnapshot(await this.feed.getHistoryKLineData(identity.symbol,identity.period,Math.min(data[0]?.timestamp ?? defaultFrom,defaultFrom,earliestTimestamp),to,{signal:controller.signal,reason:'resume'}))
+      const result = await readHistory(this.feed,identity.symbol,identity.period,query,{signal:controller.signal,reason:retryQuery?'load-more':'resume'})
+      if(result.metadata?.state==='partial')throw Error('历史区间尚未完整，保留旧图；请重试')
       if (this.disposed || generation !== this.generation || controller.signal.aborted) throw new DOMException('行情恢复已取消','AbortError')
       const basisChanged = result.basis !== this.basis
+      if(retryQuery&&data.length&&basisChanged)throw Error('历史复权口径已变化，请重新加载行情')
       const timestamps=new Set(result.bars.map(bar=>bar.timestamp))
       if ((requireComplete || basisChanged) && data.some(bar=>!timestamps.has(bar.timestamp))) throw new Error('新复权口径未覆盖全部已加载历史，保留旧图；请重试')
       const bars=(basisChanged || requireComplete) ? result.bars : [...new Map([...data,...result.bars].map(bar=>[bar.timestamp,bar])).values()].sort((a,b)=>a.timestamp-b.timestamp)
@@ -240,25 +307,36 @@ export class EngineDataLoader implements DataLoader {
       this.invalidate()
       completionGeneration = this.generation
       this.replay = undefined
-      const initialized=new Promise<void>((resolve,reject)=>{this.prepared={bars,basis:result.basis,completion:{resolve,reject}}})
+      const initialized=new Promise<void>((resolve,reject)=>{this.prepared={...result,bars,read:{query:{...query},metadata:result.metadata&&{...result.metadata},hasMoreBefore:result.hasMoreBefore},completion:{resolve,reject}}})
       this.chart.resetData()
       await initialized
       transaction?.prepare()
       if (preserveViewport && anchor !== undefined) {
         this.chart.setBarSpace(space)
         const index = bars.findIndex(bar => bar.timestamp === anchor)
-        if (index >= 0) this.chart.scrollToDataIndex(index, 0)
+        if (index >= 0) this.restoreAnchor(anchor!,anchorX,space)
       }
+      this.reading.revisionRequired=false
       transaction?.commit()
+      this.failed=undefined
     } catch (error) {
       const current=!this.disposed&&completionGeneration===this.generation&&!controller.signal.aborted
       transaction?.rollback()
       if(current&&transaction)completionGeneration=this.generation
       if (current) {
+        this.failed={query,operation:retryQuery?'load-more':'reload',requireComplete,earliestTimestamp}
         this.reportError({type:'data-reload',message:error instanceof Error ? error.message : '行情恢复失败',raw:error})
       }
       throw error
     } finally {this.requests.delete(controller);if(!this.disposed && completionGeneration===this.generation)this.setLoading(false)}
+  }
+  private restoreAnchor(timestamp:number,x:number|undefined,space:number):void {
+    const index=this.chart.getDataList().findIndex(bar=>bar.timestamp===timestamp)
+    if(index<0)return
+    this.chart.scrollToDataIndex(index,0)
+    const currentX=(this.chart.convertToPixel({timestamp},{paneId:'candle_pane'}) as {x?:number}|undefined)?.x
+    if(x!==undefined&&currentX!==undefined)this.chart.scrollByDistance(x-currentX,0)
+    else this.chart.scrollByDistance(space/2,0)
   }
   /** Composite restore owns both visible bars and their provenance until every member succeeds. */
   beginReplayResume():{prepare:()=>void;commit:()=>void;rollback:()=>void} {
@@ -267,7 +345,7 @@ export class EngineDataLoader implements DataLoader {
   }
   private beginRestore():{prepare:()=>void;commit:()=>void;rollback:()=>void} {
     const data=this.chart.getDataList(),range=this.chart.getVisibleRange()
-    const checkpoint={bars:data.map(b=>({...b})),basis:this.basis,confirmed:this.confirmed,replay:this.replay?.map(b=>({...b})),suspended:this.suspended,anchor:data[Math.min(data.length-1,Math.max(0,range.to-1))]?.timestamp,space:this.chart.getBarSpace().bar}
+    const checkpoint={reading:structuredClone(this.reading),bars:data.map(b=>({...b})),basis:this.basis,confirmed:this.confirmed,replay:this.replay?.map(b=>({...b})),suspended:this.suspended,anchor:data[Math.min(data.length-1,Math.max(0,range.to-1))]?.timestamp,anchorX:(this.chart.convertToPixel({timestamp:data[Math.min(data.length-1,Math.max(0,range.to-1))]?.timestamp},{paneId:'candle_pane'}) as {x?:number}|undefined)?.x,space:this.chart.getBarSpace().bar}
     this.resumeCheckpoint=checkpoint
     const active=()=>!this.disposed&&this.resumeCheckpoint===checkpoint
     let prepared=false
@@ -275,7 +353,7 @@ export class EngineDataLoader implements DataLoader {
     return {
       prepare,
       commit:()=>{prepare();const identity=this.current,generation=this.generation;this.resumeCheckpoint=undefined;this.flushSubscription();if(this.disposed||this.current!==identity||this.generation!==generation)return;this.emitState();if(identity)this.hooks.ready(identity);queueMicrotask(()=>{void this.drainSnapshots().catch(()=>{})})},
-      rollback:()=>{if(!active())return;this.invalidate();this.basis=checkpoint.basis;this.confirmed=checkpoint.confirmed;this.replay=checkpoint.replay;this.prepared=checkpoint.replay?undefined:{bars:checkpoint.bars,basis:checkpoint.basis};this.chart.resetData();this.confirmed=checkpoint.confirmed;this.suspended=checkpoint.replay?checkpoint.suspended:true;this.resumeCheckpoint=undefined;this.chart.setBarSpace(checkpoint.space);const index=this.chart.getDataList().findIndex(b=>b.timestamp===checkpoint.anchor);if(index>=0)this.chart.scrollToDataIndex(index,0);this.emitState()}
+      rollback:()=>{if(!active())return;this.invalidate();this.basis=checkpoint.basis;this.confirmed=checkpoint.confirmed;this.replay=checkpoint.replay;this.prepared=checkpoint.replay?undefined:{bars:checkpoint.bars,basis:checkpoint.basis,hasMoreBefore:checkpoint.reading.hasMoreBefore,read:checkpoint.reading.lastRead};this.chart.resetData();this.confirmed=checkpoint.confirmed;this.suspended=checkpoint.replay?checkpoint.suspended:true;this.reading=checkpoint.reading;this.resumeCheckpoint=undefined;this.chart.setBarSpace(checkpoint.space);const index=this.chart.getDataList().findIndex(b=>b.timestamp===checkpoint.anchor);if(index>=0)this.restoreAnchor(checkpoint.anchor!,checkpoint.anchorX,checkpoint.space);this.emitState()}
     }
   }
   setReplay(bars: KLineData[]): void {

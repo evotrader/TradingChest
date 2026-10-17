@@ -4,6 +4,7 @@ import { cleanup, render, fireEvent } from '@solidjs/testing-library'
 import ChartProComponent from '../../ChartProComponent'
 import KLineChartPro from '../../KLineChartPro'
 import type { ChartComponentApi as ChartPro } from '../../ChartProComponent'
+import type { HistoryQuery, HistoryResult } from '../../types'
 
 const mock = vi.hoisted(() => ({ chart: null as any, loadMore: null as any }))
 vi.mock('klinecharts', async importOriginal => {
@@ -15,13 +16,20 @@ vi.mock('../../widget', () => Object.fromEntries([
   'ScreenshotModal', 'IndicatorSettingModal', 'SymbolSearchModal', 'OverlayPropertyBar', 'ReplayControlBar',
 ].map(name => [name, () => null])))
 const bars = Array.from({ length: 4 }, (_, i) => ({ timestamp: (i + 1) * 60000, open: 10, high: 12, low: 9, close: 11, volume: 2 }))
+function historyResponse(query:HistoryQuery,rows:typeof bars=bars):HistoryResult {
+  if(query.kind==='before'){
+    const eligible=rows.filter(bar=>bar.timestamp<query.before),selected=eligible.slice(-query.countBack)
+    return {bars:selected,hasMoreBefore:eligible.length>selected.length}
+  }
+  return {bars:rows.filter(bar=>bar.timestamp>=query.from&&bar.timestamp<query.to)}
+}
 const tick = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
 function deferred() {
-  let resolve!: (value: typeof bars) => void
-  const promise = new Promise<typeof bars>(r => { resolve = r })
+  let resolve!: (value: HistoryResult) => void
+  const promise = new Promise<HistoryResult>(r => { resolve = r })
   return { promise, resolve }
 }
-function mount(history = vi.fn().mockResolvedValue(bars)) {
+function mount(history = vi.fn((_symbol:any,_period:any,query:HistoryQuery)=>Promise.resolve(historyResponse(query)))) {
   let data = bars, symbol: any, period: any, loader: any
   const initialData = vi.fn((rows: typeof bars) => {data=rows})
   const barData = vi.fn((bar: typeof bars[number]) => {data=[...data.filter(row=>row.timestamp!==bar.timestamp),bar]})
@@ -59,7 +67,7 @@ describe('chart lifecycle isolation', () => {
   it('does not subscribe after a pending initial history resolves following unmount', async () => {
     const pending = deferred()
     const host = mount(vi.fn().mockReturnValue(pending.promise))
-    host.unmount(); pending.resolve(bars); await tick()
+    host.unmount(); pending.resolve(historyResponse({kind:'before',before:bars.at(-1)!.timestamp+1,countBack:bars.length})); await tick()
     expect(host.feed.subscribe).not.toHaveBeenCalled()
     expect(host.chart.initialData).not.toHaveBeenCalled()
   })
@@ -72,11 +80,11 @@ describe('chart lifecycle isolation', () => {
   })
   it('ignores queued live ticks and pending load-more while replaying', async () => {
     const pending = deferred()
-    const host = mount(vi.fn().mockResolvedValueOnce(bars).mockReturnValueOnce(pending.promise)); await tick()
+    const host = mount(vi.fn().mockResolvedValueOnce(historyResponse({kind:'before',before:bars.at(-1)!.timestamp+1,countBack:bars.length})).mockReturnValueOnce(pending.promise)); await tick()
     const callback = host.feed.subscribe.mock.calls[0][2]
     mock.loadMore(bars[0].timestamp)
     host.api.startReplay(2); host.chart.barData.mockClear()
-    callback(bars[3]); pending.resolve(bars); await tick()
+    callback(bars[3]); pending.resolve(historyResponse({kind:'before',before:bars[0].timestamp,countBack:bars.length})); await tick()
     expect(host.chart.barData).not.toHaveBeenCalled()
     expect(host.chart.olderData).not.toHaveBeenCalled()
     expect(host.price).not.toHaveBeenCalled()
@@ -108,9 +116,9 @@ describe('chart lifecycle isolation', () => {
   })
   it('does not resume subscriptions after unmount during replay reload', async () => {
     const pending = deferred()
-    const host = mount(vi.fn().mockResolvedValueOnce(bars).mockReturnValueOnce(pending.promise)); await tick()
+    const host = mount(vi.fn().mockResolvedValueOnce(historyResponse({kind:'before',before:bars.at(-1)!.timestamp+1,countBack:bars.length})).mockReturnValueOnce(pending.promise)); await tick()
     host.api.startReplay(2); host.api.stopReplay(); host.unmount()
-    pending.resolve(bars); await tick()
+    pending.resolve(historyResponse({kind:'before',before:bars.at(-1)!.timestamp+1,countBack:bars.length})); await tick()
     expect(host.feed.subscribe).toHaveBeenCalledTimes(1)
   })
 
@@ -159,7 +167,7 @@ describe('chart lifecycle isolation', () => {
     const live = vi.fn(), replay = vi.fn()
     const chart = new KLineChartPro({container:el, symbol:{ticker:'TEST'},
       period:{multiplier:1,timespan:'minute',text:'1m'}, mainIndicators:[], subIndicators:[],
-      datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async()=>data,subscribe:vi.fn(),unsubscribe:vi.fn()},
+      datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_symbol:any,_period:any,query:HistoryQuery)=>historyResponse(query,data),subscribe:vi.fn(),unsubscribe:vi.fn()},
       onAlertTrigger:live,onReplayAlertTrigger:replay,
     })
     try {
@@ -182,9 +190,9 @@ describe('chart lifecycle isolation', () => {
 
   it('clears the initial loading mask when the engine immediately asks for older bars', async () => {
     const pending = deferred()
-    const host = mount(vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue([]))
+    const host = mount(vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue({bars:[],hasMoreBefore:false}))
     host.chart.initialData.mockImplementationOnce(() => mock.loadMore(bars[0].timestamp))
-    pending.resolve(bars); await tick(); await tick()
+    pending.resolve(historyResponse({kind:'before',before:bars.at(-1)!.timestamp+1,countBack:bars.length})); await tick(); await tick()
     expect(host.container.querySelector('.klinecharts-pro-loading')).toBeNull()
     expect(host.feed.subscribe).toHaveBeenCalledTimes(1)
   })
@@ -195,8 +203,9 @@ describe('chart lifecycle isolation', () => {
     const pending = deferred()
     const ready = vi.fn()
     const period = {multiplier:1,timespan:'minute',text:'1m'}
+    const history=vi.fn().mockImplementationOnce((_symbol:any,_period:any,query:HistoryQuery)=>Promise.resolve(historyResponse(query))).mockReturnValue(pending.promise)
     const chart = new KLineChartPro({container:el, symbol:{ticker:'TEST'}, period, mainIndicators:[],subIndicators:[],
-      datafeed:{searchSymbols:async()=>[],getHistoryKLineData:vi.fn().mockResolvedValueOnce(bars).mockReturnValue(pending.promise),subscribe:vi.fn(),unsubscribe:vi.fn()}, onDataReady:ready})
+      datafeed:{searchSymbols:async()=>[],getHistoryKLineData:history,subscribe:vi.fn(),unsubscribe:vi.fn()}, onDataReady:ready})
     const request = {ticker:'TEST',period,timestamp:bars[1].timestamp+1000}
     try {
       expect(chart.locateTimestamp(request).reason).toBe('not-ready')
@@ -208,8 +217,10 @@ describe('chart lifecycle isolation', () => {
       expect(chart.locateTimestamp(request).reason).toBe('not-ready')
       chart.stopReplay()
       expect(chart.locateTimestamp(request).reason).toBe('not-ready')
-      pending.resolve(bars); await tick()
+      const query=history.mock.calls.at(-1)![2] as HistoryQuery
+      pending.resolve(historyResponse(query)); await tick(); await tick()
       expect(chart.locateTimestamp(request).status).toBe('reference-window')
+      history.mockImplementation((_symbol:any,_period:any,query:HistoryQuery)=>Promise.resolve(historyResponse(query)))
       chart.setSymbol({ticker:'OTHER'}); await tick()
       expect(chart.locateTimestamp(request).reason).toBe('identity-mismatch')
     } finally { chart.dispose(); el.remove() }
@@ -222,7 +233,7 @@ describe('chart lifecycle isolation', () => {
     const live = vi.fn()
     const chart = new KLineChartPro({container:el, symbol:{ticker:'SAME',exchange:'A'},
       period:{multiplier:1,timespan:'minute',text:'1m'}, mainIndicators:[],subIndicators:[],
-      datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async()=>bars,subscribe:vi.fn(),unsubscribe:vi.fn()},
+      datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_symbol:any,_period:any,query:HistoryQuery)=>historyResponse(query),subscribe:vi.fn(),unsubscribe:vi.fn()},
       onAlertTrigger:live})
     try {
       await tick()
@@ -249,14 +260,16 @@ describe('chart lifecycle isolation', () => {
 
   it('aborts superseded history and pagination without invalidating another chart request', async () => {
     const first = mount(vi.fn().mockReturnValue(new Promise(() => {})))
-    const initial = first.feed.getHistoryKLineData.mock.calls[0][4]
+    await tick()
+    const initial = first.feed.getHistoryKLineData.mock.calls[0][3]
     const second = mount(vi.fn().mockReturnValue(new Promise(() => {})))
-    const other = second.feed.getHistoryKLineData.mock.calls[0][4]
+    await tick()
+    const other = second.feed.getHistoryKLineData.mock.calls[0][3]
     expect(initial.signal.aborted).toBe(false)
     first.api.setSymbol({ticker:'NEXT'}); await tick()
     expect(initial.signal.aborted).toBe(true)
     expect(other.signal.aborted).toBe(false)
-    const next = first.feed.getHistoryKLineData.mock.calls.at(-1)![4]
+    const next = first.feed.getHistoryKLineData.mock.calls.at(-1)![3]
     first.unmount()
     expect(next.signal.aborted).toBe(true)
     expect(other.signal.aborted).toBe(false)
@@ -265,14 +278,18 @@ describe('chart lifecycle isolation', () => {
   })
 
   it('aborts pagination on replay and aborts replay-resume history on dispose', async () => {
-    const host = mount(); await tick()
+    const page=deferred(),resume=deferred(),initial=historyResponse({kind:'before',before:Date.now()+1,countBack:bars.length})
+    const read=vi.fn().mockResolvedValueOnce(initial).mockReturnValueOnce(page.promise).mockReturnValueOnce(resume.promise)
+    const host = mount(read); await tick()
     mock.loadMore(bars[0].timestamp)
-    const pagination = host.feed.getHistoryKLineData.mock.calls.at(-1)![4]
+    await tick()
+    const pagination = host.feed.getHistoryKLineData.mock.calls.at(-1)![3]
     expect(pagination.reason).toBe('load-more')
     host.api.startReplay(2)
     expect(pagination.signal.aborted).toBe(true)
     host.api.stopReplay()
-    const resumed = host.feed.getHistoryKLineData.mock.calls.at(-1)![4]
+    await tick()
+    const resumed = host.feed.getHistoryKLineData.mock.calls.at(-1)![3]
     expect(resumed.reason).toBe('resume')
     host.unmount()
     expect(resumed.signal.aborted).toBe(true)

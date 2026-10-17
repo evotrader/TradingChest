@@ -28,7 +28,8 @@ try {
     try { dom.window.eval(code); } finally { dom.window.close(); }
   };
   browserFixture('chart-browser.mjs', `
-import {KLineChartPro,builtinIndicatorCatalog,registerIndicatorDefinition} from 'trading-chest/chart';
+import {KLineChartPro,builtinIndicatorCatalog,registerIndicatorDefinition,ChartWorkspace,WorkspaceStoreError,createIndexedDBWorkspaceStore,readLegacyWorkspace} from 'trading-chest/chart';
+if([ChartWorkspace,WorkspaceStoreError,createIndexedDBWorkspaceStore,readLegacyWorkspace].some(value=>typeof value!=='function'))throw Error('missing data/workspace exports');
 import {createSignal,createComponent} from 'solid-js';
 import {render} from 'solid-js/web';
 import {MetricSeries} from 'trading-chest/solid';
@@ -46,15 +47,20 @@ if(host.childNodes.length!==0) throw Error('widget cleanup failed');
   browserFixture('chart-browser.cjs', `
 const chart=require('trading-chest/chart');
 if(typeof chart.KLineChartPro!=='function') throw Error('missing CommonJS chart');
+if([chart.ChartWorkspace,chart.WorkspaceStoreError,chart.createIndexedDBWorkspaceStore,chart.readLegacyWorkspace].some(value=>typeof value!=='function'))throw Error('missing CommonJS data/workspace exports');
 if(typeof chart.registerIndicatorDefinition!=='function'||!Array.isArray(chart.builtinIndicatorCatalog)) throw Error('missing CommonJS SDK');
 `);
   console.log('Packed ESM/CJS browser consumers without React and shared Solid runtime PASS');
   writeFileSync(path.join(dir,'consumer.ts'), `
-import { KLineChartPro,registerIndicatorDefinition,builtinIndicatorCatalog,type DatafeedRequestContext,type ChartPro,type IndicatorDescriptor,type IndicatorParameterSchema,type IndicatorHandle,type AnalysisContext,type AnalysisLayerSpec,type AnalysisLayerHandle,type AnalysisEvent,type AnalysisLabelPoint } from 'trading-chest/chart';
+import { KLineChartPro,registerIndicatorDefinition,builtinIndicatorCatalog,type DatafeedRequestContext,type ChartPro,type IndicatorDescriptor,type IndicatorParameterSchema,type IndicatorHandle,type AnalysisContext,type AnalysisLayerSpec,type AnalysisLayerHandle,type AnalysisEvent,type AnalysisLabelPoint,type HistoryQuery,type HistoryResult,type Datafeed,type WorkspaceStore,type WorkspaceWrite,type StoredWorkspace,createIndexedDBWorkspaceStore,ChartWorkspace } from 'trading-chest/chart';
 import type {AnalysisLayerSpec as RootLayer,IndicatorDescriptor as RootDescriptor} from 'trading-chest';
 import { MetricSeries } from 'trading-chest/solid';
 void KLineChartPro; void MetricSeries; void registerIndicatorDefinition; void builtinIndicatorCatalog;
 let context:DatafeedRequestContext|undefined;void context;
+const query:HistoryQuery={kind:'before',before:Date.now(),countBack:500};void query;
+const feed:Datafeed={searchSymbols:async()=>[],getHistoryKLineData:async(_symbol,_period,query,_context):Promise<HistoryResult>=>query.kind==='before'?{bars:[],hasMoreBefore:false}:{bars:[]},subscribe:()=>{},unsubscribe:()=>{}};void feed;
+const store:WorkspaceStore=createIndexedDBWorkspaceStore();declare const input:WorkspaceWrite;declare const signal:AbortSignal;const stored:Promise<StoredWorkspace>=store.write('opaque',input,signal);void stored;
+declare const workspace:ChartWorkspace;void workspace.listSaved();void workspace.saveAs('name');void workspace.load('id');void workspace.renameSaved('id','name');void workspace.deleteSaved('id');void workspace.importLegacy('old');
 declare const chart:ChartPro;
 declare const scope:AnalysisContext;
 const layer:AnalysisLayerSpec={id:'labels',label:'Labels',type:'label-series',data:[{id:'date',label:'2026-01-01',value:null}]};
@@ -62,7 +68,7 @@ const rootLayer:RootLayer=layer;void rootLayer;
 const descriptor:IndicatorDescriptor={name:'EXAMPLE/test',label:'Test',category:'custom',placements:['sub'],parameters:{items:[{type:'boolean',label:'Enabled'}]}};
 const rootDescriptor:RootDescriptor=descriptor;void rootDescriptor;
 const handle:AnalysisLayerHandle<typeof layer>=chart.addAnalysisLayer(scope,layer);handle.replaceData(layer.data);handle.setVisible(false);handle.dispose();
-void chart.getIndicatorCatalog();void chart.getIndicators();void chart.getAnalysisContext();
+void chart.retryData();void chart.getIndicatorCatalog();void chart.getIndicators();void chart.getAnalysisContext();
 chart.addIndicator({name:'MA',placement:'main',calcParams:[3,7]}).then((handle:IndicatorHandle)=>{chart.updateIndicator(handle.id,{calcParams:[4,8],visible:true});chart.removeIndicator(handle.id)});
 let schema:IndicatorParameterSchema|undefined;let event:AnalysisEvent|undefined;let point:AnalysisLabelPoint|undefined;void schema;void event;void point;
 `)
@@ -111,7 +117,7 @@ console.log('Legacy browser UMD and CSS paths PASS');
     assert.ok(existsSync(path.join(dir,'node_modules/trading-chest/dist',asset)), 'missing legacy '+asset)
   }
   console.log('Packed subentries, declarations and legacy assets PASS')
-  for(const name of ['index.html','main.mjs'])copyFileSync(path.join(root,'examples/analysis-sdk',name),path.join(dir,name))
+  for(const name of ['index.html','main.mjs','data-workspace.html','data-workspace.mjs'])copyFileSync(path.join(root,'examples/analysis-sdk',name),path.join(dir,name))
   writeFileSync(path.join(dir,'mixed.mjs'),`import * as root from 'trading-chest'; import * as sub from 'trading-chest/chart'; window.mixedEntries={root,sub}; export {root,sub};`)
   const htmlPath=path.join(dir,'index.html');writeFileSync(htmlPath,readFileSync(htmlPath,'utf8').replace('</html>', '<script type="module" src="/mixed.mjs"></script></html>'))
   const evidence=path.resolve(process.env.TC_PACKAGE_EVIDENCE || path.join(root,'test-results/package'));mkdirSync(evidence,{recursive:true})
@@ -166,7 +172,7 @@ console.log('Legacy browser UMD and CSS paths PASS');
       const catalog=[...sub.builtinIndicatorCatalog,...['PACKED/lazy','PACKED/layout-lazy'].map(name=>({name,label:'Lazy from root',category:'custom',placements:['main'],parameters:{items:[]}}))]
       const host=document.createElement('div');host.style.cssText='height:700px;width:1000px';document.body.append(host)
       let ready,readyCount=0;const loaded=new Promise(resolve=>ready=resolve)
-      const other=new sub.KLineChartPro({container:host,indicatorCatalog:catalog,symbol:{ticker:'PACKED'},period:chart.getPeriod(),mainIndicators:[],subIndicators:[],onDataReady:()=>{readyCount++;ready()},datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async()=>window.analysisDemo.bars,subscribe:()=>{},unsubscribe:()=>{}}})
+      const other=new sub.KLineChartPro({container:host,indicatorCatalog:catalog,symbol:{ticker:'PACKED'},period:chart.getPeriod(),mainIndicators:[],subIndicators:[],onDataReady:()=>{readyCount++;ready()},datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>query.kind==='before'?{bars:window.analysisDemo.bars.filter(bar=>bar.timestamp<query.before),hasMoreBefore:false}:{bars:window.analysisDemo.bars.filter(bar=>bar.timestamp>=query.from&&bar.timestamp<query.to)},subscribe:()=>{},unsubscribe:()=>{}}})
       await loaded;const handle=await other.addIndicator({name:'PACKED/lazy',placement:'main'});other.removeIndicator(handle.id)
       other.addAnalysisLayer(other.getAnalysisContext(),{id:'mixed',label:'Mixed entrypoints',type:'line',placement:'sub',valueType:'scalar',data:[{timestamp:window.analysisDemo.bars[0].timestamp,value:1}]})
       const fromRoot=root.captureLayout(other),fromChart=sub.captureLayout(other)
@@ -187,6 +193,18 @@ console.log('Legacy browser UMD and CSS paths PASS');
     await page.evaluate(()=>window.analysisDemo.chart.dispose());assert.deepEqual(errors,[])
     writeFileSync(path.join(evidence,'analysis-sdk.json'),JSON.stringify({passed:true,source:'installed tarball',rendered,original,updated,mixed,errors},null,2)+'\n')
     console.log('Installed tarball analysis example: real Chromium API, numerical rendering, instances, layout and replay PASS')
+    await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/data-workspace.html`)
+    await page.waitForFunction(()=>window.dataWorkspaceDemo?.ready)
+    await page.getByRole('button',{name:'读取过去 12 根（before）',exact:true}).click();await page.getByRole('status').filter({hasText:'before 返回 12 根'}).waitFor()
+    await page.getByRole('button',{name:'读取完整合成会话（range）',exact:true}).click();await page.getByRole('status').filter({hasText:'range 返回完整区间 240 根'}).waitFor()
+    await page.getByRole('button',{name:'下一次读取模拟失败',exact:true}).click();await page.getByRole('button',{name:'重载活动图（range）',exact:true}).click();await page.locator('.klinecharts-pro-data-error').waitFor();await page.getByRole('button',{name:'重试活动图',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.klinecharts-pro-data-error'))
+    const workspaceName=page.getByLabel('工作台名称',{exact:true}),savedSelect=page.getByLabel('已保存工作台',{exact:true})
+    await workspaceName.fill('独立产物 A');await page.getByRole('button',{name:'另存',exact:true}).click();await savedSelect.locator('option').nth(1).waitFor({state:'attached'});const savedId=await savedSelect.inputValue()
+    await workspaceName.fill('独立产物 B');await page.getByRole('button',{name:'另存',exact:true}).click();await savedSelect.locator('option').nth(2).waitFor({state:'attached'});await savedSelect.selectOption(savedId);await page.waitForFunction(()=>document.querySelector('.tc-workspace-notice').textContent.includes('已恢复'))
+    await page.reload();await page.waitForFunction(()=>window.dataWorkspaceDemo?.ready);await savedSelect.locator('option').nth(2).waitFor({state:'attached'});assert.equal(await savedSelect.locator('option').count(),3)
+    await page.evaluate(()=>{dataWorkspaceDemo.workspace.dispose();dataWorkspaceDemo.store.dispose()});assert.deepEqual(errors,[])
+    writeFileSync(path.join(evidence,'data-workspace.json'),JSON.stringify({passed:true,source:'installed tarball',before:12,range:240,namedRecords:2,persistent:true,errors},null,2)+'\n')
+    console.log('Installed tarball generic history and persistent async workspace example PASS')
   } catch(error) {
     await packagePage?.screenshot({path:path.join(evidence,'failure.png'),fullPage:true}).catch(()=>{})
     writeFileSync(path.join(evidence,'failure.json'),JSON.stringify({message:String(error),errors:packageErrors},null,2)+'\n')

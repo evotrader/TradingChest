@@ -31,7 +31,7 @@ try {
  await expect(page.locator('.klinecharts-pro-data-error')).toContainText('Replay recovery failed: Isolated main subscription failed after attaching')
  await page.evaluate(()=>{test.state.failSubscribe=false;test.chart.stopReplay()})
  await expect(page.locator('.klinecharts-pro-replay-bar')).toHaveCount(0)
- await page.evaluate(async()=>{try{await test.chart.addComparison({ticker:'ZERO'},{searchSymbols:async()=>[],getHistoryKLineData:async()=>test.bars.map(bar=>({...bar,open:0,high:0,low:0,close:0})),subscribe:()=>{},unsubscribe:()=>{}})}catch{}})
+ await page.evaluate(async()=>{try{await test.chart.addComparison({ticker:'ZERO'},{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>window.historyResult(query,test.bars.map(bar=>({...bar,open:0,high:0,low:0,close:0}))),subscribe:()=>{},unsubscribe:()=>{}})}catch{}})
  await expect(page.locator('.klinecharts-pro-comparisons [role="alert"]')).toContainText('Comparison failed')
  await expect(page.locator('.klinecharts-pro-comparisons [role="alert"]')).toContainText('zero')
  const rejected=await page.evaluate(()=>test.chart.commitDrawing({kind:'create',logicalId:'unconfirmed',source:'api',after:{logicalId:'unconfirmed',owner:'backend',overlay:{name:'horizontalStraightLine',points:[{timestamp:test.bars[0].timestamp,value:test.bars[0].close}]}}}))

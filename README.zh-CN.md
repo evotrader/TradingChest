@@ -15,11 +15,13 @@
   <img src="docs/public/image.png" alt="TradingChest 截图" width="800" />
 </p>
 
-## 0.7.0 通用分析 SDK
+## 0.8.0 数据接入与命名工作台
 
 支持带命名空间的 KLineChart 模板、每图指标目录与按 ID 操作的真实实例，参数含数字／选择器／布尔开关，同名实例互不串改。外部线、正负柱、价格带、只读事件和有序标签面板接受宿主显式快照，落实 scope token、dataBasis 与回放 availableAt 规则。工作台尺寸／主题／语言／工具栏由宿主配置。
 
-见 [API](docs/api.md)、[0.6.0 升级说明](docs/upgrade/0.7.0.md)和[独立 tarball 示例](examples/analysis-sdk/README.md)。库不依赖 EvoTrader 后端或凭证，示例为明确隔离合成数据；业务计算、数据、存储和操作回调由宿主负责。
+历史读取使用 before/countBack 或完整 range，请求明确返回穷尽边界及可选来源元数据。图表提供已确认数据／连接状态及 retryData。命名工作台注入异步分区存储并校验 revision，内置 IndexedDB 与显式旧布局导入；工作台 v1、单图 v3 格式不变。
+
+见 [0.7.0 迁移说明](docs/upgrade/0.8.0.md)、[数据接入](docs/data-access.md)、[API](docs/api.md)、[0.6.0 升级说明](docs/upgrade/0.7.0.md)和[独立 tarball 示例](examples/analysis-sdk/README.md)。库不依赖 EvoTrader 后端或凭证，示例为明确隔离合成数据；业务计算、数据、存储和操作回调由宿主负责。
 
 `npm run test:package` 验证安装后的 ESM／CJS／UMD／CSS，并在 Chromium 操作独立示例。`npx playwright install chromium && npm run test:browser` 自行管理空闲端口及包内服务，证据写入 test-results。CI 保留 Node 22／24 原检查，新增包／浏览器／文档构建。
 
@@ -105,22 +107,23 @@
 - **键盘快捷键**：15+ 默认绑定（Alt+T 趋势线、Alt+F 斐波那契等），可完全自定义
 - **5 种预设主题**：暗色、亮色、午夜蓝、经典（TradingView 风格）、高对比
 - **数据导出**：CSV（可见区间/全量）、截图（PNG/JPEG）
-- **布局持久化**：localStorage 保存/加载/删除图表布局
+- **布局持久化**：单图沿用 localStorage，命名工作台通过异步适配器／IndexedDB 保存、另存、切换、重命名和删除
 - **国际化**：中文 (zh-CN)、英文 (en-US)
 - **时区**：14 个时区支持
 
 ## 安装
 
 ```bash
-npm install trading-chest@0.7.0 klinecharts@10.1.0
+npm install trading-chest@0.8.0 klinecharts@10.1.0
 ```
 
 ## 使用
 
 ```typescript
-import { KLineChartPro } from 'trading-chest'
+import { KLineChartPro } from 'trading-chest/chart'
 import 'trading-chest/dist/trading-chest.css'
 
+// hostHistory is the host adapter described in the data-access guide.
 const chart = new KLineChartPro({
   container: document.getElementById('chart'),
   symbol: {
@@ -132,13 +135,13 @@ const chart = new KLineChartPro({
   },
   period: { multiplier: 1, timespan: 'day', text: '1D' },
   datafeed: {
-    searchSymbols: async () => [],
-    getHistoryKLineData: async (symbol, period, from, to) => {
-      // 返回 KLineData[] — 实现你的数据获取逻辑
-      return []
+    searchSymbols: search => hostHistory.searchSymbols(search),
+    getHistoryKLineData: async (symbol, period, query, context) => {
+      // Read actual host history; confirm exhaustion only from provider evidence.
+      return hostHistory.read(symbol, period, query, context?.signal)
     },
-    subscribe: () => {},
-    unsubscribe: () => {},
+    subscribe: (symbol, period, callback) => hostHistory.subscribe(symbol, period, callback),
+    unsubscribe: (symbol, period) => hostHistory.unsubscribe(symbol, period),
   },
   theme: 'dark',
   locale: 'zh-CN',
@@ -250,7 +253,7 @@ import {
   exportToCSV, exportAllToCSV, exportScreenshot,
 
   // 布局持久化
-  saveLayout, loadLayout, deleteLayout, listLayouts,
+  saveLayoutV3, loadLayoutV3, deleteLayoutV3, listLayoutsV3,
 
   // 快捷键
   KeyboardShortcutManager,
@@ -271,7 +274,7 @@ import {
 
 ## 技术栈
 
-- **渲染引擎**: [KLineChart](https://github.com/klinecharts/KLineChart) 9.x（Canvas，高性能）
+- **渲染引擎**: [KLineChart](https://github.com/klinecharts/KLineChart) 10.1.0（Canvas，高性能）
 - **UI 框架**: [Solid.js](https://www.solidjs.com/)（响应式，轻量）
 - **构建工具**: [Vite](https://vitejs.dev/)（ESM + UMD 双格式输出）
 - **语言**: TypeScript（项目代码零 `@ts-expect-error`）

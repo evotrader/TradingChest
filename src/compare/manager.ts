@@ -2,7 +2,8 @@ import i18n from '../i18n'
 import {registerIndicator,type Chart,type KLineData} from 'klinecharts'
 import {visibleTimestamps} from '../workspace/viewportSync'
 import {historySnapshot,validateBars} from '../core/engineDataLoader'
-import type {HistoryResult,Period,SymbolInfo} from '../types'
+import {validateHistoryResult} from '../datafeed/history'
+import type {HistorySnapshot,Period,SymbolInfo} from '../types'
 import {commonBaseWithPrices,baseClose,priceMap} from './group'
 import type {ComparisonDatafeed,ComparisonHandle,ComparisonState} from './types'
 
@@ -26,7 +27,7 @@ function abortable<T>(work:Promise<T>,signal:AbortSignal):Promise<T>{
   work.then(value=>{cleanup();resolve(value)},reason=>{cleanup();reject(reason)})
  })
 }
-type PendingUpdate={bar:KLineData}|{snapshot:{bars:KLineData[];basis?:string}}|{error:string}
+type PendingUpdate={bar:KLineData}|{snapshot:HistorySnapshot}|{error:string}
 type Member={handle:ComparisonHandle;feed:ComparisonDatafeed;bars:KLineData[];basis?:string;stream:number;subscribed:boolean;pending?:PendingUpdate[];prices:Map<number,number>;returns?:(timestamp:number)=>number|undefined;returnBase?:number;returnPrices?:Map<number,number>}
 interface Options {locale?:()=>string;chart:()=>Chart|null;symbol:()=>SymbolInfo;period:()=>Period;instanceId:string;onChange?:(state:ComparisonState)=>void}
 export class ComparisonManager {
@@ -80,10 +81,12 @@ export class ComparisonManager {
   const controller=new AbortController(),epoch=this.generation,period=clone(this.options.period())
   const pending={symbol,controller,feed,released:false};comparisonOwners.add(feed);this.pending.set(id,pending);this.error=undefined;this.emit()
   try{
-   const snapshot=historySnapshot(await abortable(feed.getHistoryKLineData(symbol,period,this.referenceFrom??main[0].timestamp,main.at(-1)!.timestamp,{signal:controller.signal,reason:'initial'}),controller.signal))
+   const snapshot=historySnapshot(await abortable(feed.getHistoryKLineData(symbol,period,{kind:'range',from:this.referenceFrom??main[0].timestamp,to:main.at(-1)!.timestamp+1},{signal:controller.signal,reason:'initial'}),controller.signal))
    if(this.disposed||epoch!==this.generation||controller.signal.aborted||this.pending.get(id)?.controller!==controller)throw abort()
+   validateHistoryResult(snapshot,{kind:'range',from:this.referenceFrom??main[0].timestamp,to:main.at(-1)!.timestamp+1})
+   if(snapshot.metadata?.state==='partial')throw Error('比较历史区间尚未完整')
    const current=this.main(),prices=priceMap(snapshot.bars),base=this.commonBase(current,[...[...this.members.values()].map(m=>m.prices),prices],this.referenceFrom??main[0].timestamp,main.at(-1)!.timestamp)
-   const member:Member={handle:{id,symbol:clone(symbol),period,indicatorId:'',readAt:Date.now(),sourceTimestamp:snapshot.bars.at(-1)?.timestamp,basis:snapshot.basis,mode:feed.mode??(feed.subscribeSnapshots?'http-snapshot':'stream')},feed,bars:copyBars(snapshot.bars),basis:snapshot.basis,stream:0,subscribed:false,prices}
+   const member:Member={handle:{id,symbol:clone(symbol),period,indicatorId:'',readAt:Date.now(),sourceTimestamp:snapshot.metadata?.sourceTimestamp,basis:snapshot.basis,mode:feed.mode??(feed.subscribeSnapshots?'http-snapshot':'stream')},feed,bars:copyBars(snapshot.bars),basis:snapshot.basis,stream:0,subscribed:false,prices}
    const oldBase=this.base,oldNotice=this.notice;if(!this.members.size)this.mainPrices=priceMap(current);this.members.set(id,member);this.base=base;this.notice=()=>`${this.text('comparison_recalculated')}${new Date(base).toISOString()}`
    try{this.render();this.start(member)}catch(reason){if(member.handle.indicatorId)this.chart().removeIndicator({id:member.handle.indicatorId});this.members.delete(id);this.base=oldBase;this.notice=oldNotice;if(this.members.size)this.render();else this.clearIndicators();throw reason}
    this.referenceFrom??=main[0].timestamp
@@ -115,7 +118,7 @@ export class ComparisonManager {
   try {
   if(m.feed.subscribeSnapshots)m.feed.subscribeSnapshots(m.handle.symbol,m.handle.period,value=>{
     if(!owned())return
-    if(preparingUpdate()){try{const snapshot=historySnapshot(value);pending.push({snapshot:{bars:copyBars(snapshot.bars),basis:snapshot.basis}})}catch(reason){pending.push({error:reason instanceof Error?reason.message:String(reason)})}}
+    if(preparingUpdate()){try{const snapshot=historySnapshot(value);pending.push({snapshot:{bars:copyBars(snapshot.bars),basis:snapshot.basis,metadata:snapshot.metadata&&{...snapshot.metadata}}})}catch(reason){pending.push({error:reason instanceof Error?reason.message:String(reason)})}}
     else if(active())this.update(m,value)
   },reason=>{if(!owned())return;if(preparingUpdate())pending.push({error:reason instanceof Error?reason.message:String(reason)});else if(active())this.fail(reason,m.handle.id)})
   else m.feed.subscribe(m.handle.symbol,m.handle.period,bar=>{if(!owned())return;if(preparingUpdate())pending.push({bar:{...bar}});else if(active())this.updateBar(m,bar)})
@@ -131,23 +134,24 @@ export class ComparisonManager {
    const old=m.bars[low],revised=bar.timestamp===this.base&&old?.close!==bar.close
    if(old?.timestamp===bar.timestamp)m.bars[low]={...bar};else m.bars.splice(low,0,{...bar})
    if(!m.prices.has(bar.timestamp)||m.prices.get(bar.timestamp)!==bar.close){m.prices.set(bar.timestamp,bar.close);m.returnPrices=undefined}
-   m.handle={...m.handle,readAt:Date.now(),sourceTimestamp:m.bars.at(-1)?.timestamp};this.errorsByOwner.delete(m.handle.id)
+   m.handle={...m.handle,readAt:Date.now(),sourceTimestamp:undefined};this.errorsByOwner.delete(m.handle.id)
    if(revised)this.notice=()=>`${m.handle.symbol.ticker}${this.text('comparison_member_revised')}${new Date(this.base!).toISOString()}`
    this.render();this.emit()
   }catch(reason){this.fail(reason,m.handle.id)}
  }
- private mergeSnapshot(m:Member,snapshot:{bars:KLineData[];basis?:string}){
+ private mergeSnapshot(m:Member,snapshot:HistorySnapshot){
+  if(snapshot.metadata?.state==='partial')throw Error('比较历史区间尚未完整')
   if(!snapshot.bars.length)throw Error(`${m.handle.symbol.ticker}: ${this.text('comparison_empty_member')}`)
   const incoming=new Map(snapshot.bars.map(bar=>[bar.timestamp,bar]))
   if(snapshot.basis!==m.basis){if(m.bars.some(bar=>!incoming.has(bar.timestamp)))throw Error(this.text('comparison_error_11'));return snapshot}
   return {...snapshot,bars:[...new Map([...m.bars,...snapshot.bars].map(bar=>[bar.timestamp,bar])).values()].sort((a,b)=>a.timestamp-b.timestamp)}
  }
- private update(m:Member,value:HistoryResult){
+ private update(m:Member,value:HistorySnapshot){
   try{
    const snapshot=this.mergeSnapshot(m,historySnapshot(value))
    const base=this.base!,old=m.bars.find(bar=>bar.timestamp===base)?.close,actual=snapshot.bars.find(bar=>bar.timestamp===base)?.close
    this.checkBase(snapshot.bars,base)
-   m.bars=copyBars(snapshot.bars);m.prices=priceMap(m.bars);m.basis=snapshot.basis;m.handle={...m.handle,readAt:Date.now(),sourceTimestamp:snapshot.bars.at(-1)?.timestamp,basis:snapshot.basis};this.errorsByOwner.delete(m.handle.id)
+   m.bars=copyBars(snapshot.bars);m.prices=priceMap(m.bars);m.basis=snapshot.basis;m.handle={...m.handle,readAt:Date.now(),sourceTimestamp:snapshot.metadata?.sourceTimestamp,basis:snapshot.basis};this.errorsByOwner.delete(m.handle.id)
    if(old!==actual)this.notice=()=>`${m.handle.symbol.ticker}${this.text('comparison_member_revised')}${new Date(base).toISOString()}`
    this.render();this.emit()
   }catch(reason){this.fail(reason,m.handle.id)}
@@ -178,9 +182,9 @@ export class ComparisonManager {
    if(from===undefined)throw Error(this.text('comparison_error_13'))
    const snapshots=await abortable(Promise.all(members.map(async m=>{
     try{
-      const result=await m.feed.getHistoryKLineData(m.handle.symbol,m.handle.period,from,to,{signal:controller.signal,reason:'resume'})
+      const result=await m.feed.getHistoryKLineData(m.handle.symbol,m.handle.period,{kind:'range',from,to},{signal:controller.signal,reason:'resume'})
       if(this.disposed||epoch!==this.generation||controller.signal.aborted)throw abort()
-      const merged=this.mergeSnapshot(m,historySnapshot(result)),snapshot={bars:copyBars(merged.bars),basis:merged.basis};if(!stage)this.errorsByOwner.delete(m.handle.id);return snapshot
+      validateHistoryResult(result,{kind:'range',from,to});if(result.metadata?.state==='partial')throw Error('比较历史区间尚未完整');const merged=this.mergeSnapshot(m,historySnapshot(result)),snapshot={bars:copyBars(merged.bars),basis:merged.basis,metadata:merged.metadata&&{...merged.metadata}};if(!stage)this.errorsByOwner.delete(m.handle.id);return snapshot
     }catch(reason){
       if(!controller.signal.aborted&&epoch===this.generation){const message=reason instanceof Error?reason.message:String(reason);this.errorsByOwner.set(m.handle.id,message);throw Error(`${m.handle.symbol.ticker}：${message}`)}
       throw reason
@@ -192,7 +196,7 @@ export class ComparisonManager {
    const apply=()=>{
     if(this.disposed||epoch!==this.generation||members.length!==this.members.size||members.some(m=>this.members.get(m.handle.id)!==m))throw abort()
     let revised=false
-    for(let i=0;i<members.length;i++){const old=members[i].bars.find(b=>b.timestamp===base)?.close,current=snapshots[i].bars.find(b=>b.timestamp===base)?.close;if(old!==current)revised=true;members[i].bars=snapshots[i].bars;members[i].prices=priceMap(members[i].bars);members[i].basis=snapshots[i].basis;members[i].handle={...members[i].handle,readAt:Date.now(),sourceTimestamp:snapshots[i].bars.at(-1)?.timestamp,basis:snapshots[i].basis}}
+    for(let i=0;i<members.length;i++){const old=members[i].bars.find(b=>b.timestamp===base)?.close,current=snapshots[i].bars.find(b=>b.timestamp===base)?.close;if(old!==current)revised=true;members[i].bars=snapshots[i].bars;members[i].prices=priceMap(members[i].bars);members[i].basis=snapshots[i].basis;members[i].handle={...members[i].handle,readAt:Date.now(),sourceTimestamp:snapshots[i].metadata?.sourceTimestamp,basis:snapshots[i].basis}}
     this.base=base;if(rebase)this.referenceFrom=window?.from
     if(rebase||revised)this.notice=()=>`${this.text(rebase?'comparison_range_reset':'comparison_base_revised')}: ${new Date(base).toISOString()}`
     this.error=undefined;for(const m of members)this.errorsByOwner.delete(m.handle.id)

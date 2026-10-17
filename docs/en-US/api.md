@@ -156,7 +156,7 @@ Analysis data/visibility are excluded from v3 layouts by actual runtime indicato
 
 `ChartWorkspaceOptions` adds `locale/theme/height?:number|'100%'` (default 100%; parent must supply height) and `toolbar?:{layout?,sync?,storage?,size?}`. Hiding a group only hides controls; APIs remain usable. `setLocale(locale)`, `setTheme(theme)` and `resize()` update presentation; ResizeObserver follows actual container geometry. Per-cell v3 theme/locale restore retains its existing meaning; host options own workspace chrome.
 
-Library chrome covers Chinese/English; missing ja/ko entries fall back to English. User labels and backend errors retain their original text. Storage is enabled only by an explicit adapter; this version adds no asynchronous cloud layout adapter.
+Library chrome covers Chinese/English; missing ja/ko entries fall back to English. User labels and backend errors retain their original text. Named storage is enabled only by an explicitly injected asynchronous WorkspaceStore; see the storage API below.
 
 ## Retained 0.6.0 contracts
 
@@ -175,4 +175,91 @@ Reload completion includes engine application and subscription preparation. A su
 Asynchronous layout preflight captures the owning loader's identity epoch before awaiting work. Switching away and back, including empty charts, cancels the old restore with AbortError before deletion/recreation. Direct restoreLayout still does not promise full transaction rollback. Comparison resume copies source data when read and applies it only after all subscriptions prepare successfully. Removing a real member during preparation cancels that attempt and allows retry with remaining members; an unknown ID does not affect it. Event endpoints must fit the displayable Unix millisecond date range. Intervals intersecting the viewport retain their visible segment and clicks return the original event timestamp.
 
 
-Workspace `onLayoutChange(layout)` lets the host adjust outer height without changing the persisted document. EvoTrader uses 780px for one/two charts and 1160px for four; other hosts choose their own container sizes. External template tooltip names, units and legends are retained; add/restore share instance controls and omit settings without a schema. Failed analysis replacements show an error while retaining confirmed graphics. Unknown price bases are labelled on separate panes. Successful composite replay exit also drains queued history snapshots.
+Workspace `onLayoutChange(layout)` lets the host adjust outer height without changing the persisted document. Hosts choose container sizes appropriate to their own cells. External template tooltip names, units and legends are retained; add/restore share instance controls and omit settings without a schema. Failed analysis replacements show an error while retaining confirmed graphics. Unknown price bases are labelled on separate panes. Successful composite replay exit also drains queued history snapshots.
+
+
+## 0.8.0 data API
+
+```typescript
+import type {HistoryQuery,HistoryMetadata,HistorySnapshot,HistoryResult,
+  DatafeedStatus,ChartDataState} from 'trading-chest/chart'
+
+type HistoryQuery =
+  | {kind:'before'; before:number; countBack:number}
+  | {kind:'range'; from:number; to:number}
+interface HistoryMetadata {
+  state:'ready'|'empty'|'partial'
+  sourceTimestamp?:number
+  delayMs?:number
+}
+interface HistorySnapshot {bars:KLineData[]; basis?:string; metadata?:HistoryMetadata}
+interface HistoryResult extends HistorySnapshot {hasMoreBefore?:boolean}
+type DatafeedStatus =
+  | {type:'connection';state:'connected'|'disconnected'|'reconnecting'|'failed'}
+  | {type:'revision-required';message?:string}
+  | {type:'error';code?:string;message:string}
+
+// Datafeed
+getHistoryKLineData(symbol:SymbolInfo,period:Period,query:HistoryQuery,
+  context?:DatafeedRequestContext):Promise<HistoryResult>
+subscribeStatus?(symbol:SymbolInfo,period:Period,
+  accept:(status:DatafeedStatus)=>void):()=>void
+
+// ChartPro
+retryData():Promise<void>
+```
+
+Timestamps are Unix milliseconds. before excludes its upper bound; countBack targets a number of bars. range reads the complete `[from,to)` interval. Before requires boolean hasMoreBefore at runtime even though the shared type makes it optional for ranges. Short pages/empty windows do not prove exhaustion; empty plus true is rejected. Ranges may omit it; partial ranges cannot confirm complete recovery. Array returns and positional from/to arguments are removed.
+
+`ChartDataState` retains symbol, period, basis?, timestamp?, restoring, replay and error?, and adds:
+
+| Field | Type/meaning |
+| --- | --- |
+| dataStatus | unconfirmed / empty / ready, for the complete confirmed dataset |
+| lastRead? | `{query:HistoryQuery;metadata?:HistoryMetadata;hasMoreBefore?:boolean}`, the committed read |
+| connection | unknown / connected / disconnected / reconnecting / failed |
+| revisionRequired | boolean; a reload request, not a live bar |
+| errorCode? | string |
+| operation? | initial / load-more / reload |
+
+Undeclared sourceTimestamp/delayMs remain unknown, never inferred from HTTP or bar timestamps. retryData preserves the failed request and prepend anchor; it completes idempotently without a failure. Failures retain confirmed graphics; identity changes/disposal invalidate obsolete work. See [data access](./data-access).
+
+## Workspace storage API
+
+```typescript
+import {ChartWorkspace,createIndexedDBWorkspaceStore,WorkspaceStoreError,
+  readLegacyWorkspace} from 'trading-chest/chart'
+import type {WorkspaceStore,WorkspaceSummary,StoredWorkspace,WorkspaceWrite}
+  from 'trading-chest/chart'
+
+interface WorkspaceSummary {id:string;name:string;updatedAt:number;revision:string}
+interface StoredWorkspace extends WorkspaceSummary {document:WorkspaceDocument}
+type WorkspaceWrite =
+  | {kind:'create';id:string;name:string;document:WorkspaceDocument}
+  | {kind:'update';id:string;expectedRevision:string;name:string;document:WorkspaceDocument}
+interface WorkspaceStore {
+  list(scope:string,signal:AbortSignal):Promise<WorkspaceSummary[]>
+  read(scope:string,id:string,signal:AbortSignal):Promise<StoredWorkspace|null>
+  write(scope:string,input:WorkspaceWrite,signal:AbortSignal):Promise<StoredWorkspace>
+  remove(scope:string,id:string,expectedRevision:string,signal:AbortSignal):Promise<void>
+}
+createIndexedDBWorkspaceStore(options?:{databaseName?:string}):WorkspaceStore & {dispose():void}
+readLegacyWorkspace(scope:string,options:{symbols:SymbolInfo[];
+  fallback:{symbol:SymbolInfo;period:Period};storage?:Pick<Storage,'getItem'>}):WorkspaceDocument|null
+```
+
+`ChartWorkspaceOptions.store?:WorkspaceStore` replaces storage/storageKey without a runtime shim. Scope is the original context, never parsed or trimmed. IDs/revisions are opaque; the workspace generates IDs. Names are trimmed to 1–80 characters; duplicate names are allowed and IDs determine identity. read returns null for missing records. Update/delete compare expectedRevision atomically; IndexedDB resolves only after readwrite transaction completion. Adapters validate/copy scope and documents; remote adapters must implement the same durable comparison semantics.
+
+| ChartWorkspace method | Result/behavior |
+| --- | --- |
+| listSaved() | `Promise<WorkspaceSummary[]>`; refresh the list |
+| saveAs(name) | `Promise<WorkspaceSummary>`; create/select the current view |
+| save() | `Promise<WorkspaceSummary>`; update the confirmed selected ID/revision |
+| load(id) | `Promise<void>`; replace/select only after every cell is ready |
+| renameSaved(id,name) | `Promise<WorkspaceSummary>`; retain the stored document, without saving current edits |
+| deleteSaved(id) | `Promise<void>`; remove that record; library UI confirms the target first |
+| importLegacy(name) | `Promise<WorkspaceSummary>`; create an optional record requiring selection/load |
+
+`WorkspaceStoreError.code` is WORKSPACE_NOT_FOUND, WORKSPACE_STORE_UNAVAILABLE, WORKSPACE_INVALID_DOCUMENT or WORKSPACE_CONFLICT. Conflicts never overwrite automatically; refresh/reselect or save as another record. Cancellation/timeouts can leave a committed write. The UI reads the same scope/ID to resolve unknown outcomes before allowing another storage mutation. Only one mutation runs per instance; charts remain interactive.
+
+Without a store, management is disabled with an explanation. IndexedDB failure has no fallback. Saving is explicitly manual; save edits before switching. Import reads old workspace and supported single-chart v1/v2/v3 keys without auto-loading or modifying them. Content stays WorkspaceDocument v1 and chart v3, with names/IDs/revisions outside it and no market/runtime analytical data. Dispose the workspace before its owned store; borrowers must not close a shared store. Single-chart saveLayoutV3/listLayoutsV3 retain their original responsibilities.

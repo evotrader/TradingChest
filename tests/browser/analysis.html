@@ -3,6 +3,14 @@
 // Isolated browser input, never used by production consumers.
 import {KLineChartPro,builtinIndicatorCatalog,registerIndicatorDefinition,captureLayout,restoreLayout} from '/src/chart.ts'
 import {runtimeBindings} from '/src/analysis/bindings.ts'
+const historyResult=(query,rows)=>{
+ if(query.kind==='before'){
+  const eligible=rows.filter(bar=>bar.timestamp<query.before),selected=eligible.slice(-query.countBack)
+  return {bars:selected,hasMoreBefore:eligible.length>selected.length}
+ }
+ return {bars:rows.filter(bar=>bar.timestamp>=query.from&&bar.timestamp<query.to)}
+}
+window.historyResult=historyResult
 window.runtimeBindings=runtimeBindings
 const external={name:'example:combo',shortName:'组合演示',calcParams:[3,'close',false],figures:[{key:'value',type:'line'}],calc:(bars,i)=>bars.map((b,index)=>({value:index<i.calcParams[0]-1?undefined:b[i.calcParams[1]]*(i.calcParams[2]?2:1)}))}
 registerIndicatorDefinition(external.name,external)
@@ -13,7 +21,7 @@ const descriptor={name:external.name,label:'组合演示',labels:{'en-US':'Examp
 const bars=Array.from({length:20},(_,i)=>({timestamp:1700000000000+i*60000,open:10+i,high:12+i,low:9+i,close:11+i,volume:20}))
 window.setup=(container=document.querySelector('#chart'))=>{
  const state={basis:'raw',bars:bars.map(b=>({...b})),subscriptions:0,events:[],points:[],states:[],ready:0,errors:[],hold:false}
- const feed={searchSymbols:async()=>[],getHistoryKLineData:async(s,p,from,to,c)=>{c?.signal.throwIfAborted();if(state.hold){await new Promise(resolve=>state.release=resolve);c?.signal.throwIfAborted()}return c?.reason==='load-more'?[]:{bars:state.bars,basis:state.basis}},subscribe:()=>{state.subscriptions++;if(state.failSubscribe)throw Error('Isolated main subscription failed after attaching')},unsubscribe:()=>state.subscriptions--,dispose:()=>{}}
+ const feed={searchSymbols:async()=>[],getHistoryKLineData:async(s,p,query,c)=>{c?.signal.throwIfAborted();if(state.hold){await new Promise(resolve=>state.release=resolve);c?.signal.throwIfAborted()}return c?.reason==='load-more'?query.kind==='before'?{bars:[],hasMoreBefore:false}:{bars:[]}:{...historyResult(query,state.bars),basis:state.basis}},subscribe:()=>{state.subscriptions++;if(state.failSubscribe)throw Error('Isolated main subscription failed after attaching')},unsubscribe:()=>state.subscriptions--,dispose:()=>{}}
  const chart=new KLineChartPro({container,symbol:{ticker:'TEST'},period:{multiplier:1,timespan:'minute',text:'1m'},mainIndicators:['MA'],subIndicators:['VOL','RSI'],indicatorCatalog:[...builtinIndicatorCatalog,descriptor,{name:readonly.name,label:'Readonly',category:'custom',placements:['main']},{name:'example:lazy',label:'Lazy',category:'custom',placements:['main'],parameters:{items:[]}}],datafeed:feed,onDataReady:()=>state.ready++,onError:e=>state.errors.push(e),onAnalysisLayerChange:e=>state.states.push(e),onAnalysisEventClick:e=>state.events.push(e),onAnalysisPointSelect:e=>state.points.push(e)})
  window.test={chart,feed,state,bars,context:()=>chart.getAnalysisContext(),capture:()=>captureLayout(chart),restore:layout=>restoreLayout(chart,layout),bindings:()=>{const b=runtimeBindings.get(chart.getChart());return b?Object.fromEntries(Object.entries(b).map(([k,v])=>[k,v.size])):{}},addLayers:()=>{
    const context=chart.getAnalysisContext(),handles={}

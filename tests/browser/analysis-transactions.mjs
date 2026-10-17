@@ -45,7 +45,7 @@ try{
  await run('comparison-staged-until-composite-commit',async()=>{
   const before=await page.evaluate(async()=>{
    test.memberBars=test.bars.map(b=>({...b,open:b.open*2,high:b.high*2,low:b.low*2,close:b.close*2}));test.memberSubscriptions=0
-   const feed={searchSymbols:async()=>[],getHistoryKLineData:async()=>({bars:test.memberBars,basis:'member-raw'}),subscribe:()=>{test.memberSubscriptions++;if(test.memberFailSubscribe)throw Error('Isolated member subscription failure')},unsubscribe:()=>test.memberSubscriptions--}
+   const feed={searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>({...window.historyResult(query,test.memberBars),basis:'member-raw'}),subscribe:()=>{test.memberSubscriptions++;if(test.memberFailSubscribe)throw Error('Isolated member subscription failure')},unsubscribe:()=>test.memberSubscriptions--}
    await test.chart.addComparison({ticker:'OTHER'},feed);test.chart.startReplay(5)
    const state=test.chart.getComparisons();test.before={handle:state.handles[0],notice:state.notice,main:test.chart.getChart().getDataList().map(b=>({...b})),token:test.context().token}
    test.memberBars=test.memberBars.map((b,i)=>i===4?{...b,close:102,high:103}:b);test.state.failSubscribe=true;test.chart.stopReplay();return test.before
@@ -75,8 +75,8 @@ try{
  for(const mode of ['bar','snapshot'])for(const failFirst of [false,true])await run(`comparison-synchronous-${mode}-${failFirst?'failure-retry':'success'}`,async()=>{
   await page.evaluate(async({mode,failFirst})=>{
    test.syncMemberSubscriptions=0;test.deliverSync=false;test.failSynchronous=failFirst
-   const feed={searchSymbols:async()=>[],getHistoryKLineData:async()=>test.bars,unsubscribe:()=>test.syncMemberSubscriptions--}
-   const subscribe=callback=>{test.syncMemberSubscriptions++;if(test.deliverSync){const rows=test.bars.map(b=>({...b}));rows.at(-1).close=test.failSynchronous?999:91;rows.at(-1).high=rows.at(-1).close+1;callback(mode==='bar'?rows.at(-1):rows);rows.at(-1).close=NaN;if(test.failSynchronous)throw Error('Isolated synchronous member failure')}}
+   const feed={searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>window.historyResult(query,test.bars),unsubscribe:()=>test.syncMemberSubscriptions--}
+   const subscribe=callback=>{test.syncMemberSubscriptions++;if(test.deliverSync){const rows=test.bars.map(b=>({...b}));rows.at(-1).close=test.failSynchronous?999:91;rows.at(-1).high=rows.at(-1).close+1;callback(mode==='bar'?rows.at(-1):{bars:rows});rows.at(-1).close=NaN;if(test.failSynchronous)throw Error('Isolated synchronous member failure')}}
    if(mode==='snapshot'){feed.subscribe=()=>{};feed.subscribeSnapshots=(_s,_p,callback)=>subscribe(callback)}else feed.subscribe=(_s,_p,callback)=>subscribe(callback)
    test.syncHandle=await test.chart.addComparison({ticker:'SYNC'},feed);test.chart.startReplay(5);test.initialToken=test.context().token;test.deliverSync=true;test.chart.stopReplay()
   },{mode,failFirst})
@@ -87,7 +87,7 @@ try{
  })
  for(const change of ['known-member','unknown-member','mutable-source'])await run(`comparison-pending-${change}`,async()=>{
   await page.evaluate(async change=>{
-   const makeFeed=key=>({searchSymbols:async()=>[],getHistoryKLineData:async()=>test[key],subscribe:()=>{},unsubscribe:()=>{}})
+   const makeFeed=key=>({searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>window.historyResult(query,test[key]),subscribe:()=>{},unsubscribe:()=>{}})
    test.aBars=test.bars.map(b=>({...b}));test.bBars=test.bars.map(b=>({...b}))
    test.a=await test.chart.addComparison({ticker:'A'},makeFeed('aBars'));test.b=await test.chart.addComparison({ticker:'B'},makeFeed('bBars'))
    test.chart.startReplay(5);test.previousToken=test.context().token

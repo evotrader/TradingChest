@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TradingChest 0.8 数据与工作台示例</title>
+<style>
+body{font:14px system-ui;margin:16px;background:#111827;color:#e5e7eb}button,select,input{font:inherit;margin:4px}button{padding:5px 10px}a{color:#93c5fd}#workspace{height:950px;width:100%}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#1f2937;padding:12px;max-height:240px;overflow:auto}nav{display:flex;flex-wrap:wrap}details{margin:10px 0}
+</style>
+<h1>0.8 数据读取与命名工作台</h1>
+<p>仅使用隔离合成行情，不连接市场、账户或生产服务。合成会话并不表示交易日历。工作台保存到本浏览器真实 IndexedDB，不会写入其他应用的记录。</p>
+<p><a href="./index.html">打开原通用分析示例</a>。工作台在下方手动保存／另存；选择已保存记录即可加载，切换前先保存未保存的改动。旧布局仅通过明确导入操作读取。</p>
+<nav aria-label="数据读取示例操作">
+  <button id="read-before">读取过去 12 根（before）</button>
+  <button id="read-range">读取完整合成会话（range）</button>
+  <button id="reload">重载活动图（range）</button>
+  <button id="fail-next">下一次读取模拟失败</button>
+  <button id="retry">重试活动图</button>
+</nav>
+<p id="status" role="status">正在初始化工作台</p>
+<details open><summary>活动图已确认状态（来源时刻／延迟未声明时为未知）</summary><pre id="data-state">尚未确认</pre></details>
+<details><summary>历史请求与结果</summary><pre id="history-log">尚未读取</pre></details>
+<div id="workspace"></div>
+<script type="module" src="./data-workspace.mjs"></script>
+</html>

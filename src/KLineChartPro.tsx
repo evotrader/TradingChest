@@ -274,6 +274,7 @@ export default class KLineChartPro implements ChartPro {
     }
   }
 
+  retryData():Promise<void> {return this._api().retryData()}
   reloadData(options?: {preserveViewport?: boolean}): Promise<void> { return this._api().reloadData(options) }
   applySnapshot(snapshot: import('./types').ChartSnapshot): Promise<void> {return this._api().applySnapshot(snapshot)}
 

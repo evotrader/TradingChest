@@ -15,11 +15,13 @@
   <img src="docs/public/image.png" alt="TradingChest 스크린샷" width="800" />
 </p>
 
-## 0.7.0 범용 분석 SDK
+## 0.8.0 데이터 연결과 이름 있는 작업 공간
 
 패키지는 `trading-chest`, KLineChart는 `10.1.0` 고정입니다. 지표 카탈로그, 독립 인스턴스, 분석 레이어와 크기／언어／테마 설정을 추가했습니다.
 
-[English API](docs/en-US/api.md) · [Upgrade guide](docs/en-US/upgrade/0.7.0.md) · [Standalone example](examples/analysis-sdk/README.md). EvoTrader 백엔드와 자격 증명이 필요하지 않습니다. 예제는 격리된 합성 데이터입니다.
+before/countBack·range, 명시적 기록 경계, 상태 알림과 retryData를 제공합니다. 비동기 WorkspaceStore, IndexedDB 및 명시적 이전 레이아웃 가져오기를 지원합니다.
+
+[0.8.0 migration](docs/en-US/upgrade/0.8.0.md) · [Data access](docs/en-US/data-access.md) · [English API](docs/en-US/api.md) · [Upgrade guide](docs/en-US/upgrade/0.7.0.md) · [Standalone example](examples/analysis-sdk/README.md). EvoTrader 백엔드와 자격 증명이 필요하지 않습니다. 예제는 격리된 합성 데이터입니다.
 
 ## 기능
 
@@ -109,15 +111,16 @@
 ## 설치
 
 ```bash
-npm install trading-chest@0.7.0 klinecharts@10.1.0
+npm install trading-chest@0.8.0 klinecharts@10.1.0
 ```
 
 ## 사용법
 
 ```typescript
-import { KLineChartPro } from 'trading-chest'
+import { KLineChartPro } from 'trading-chest/chart'
 import 'trading-chest/dist/trading-chest.css'
 
+// hostHistory is the host adapter described in the data-access guide.
 const chart = new KLineChartPro({
   container: document.getElementById('chart'),
   symbol: {
@@ -129,13 +132,13 @@ const chart = new KLineChartPro({
   },
   period: { multiplier: 1, timespan: 'day', text: '1D' },
   datafeed: {
-    searchSymbols: async () => [],
-    getHistoryKLineData: async (symbol, period, from, to) => {
-      // KLineData[]를 반환 — 데이터 가져오기 로직 구현
-      return []
+    searchSymbols: search => hostHistory.searchSymbols(search),
+    getHistoryKLineData: async (symbol, period, query, context) => {
+      // Read actual host history; confirm exhaustion only from provider evidence.
+      return hostHistory.read(symbol, period, query, context?.signal)
     },
-    subscribe: () => {},
-    unsubscribe: () => {},
+    subscribe: (symbol, period, callback) => hostHistory.subscribe(symbol, period, callback),
+    unsubscribe: (symbol, period) => hostHistory.unsubscribe(symbol, period),
   },
   theme: 'dark',
   locale: 'en-US',
@@ -247,7 +250,7 @@ import {
   exportToCSV, exportAllToCSV, exportScreenshot,
 
   // 레이아웃 저장
-  saveLayout, loadLayout, deleteLayout, listLayouts,
+  saveLayoutV3, loadLayoutV3, deleteLayoutV3, listLayoutsV3,
 
   // 키보드 단축키
   KeyboardShortcutManager,
@@ -268,7 +271,7 @@ import {
 
 ## 기술 스택
 
-- **렌더링 엔진**: [KLineChart](https://github.com/klinecharts/KLineChart) 9.x (Canvas, 고성능)
+- **렌더링 엔진**: [KLineChart](https://github.com/klinecharts/KLineChart) 10.1.0 (Canvas, 고성능)
 - **UI 프레임워크**: [Solid.js](https://www.solidjs.com/) (리액티브, 경량)
 - **빌드 도구**: [Vite](https://vitejs.dev/) (ESM + UMD 이중 출력)
 - **언어**: TypeScript (프로젝트 코드 `@ts-expect-error` 제로)

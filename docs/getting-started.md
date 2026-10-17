@@ -5,7 +5,7 @@ TradingChest 是通用浏览器图表库。行情、指标计算输入、存储�
 ## 安装
 
 ```bash
-npm install trading-chest@0.7.0 klinecharts@10.1.0
+npm install trading-chest@0.8.0 klinecharts@10.1.0
 ```
 
 纯图表使用 `trading-chest/chart`，无需安装 React。已有 React／Solid 分析组件分别从 `trading-chest/react`／`trading-chest/solid` 引入；Solid 宿主与库共享运行时。固定 KLineChart peer 为 10.1.0，原始 Node 图表导入不属于 SSR 支持范围。
@@ -39,4 +39,29 @@ chart.dispose()
 
 [analysis-sdk 示例](https://github.com/evotrader/TradingChest/tree/main/examples/analysis-sdk)安装实际 tarball，仅通过公开入口演示外部指标、独立实例、线／柱／带／事件、日期标签面板、回放和布局。输入明确为隔离合成数据，不连接生产或需要凭证；可复制到仓库之外构建运行。生产接入请提供真实 datafeed，不把示例当行情回退。
 
-新增接口见 [API](./api#通用指标目录与实例)，从 0.6.0 迁移见[升级说明](./upgrade/0.7.0)。本地开发依次运行 `npm ci`、`npm run build`、`npm run test:package`、`npx playwright install chromium`、`npm run test:browser`、`npm run docs:build`。浏览器 runner 自行选择空闲端口、启动 Vite 并清理自有进程；JSON、日志与 trace 保存在 `test-results/`。
+同一示例的 `/data-workspace.html` 是独立的 0.8.0 入口：用 before/countBack 初始化、range 重载、状态／重试和真实 IndexedDB 命名工作台演示公开接口。页面数据仍为明确标识的隔离合成输入；IndexedDB 记录是真实的本浏览器持久记录。原 `/index.html` 保持分析层演示。两个页面可单独使用，不需要后端或凭证。
+
+## 注入工作台存储
+
+```typescript
+import {ChartWorkspace,createIndexedDBWorkspaceStore} from 'trading-chest/chart'
+
+const store = createIndexedDBWorkspaceStore({databaseName:'my-chart-workspaces'})
+const workspace = new ChartWorkspace({
+  container:document.getElementById('workspace')!, height:900,
+  context:'my-chart-view', symbols, initialSymbol:symbol, initialPeriod:period,
+  getPeriods, mountCell, store
+})
+await workspace.listSaved()
+// Each mountCell owns a provider and resolves ready after data is applied.
+// Save manually; load a selected ID returned by listSaved().
+const saved = await workspace.saveAs('我的视图')
+await workspace.load(saved.id)
+// On host unmount, release borrowers before their owned store.
+workspace.dispose()
+store.dispose()
+```
+
+symbols/getPeriods/mountCell 是宿主提供的真实目录和图表工厂；可运行实现见上述独立示例。未注入 store 时管理禁用，存储失败不回落其他实现。`importLegacy(name)` 只新增可选记录，之后显式选择／加载，原键不变。
+
+新增接口见 [API](./api#工作台存储接口)，从 0.7.0 迁移见 [0.8.0 升级说明](./upgrade/0.8.0)，更早的分析 SDK 迁移见 [0.7.0 升级说明](./upgrade/0.7.0)。本地开发依次运行 `npm ci`、`npm run build`、`npm run test:package`、`npx playwright install chromium`、`npm run test:browser`、`npm run docs:build`。浏览器 runner 自行选择空闲端口、启动 Vite 并清理自有进程；JSON、日志与 trace 保存在 `test-results/`。这些是验证命令，不代表每个宿主环境已通过验收。

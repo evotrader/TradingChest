@@ -14,7 +14,8 @@
 
 import { KLineData } from 'klinecharts'
 
-import { Datafeed, SymbolInfo, Period, DatafeedSubscribeCallback, DatafeedRequestContext } from './types'
+import { Datafeed, SymbolInfo, Period, DatafeedSubscribeCallback, DatafeedRequestContext, HistoryQuery, HistoryResult, DatafeedStatus } from './types'
+import {HistoryError,historyWindow,validateHistoryQuery,validateHistoryResult} from './datafeed/history'
 import { ReconnectingWebSocket } from './datafeed/ReconnectingWebSocket'
 
 
@@ -34,6 +35,14 @@ export default class DefaultDatafeed implements Datafeed {
     this._adjusted = options?.adjusted ?? true
   }
 
+  private _statusListeners=new Set<(status:DatafeedStatus)=>void>()
+  private connection(state:ConnectionState,detail?:{attempt?:number;error?:unknown}):void {
+    this._onConnectionStateChange?.(state,detail)
+    for(const accept of this._statusListeners)accept({type:'connection',state})
+  }
+  subscribeStatus(_symbol:SymbolInfo,_period:Period,accept:(status:DatafeedStatus)=>void):()=>void {
+    this._statusListeners.add(accept);return()=>{this._statusListeners.delete(accept)}
+  }
   private _apiKey: string
   private _onConnectionStateChange: ((state: ConnectionState, detail?: { attempt?: number, error?: unknown }) => void) | null
   private _fetchTimeout: number
@@ -76,46 +85,54 @@ export default class DefaultDatafeed implements Datafeed {
     }
   }
 
-  async getHistoryKLineData (symbol: SymbolInfo, period: Period, from: number, to: number, context?: DatafeedRequestContext): Promise<KLineData[]> {
-    if (this._disposed) throw new Error('Datafeed disposed')
-    context?.signal.throwIfAborted()
-    const controller = new AbortController()
-    const abort = () => controller.abort(context?.signal.reason)
-    if (context?.signal.aborted) abort()
-    else context?.signal.addEventListener('abort', abort, { once: true })
-    const timeout = setTimeout(() => controller.abort(new DOMException('History request timed out', 'TimeoutError')), this._fetchTimeout)
+  async getHistoryKLineData(symbol:SymbolInfo,period:Period,query:HistoryQuery,context?:DatafeedRequestContext):Promise<HistoryResult> {
+    if(this._disposed)throw new Error('Datafeed disposed')
+    validateHistoryQuery(query);context?.signal.throwIfAborted()
+    const controller=new AbortController(),abort=()=>controller.abort(context?.signal.reason)
+    context?.signal.addEventListener('abort',abort,{once:true})
+    const timeout=setTimeout(()=>controller.abort(new DOMException('History request timed out','TimeoutError')),this._fetchTimeout)
+    // Documented stock coverage: https://massive.com/docs/rest/stocks/aggregates/custom-bars
+    // Other markets have no inferred floor. Access errors never establish exhaustion.
+    const floor=symbol.market==='stocks'?Date.parse('2003-09-10T00:00:00Z'):undefined
+    const upper=query.kind==='before'?query.before:query.to
+    let width=historyWindow(period,query.kind==='before'?query.countBack:1),requests=0
+    let from=query.kind==='range'?query.from:Math.max(floor??-8.64e15,upper-width)
     try {
-      const response = await fetch(
-        `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol.ticker)}/range/${period.multiplier}/${period.timespan}/${from}/${to}?adjusted=${this._adjusted}&sort=asc&apiKey=${this._apiKey}`,
-        { signal: controller.signal }
-      )
-      if (!response.ok) {
-        throw new Error(`Historical data HTTP ${response.status}`)
+      for(;;){
+        const bars=new Map<number,KLineData>()
+        let url:string|undefined=`https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol.ticker)}/range/${period.multiplier}/${period.timespan}/${from}/${upper-1}?adjusted=${this._adjusted}&sort=${query.kind==='before'?'desc':'asc'}&limit=50000&apiKey=${encodeURIComponent(this._apiKey)}`
+        const visited=new Set<string>()
+        let saturated=false
+        while(url){
+          controller.signal.throwIfAborted()
+          if(++requests>24||visited.has(url))throw new HistoryError('HISTORY_BOUNDARY_UNRESOLVED','历史分页未完成，请重试')
+          visited.add(url)
+          const response:Response=await fetch(url,{signal:controller.signal})
+          if(!response.ok)throw new HistoryError(`HTTP_${response.status}`,`Historical data HTTP ${response.status}`)
+          const result:{results?:Array<Record<string,number>>;status?:string;next_url?:string;queryCount?:number}=await response.json()
+          if(!result||result.results===undefined&&result.status!=='OK'||['ERROR','NOT_AUTHORIZED'].includes(result.status??'')||result.results!==undefined&&!Array.isArray(result.results))throw new HistoryError('INVALID_HISTORY','Invalid historical data response')
+          for(const value of result.results??[]){
+            const bar:KLineData={timestamp:value.t,open:value.o,high:value.h,low:value.l,close:value.c,volume:value.v,providerVwap:Number.isFinite(value.vw)?value.vw:undefined}
+            if(bar.timestamp>=from&&bar.timestamp<upper)bars.set(bar.timestamp,bar)
+          }
+          if(query.kind==='before'&&bars.size>=query.countBack){
+            const ordered=[...bars.values()].sort((a,b)=>a.timestamp-b.timestamp)
+            return validateHistoryResult({bars:ordered.slice(-query.countBack),hasMoreBefore:true},query)
+          }
+          saturated=(result.queryCount??0)>=50000
+          if(result.next_url){
+            const next:URL=new URL(result.next_url,'https://api.polygon.io')
+            if(next.origin!=='https://api.polygon.io')throw new HistoryError('INVALID_HISTORY','Invalid history pagination origin')
+            next.searchParams.set('apiKey',this._apiKey);url=next.toString()
+          }else url=undefined
+        }
+        const ordered=[...bars.values()].sort((a,b)=>a.timestamp-b.timestamp)
+        if(saturated)throw new HistoryError('HISTORY_BOUNDARY_UNRESOLVED','源聚合上限未确认完整区间，请缩小区间或重试')
+        if(query.kind==='range')return validateHistoryResult({bars:ordered},query)
+        if(ordered.length||floor!==undefined&&from<=floor)return validateHistoryResult({bars:ordered,hasMoreBefore:floor===undefined||from>floor},query)
+        width=Math.min(8.64e15,width*2);from=Math.max(floor??-8.64e15,upper-width)
       }
-      const result = await response.json()
-      if (!result || result.results === undefined && result.status !== 'OK' || result.status === 'ERROR' || result.status === 'NOT_AUTHORIZED' ||
-          result.results !== undefined && !Array.isArray(result.results)) throw new Error('Invalid historical data response')
-      if (result.next_url) throw new Error('History response is paginated; narrow the range or use a paginating provider')
-      const bars = (result.results ?? []).map((data: Record<string, number>) => ({
-        timestamp: data.t,
-        open: data.o,
-        high: data.h,
-        low: data.l,
-        close: data.c,
-        volume: data.v,
-        // Provider VWAP is a price, not turnover. Never mislabel it as traded amount.
-        providerVwap: Number.isFinite(data.vw) ? data.vw : undefined
-      }))
-      if (bars.some((bar: KLineData) => ![bar.timestamp,bar.open,bar.high,bar.low,bar.close].every(Number.isFinite) ||
-          bar.high < Math.max(bar.open,bar.close,bar.low) || bar.low > Math.min(bar.open,bar.close) ||
-          bar.volume !== undefined && (!Number.isFinite(bar.volume) || bar.volume < 0))) throw new Error('Invalid historical OHLCV')
-      return [...new Map<number,KLineData>(bars.map((bar: KLineData) => [bar.timestamp,bar])).values()].sort((a,b)=>a.timestamp-b.timestamp)
-    } catch (e) {
-      throw e
-    } finally {
-      clearTimeout(timeout)
-      context?.signal.removeEventListener('abort', abort)
-    }
+    } finally {clearTimeout(timeout);context?.signal.removeEventListener('abort',abort)}
   }
 
   subscribe (symbol: SymbolInfo, period: Period, callback: DatafeedSubscribeCallback): void {
@@ -126,7 +143,7 @@ export default class DefaultDatafeed implements Datafeed {
       this._ws?.close()
       this._ws = undefined
       this._authenticated = false
-      this._onConnectionStateChange?.('failed', {error:'Streaming supports only stocks / 1 minute / adjusted:false; other series remain history-only'})
+      this.connection('failed', {error:'Streaming supports only stocks / 1 minute / adjusted:false; other series remain history-only'})
       return
     }
     const oldTicker = this._prevTicker
@@ -147,35 +164,35 @@ export default class DefaultDatafeed implements Datafeed {
       this._authenticated = false
       socket.send(JSON.stringify({action:'auth',params:this._apiKey}))
     }
-    socket.onerror = () => { if (this._ws === socket) this._onConnectionStateChange?.('disconnected',{error:'WebSocket error'}) }
+    socket.onerror = () => { if (this._ws === socket) this.connection('disconnected',{error:'WebSocket error'}) }
     socket.onclose = () => {
       if (this._ws !== socket) return
       this._authenticated = false
-      this._onConnectionStateChange?.('disconnected')
+      this.connection('disconnected')
     }
-    socket.onreconnect = attempt => { if (this._ws === socket) this._onConnectionStateChange?.('reconnecting',{attempt}) }
+    socket.onreconnect = attempt => { if (this._ws === socket) this.connection('reconnecting',{attempt}) }
     socket.onmessage = event => {
       if (this._ws !== socket || this._disposed) return
       let messages: unknown
-      try { messages = JSON.parse(event.data) } catch { this._onConnectionStateChange?.('failed',{error:'Invalid stream JSON'}); return }
+      try { messages = JSON.parse(event.data) } catch { this.connection('failed',{error:'Invalid stream JSON'}); return }
       if (!Array.isArray(messages)) return
       for (const d of messages) {
         if (!d || typeof d !== 'object') continue
         if (d.ev === 'status') {
           if (d.status === 'auth_success') {
             this._authenticated = true
-            this._onConnectionStateChange?.('connected')
+            this.connection('connected')
             if (this._callback && this._prevTicker) socket.send(JSON.stringify({action:'subscribe',params:`AM.${this._prevTicker}`}))
           } else if (d.status === 'auth_failed' || d.status === 'error') {
             this._authenticated = false
-            this._onConnectionStateChange?.('failed',{error:d.message ?? d.status})
+            this.connection('failed',{error:d.message ?? d.status})
           }
           continue
         }
         if (!this._authenticated || d.ev !== 'AM' || d.sym !== this._prevTicker) continue
         if (![d.s,d.o,d.h,d.l,d.c,d.v].every(Number.isFinite) || d.v < 0 ||
             d.h < Math.max(d.o,d.c,d.l) || d.l > Math.min(d.o,d.c)) {
-          this._onConnectionStateChange?.('failed',{error:'Invalid stream OHLCV'})
+          this.connection('failed',{error:'Invalid stream OHLCV'})
           continue
         }
         this._callback?.({timestamp:d.s,open:d.o,high:d.h,low:d.l,close:d.c,volume:d.v,
@@ -197,5 +214,6 @@ export default class DefaultDatafeed implements Datafeed {
     const socket = this._ws
     this._ws = undefined
     socket?.close()
+    this._statusListeners.clear()
   }
 }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import DefaultDatafeed from '../../DefaultDatafeed'
 const symbol = {ticker:'TEST'}
 const period = {multiplier:1,timespan:'minute',text:'1m'}
+const query = {kind:'range',from:0,to:1} as const
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 describe('history cancellation contract', () => {
   it('passes caller cancellation through to fetch and does not return fake empty data', async () => {
@@ -13,7 +14,7 @@ describe('history cancellation contract', () => {
     })))
     const controller = new AbortController()
     const feed = new DefaultDatafeed('fixture', {fetchTimeout:1000})
-    const pending = feed.getHistoryKLineData(symbol, period, 0, 1, {signal:controller.signal,reason:'initial'})
+    const pending = feed.getHistoryKLineData(symbol, period, query, {signal:controller.signal,reason:'initial'})
     const rejected = expect(pending).rejects.toMatchObject({name:'AbortError'})
     controller.abort()
     await rejected
@@ -23,7 +24,7 @@ describe('history cancellation contract', () => {
   it('keeps legacy calls valid and releases the timeout after success', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ok:true,json:async()=>({results:[]})}))
-    await expect(new DefaultDatafeed('fixture').getHistoryKLineData(symbol,period,0,1)).resolves.toEqual([])
+    expect((await new DefaultDatafeed('fixture').getHistoryKLineData(symbol,period,query)).bars).toEqual([])
     expect(vi.getTimerCount()).toBe(0)
   })
 })

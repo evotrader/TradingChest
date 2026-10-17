@@ -6,13 +6,20 @@ window.layoutApi={captureLayout,restoreLayout,migrateLayoutToV3,saveLayoutV3,loa
 import { getTradeVisHitTargets } from '/src/indicator/trade/tradeVisualization.ts'
 window.tradeTargets = chart => getTradeVisHitTargets(chart._instanceId)
 const bars = Array.from({length: 20}, (_, i) => ({timestamp: 1700000000000 + i*60000, open: 10+i, high: 12+i, low: 9+i, close: 11+i, volume: 20}))
+const historyResult=(query,rows,extra={})=>{
+  if(query.kind==='before'){
+    const eligible=rows.filter(bar=>bar.timestamp<query.before),selected=eligible.slice(-query.countBack)
+    return {...extra,bars:selected,hasMoreBefore:eligible.length>selected.length}
+  }
+  return {...extra,bars:rows.filter(bar=>bar.timestamp>=query.from&&bar.timestamp<query.to)}
+}
 window.setup = (pending = false, container = document.querySelector('#chart')) => {
   let resolveHistory
-  const history = pending ? new Promise(resolve => { resolveHistory = resolve }) : Promise.resolve(bars)
+  const history = pending ? new Promise(resolve => { resolveHistory = resolve }) : null
   const state = { requests: [], histories: 0, subscriptions: 0, unsubscribes: 0, feedDisposals: 0, alerts: [], replayAlerts: [], created: [], deleted: [], indicatorClicks: [],errors:[],ready:[],dataStates:[] }
   const feed = {
     searchSymbols: async () => [],
-    getHistoryKLineData: (_s, _p, _from, to, context) => { state.requests.push(context); state.histories++; if(state.failHistory) return Promise.reject(new Error('隔离测试读取失败'));if(state.holdResume && context?.reason==='resume')return new Promise((resolve,reject)=>{state.resolveResume=resolve;state.rejectResume=reject});if(state.holdSymbol===_s.ticker)return new Promise(resolve=>{state.resolveSymbol=resolve});return state.historyOverride ? Promise.resolve(state.historyOverride) : to < bars[0].timestamp ? Promise.resolve([]) : history },
+    getHistoryKLineData: (_s, _p, query, context) => { state.requests.push(context); state.histories++; if(state.failHistory) return Promise.reject(new Error('隔离测试读取失败'));if(state.holdResume && context?.reason==='resume')return new Promise((resolve,reject)=>{state.resolveResume=rows=>resolve(historyResult(query,rows));state.rejectResume=reject});if(state.holdSymbol===_s.ticker)return new Promise(resolve=>{state.resolveSymbol=rows=>resolve(historyResult(query,rows))});if(state.historyOverride){const override=state.historyOverride,source=Array.isArray(override)?override:override.bars,metadata=Array.isArray(override)?{}:{basis:override.basis,metadata:override.metadata};return Promise.resolve(historyResult(query,source,metadata))}return history??Promise.resolve(historyResult(query,bars)) },
     subscribe: (_s, _p, callback) => { state.subscriptions++; state.tick = callback },
     unsubscribe: () => { state.unsubscribes++ },
     dispose: () => { state.feedDisposals++ },
@@ -34,7 +41,7 @@ window.setup = (pending = false, container = document.querySelector('#chart')) =
       while(state.ready.length===before){if(performance.now()-start>15000)throw Error('Fixture identity did not become ready');await new Promise(resolve=>setTimeout(resolve,1))}
     }
     state.historyOverride=undefined
-  }, resolveHistory: () => resolveHistory?.(bars)}
+  }, resolveHistory: () => resolveHistory?.({bars,hasMoreBefore:false})}
 }
 window.ready = true
 </script></body></html>

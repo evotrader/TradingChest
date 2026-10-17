@@ -15,11 +15,13 @@
   <img src="docs/public/image.png" alt="TradingChest スクリーンショット" width="800" />
 </p>
 
-## 0.7.0 汎用分析 SDK
+## 0.8.0 データ接続と名前付きワークスペース
 
 パッケージ名は `trading-chest`、KLineChart は `10.1.0` 固定です。指標カタログ、独立インスタンス、分析レイヤー、サイズ／言語／テーマ設定を追加しました。
 
-[English API](docs/en-US/api.md) · [Upgrade guide](docs/en-US/upgrade/0.7.0.md) · [Standalone example](examples/analysis-sdk/README.md)。EvoTrader バックエンドや認証情報は不要です。サンプルは隔離された合成データを使用します。
+before/countBack・range、履歴の終端、状態通知と retryData を提供します。非同期 WorkspaceStore と IndexedDB、明示的な旧レイアウトのインポートに対応します。
+
+[0.8.0 migration](docs/en-US/upgrade/0.8.0.md) · [Data access](docs/en-US/data-access.md) · [English API](docs/en-US/api.md) · [Upgrade guide](docs/en-US/upgrade/0.7.0.md) · [Standalone example](examples/analysis-sdk/README.md)。EvoTrader バックエンドや認証情報は不要です。サンプルは隔離された合成データを使用します。
 
 ## 特徴
 
@@ -109,15 +111,16 @@
 ## インストール
 
 ```bash
-npm install trading-chest@0.7.0 klinecharts@10.1.0
+npm install trading-chest@0.8.0 klinecharts@10.1.0
 ```
 
 ## 使い方
 
 ```typescript
-import { KLineChartPro } from 'trading-chest'
+import { KLineChartPro } from 'trading-chest/chart'
 import 'trading-chest/dist/trading-chest.css'
 
+// hostHistory is the host adapter described in the data-access guide.
 const chart = new KLineChartPro({
   container: document.getElementById('chart'),
   symbol: {
@@ -129,13 +132,13 @@ const chart = new KLineChartPro({
   },
   period: { multiplier: 1, timespan: 'day', text: '1D' },
   datafeed: {
-    searchSymbols: async () => [],
-    getHistoryKLineData: async (symbol, period, from, to) => {
-      // KLineData[] を返す — データ取得ロジックを実装
-      return []
+    searchSymbols: search => hostHistory.searchSymbols(search),
+    getHistoryKLineData: async (symbol, period, query, context) => {
+      // Read actual host history; confirm exhaustion only from provider evidence.
+      return hostHistory.read(symbol, period, query, context?.signal)
     },
-    subscribe: () => {},
-    unsubscribe: () => {},
+    subscribe: (symbol, period, callback) => hostHistory.subscribe(symbol, period, callback),
+    unsubscribe: (symbol, period) => hostHistory.unsubscribe(symbol, period),
   },
   theme: 'dark',
   locale: 'en-US',
@@ -247,7 +250,7 @@ import {
   exportToCSV, exportAllToCSV, exportScreenshot,
 
   // レイアウト永続化
-  saveLayout, loadLayout, deleteLayout, listLayouts,
+  saveLayoutV3, loadLayoutV3, deleteLayoutV3, listLayoutsV3,
 
   // キーボードショートカット
   KeyboardShortcutManager,
@@ -268,7 +271,7 @@ import {
 
 ## テクノロジースタック
 
-- **レンダリングエンジン**: [KLineChart](https://github.com/klinecharts/KLineChart) 9.x（Canvas、高パフォーマンス）
+- **レンダリングエンジン**: [KLineChart](https://github.com/klinecharts/KLineChart) 10.1.0（Canvas、高パフォーマンス）
 - **UI フレームワーク**: [Solid.js](https://www.solidjs.com/)（リアクティブ、軽量）
 - **ビルドツール**: [Vite](https://vitejs.dev/)（ESM + UMD デュアル出力）
 - **言語**: TypeScript（プロジェクトコードで `@ts-expect-error` ゼロ）

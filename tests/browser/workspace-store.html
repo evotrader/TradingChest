@@ -1,0 +1,20 @@
+<!doctype html><html><body><div id="host" style="width:1250px;height:1050px"></div><script type="module">
+import {ChartWorkspace,KLineChartPro,createIndexedDBWorkspaceStore,WorkspaceStoreError,builtinIndicatorCatalog} from '/src/chart.ts'
+window.setup=async(options={})=>{
+ window.workspace?.dispose();window.ownedStore?.dispose();window.charts={}
+ const native=createIndexedDBWorkspaceStore({databaseName:options.databaseName??'tc-workspace-ui-isolated'});window.ownedStore=native;window.nativeStore=native
+ const state={barOwners:0,ready:0,writes:[],...options};window.state=state
+ let store=native
+ if(options.remote){const request=async(method,path,signal,body)=>{const response=await fetch(options.remote+path,{method,signal,headers:{'Content-Type':'application/json'},body:body&&JSON.stringify(body)}),result=await response.json();if(!response.ok)throw new WorkspaceStoreError(result.code,result.message);return result};store={list:(scope,signal)=>request('GET','/?scope='+encodeURIComponent(scope),signal),read:(scope,id,signal)=>request('GET','/'+encodeURIComponent(id)+'?scope='+encodeURIComponent(scope),signal),write:(scope,input,signal)=>request('POST','/?scope='+encodeURIComponent(scope),signal,input),remove:(scope,id,expectedRevision,signal)=>request('DELETE','/'+encodeURIComponent(id)+'?scope='+encodeURIComponent(scope),signal,{expectedRevision})}}
+ const adapter={...store,list:store.list.bind(store),read:async(scope,id,signal)=>{if(state.holdRead)await new Promise(resolve=>state.releaseRead=resolve);return store.read(scope,id,signal)},write:async(scope,input,signal)=>{state.writes.push(structuredClone(input));return store.write(scope,input,signal)},remove:store.remove.bind(store)};window.adapter=adapter
+ const period={multiplier:1,timespan:'minute',text:'1m'},bars=Array.from({length:600},(_,i)=>({timestamp:1700000000000+i*60000,open:10,high:12,low:9,close:11,volume:2}))
+ window.workspace=new ChartWorkspace({container:document.querySelector('#host'),context:'ui-isolated',store:adapter,symbols:[{ticker:'A.X'},{ticker:'B.X'}],initialSymbol:{ticker:'A.X'},initialPeriod:period,getPeriods:async()=>[period],mountCell:(host,cell)=>{
+  let resolve;const ready=new Promise(done=>resolve=done)
+  const chart=new KLineChartPro({container:host,symbol:cell.symbol,period:cell.period,indicatorCatalog:[...builtinIndicatorCatalog,...(state.extraCatalog??[])],mainIndicators:['MA'],subIndicators:['VOL'],onDataReady:()=>{state.ready++;resolve(chart)},datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,q)=>({bars:bars.filter(b=>q.kind==='before'?b.timestamp<q.before:b.timestamp>=q.from&&b.timestamp<q.to),hasMoreBefore:q.kind==='before'?false:undefined}),subscribe:()=>state.barOwners++,unsubscribe:()=>state.barOwners--}})
+  charts[cell.cellId]=chart;return {ready,dispose:()=>chart.dispose()}
+ }})
+ while(workspace.getCells().length!==1||workspace.getCells().some(c=>!c.chart))await new Promise(r=>setTimeout(r,1))
+ while(workspace['io'])await new Promise(r=>setTimeout(r,1))
+}
+window.ready=true
+</script></body></html>

@@ -1,5 +1,7 @@
 import type { KLineData } from 'klinecharts'
-import type { Datafeed, DatafeedRequestContext, Period, SymbolInfo } from '../types'
+import type { Datafeed, DatafeedRequestContext, DatafeedStatus, HistoryQuery, HistoryResult, Period, SymbolInfo } from '../types'
+
+import {validateHistoryResult} from './history'
 
 export interface SeriesIdentity {
   source: string
@@ -13,19 +15,13 @@ export interface SeriesIdentity {
   sessionFilter: string
   timezone: string
 }
-export interface HistoryBatch {
-  identity: SeriesIdentity
-  bars: KLineData[]
-  state: 'ready' | 'empty' | 'partial'
-  /** Provider observation time, Unix milliseconds. Not a promise of tradable freshness. */
-  sourceTimestamp: number
-  delayMs?: number
-}
+export interface HistoryBatch extends HistoryResult {identity:SeriesIdentity}
 export interface SessionUpdate { identity: SeriesIdentity; bar: KLineData; kind: 'update' | 'revision' }
 export interface DataSession {
   identity: SeriesIdentity
-  getHistory(from: number, to: number, context?: DatafeedRequestContext): Promise<HistoryBatch>
+  getHistory(query:HistoryQuery, context?: DatafeedRequestContext): Promise<HistoryBatch>
   subscribe(callback: (update: SessionUpdate) => void): () => void
+  subscribeStatus?(accept:(status:DatafeedStatus)=>void):()=>void
   dispose?(): void
 }
 export interface SessionProvider {
@@ -59,13 +55,15 @@ export function createSessionDatafeed(provider: SessionProvider, options: {
   /** Host must reload/reconcile revisions explicitly; they are never appended as new bars. */
   onRevisionRequired?: (update: SessionUpdate) => void
 } = {}): Datafeed {
-  let active: { session: DataSession; identity: SeriesIdentity; key: string; request: string; stop?: () => void; latest: number; subscription: number } | undefined
+  let active: { session: DataSession; identity: SeriesIdentity; key: string; request: string; stop?: () => void; stopStatus?:()=>void; latest: number; subscription: number } | undefined
   let disposed = false
+  const listeners=new Set<{request:string;accept:(status:DatafeedStatus)=>void}>()
+  const notify=(owner:NonNullable<typeof active>,status:DatafeedStatus)=>{if(active===owner)for(const listener of listeners)if(listener.request===owner.request)listener.accept(status)}
   const close = () => {
     const old = active
     active = undefined
     if (old) {
-      try { old.stop?.() } finally { old.session.dispose?.() }
+      try { old.stopStatus?.();old.stop?.() } finally { old.session.dispose?.() }
       options.onStatus?.({state:'closed',identity:old.identity})
     }
   }
@@ -82,36 +80,37 @@ export function createSessionDatafeed(provider: SessionProvider, options: {
         symbol.market && identity.market !== symbol.market || symbol.exchange && identity.exchange !== symbol.exchange ||
         symbol.priceCurrency && identity.currency !== symbol.priceCurrency) throw new Error('Session identity does not match chart request')
       active = {session,identity,key,request,latest:-Infinity,subscription:0}
-      return active
-    } catch (error) { session.dispose?.(); throw error }
+      const owner=active
+      const stopStatus=session.subscribeStatus?.(status=>notify(owner,status))
+      if(active!==owner){stopStatus?.();throw new DOMException('Session replaced','AbortError')}
+      owner.stopStatus=stopStatus
+      return owner
+    } catch (error) { if(active?.session===session)active=undefined;session.dispose?.(); throw error }
   }
   return {
     searchSymbols: search => provider.searchSymbols(search),
-    async getHistoryKLineData(symbol,period,from,to,context) {
+    async getHistoryKLineData(symbol,period,query,context) {
       context?.signal.throwIfAborted()
       const owner = ensure(symbol,period)
       options.onStatus?.({state:'loading',identity:owner.identity})
       try {
-        const batch = await owner.session.getHistory(from,to,context)
+        const batch = await owner.session.getHistory(query,context)
         context?.signal.throwIfAborted()
         if (active !== owner) throw new DOMException('Session replaced','AbortError')
         if (seriesIdentityKey(batch.identity) !== owner.key) throw new Error('Historical series identity mismatch')
-        if (!['ready','empty','partial'].includes(batch.state) || !Array.isArray(batch.bars) || !batch.bars.every(barValid) ||
-          !Number.isFinite(batch.sourceTimestamp) || batch.sourceTimestamp < 0 ||
-          batch.delayMs !== undefined && (!Number.isFinite(batch.delayMs) || batch.delayMs < 0) ||
-          batch.state === 'empty' && batch.bars.length !== 0 || batch.state === 'ready' && batch.bars.length === 0) throw new Error('Invalid history batch')
-        // Last supplied revision wins within this identity; sort without filling missing timestamps.
-        const byTime = new Map(batch.bars.map(bar => [bar.timestamp,{...bar}]))
-        const bars = [...byTime.values()].sort((a,b)=>a.timestamp-b.timestamp)
+        // Normalize provider revisions within the validated identity before publishing.
+        const bars=[...new Map(batch.bars.map(bar=>[bar.timestamp,{...bar}])).values()].sort((a,b)=>a.timestamp-b.timestamp)
+        const result=validateHistoryResult({...batch,bars},query)
         if (context?.reason === 'initial' || context?.reason === 'resume') owner.latest = -Infinity
         owner.latest = Math.max(owner.latest,bars.at(-1)?.timestamp ?? -Infinity)
-        options.onStatus?.({state:batch.state,identity:owner.identity,sourceTimestamp:batch.sourceTimestamp,delayMs:batch.delayMs})
-        return bars
+        if(result.metadata)options.onStatus?.({state:result.metadata.state,identity:owner.identity,sourceTimestamp:result.metadata.sourceTimestamp,delayMs:result.metadata.delayMs})
+        return {bars:result.bars,basis:result.basis,metadata:result.metadata,hasMoreBefore:result.hasMoreBefore}
       } catch (error) {
         if (active === owner && !context?.signal.aborted) options.onStatus?.({state:'error',identity:owner.identity,error})
         throw error
       }
     },
+    subscribeStatus(symbol,period,accept){const listener={request:requestKey(symbol,period),accept};listeners.add(listener);try{ensure(symbol,period)}catch(error){listeners.delete(listener);throw error}return()=>{listeners.delete(listener)}},
     subscribe(symbol,period,callback) {
       const owner = ensure(symbol,period)
       const generation = ++owner.subscription
@@ -122,17 +121,18 @@ export function createSessionDatafeed(provider: SessionProvider, options: {
           if (seriesIdentityKey(update.identity) !== owner.key || !barValid(update.bar) || !['update','revision'].includes(update.kind)) throw new Error('Invalid live series update')
           if (update.kind === 'revision' || update.bar.timestamp < owner.latest) {
             options.onStatus?.({state:'revision-required',identity:owner.identity})
+            notify(owner,{type:'revision-required'})
             options.onRevisionRequired?.(update)
             return
           }
           owner.latest = update.bar.timestamp
           callback({...update.bar})
-        } catch (error) { options.onStatus?.({state:'error',identity:owner.identity,error}) }
+        } catch (error) { options.onStatus?.({state:'error',identity:owner.identity,error});notify(owner,{type:'error',message:error instanceof Error?error.message:String(error)}) }
       })
       if (active !== owner || generation !== owner.subscription) stop()
       else owner.stop = stop
     },
     unsubscribe(symbol,period) { if (active?.request === requestKey(symbol,period)) close() },
-    dispose() { disposed=true; close() }
+    dispose() { disposed=true; close();listeners.clear() }
   }
 }

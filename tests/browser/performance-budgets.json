@@ -42,6 +42,13 @@
       "interaction": 55.7
     }
   },
+  "analysisUpdateOverrides": {
+    "50000": {
+      "limit": 80,
+      "approvedOn": "2026-10-17",
+      "source": "Operator approved the 80ms ceiling only for 50k single-chart analysis updates and rechecking the complete original samples without resampling; all other gates unchanged"
+    }
+  },
   "analysisColdOverrides": {
     "10000x2": {
       "limit": 350,

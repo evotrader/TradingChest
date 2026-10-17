@@ -16,7 +16,9 @@ const analysisGates=(key,control,analysis)=>{
  const originalLimit=Math.max(control.cold.p95*1.25,control.cold.p95+100)
  const approval=budgets.analysisColdOverrides?.[key]
  gate(key,'cold',analysis.cold.p95,approval?.limit??originalLimit,'analysis',approval?{originalLimit,approval}:undefined)
- gate(key,'update',analysis.update.p95,Math.max(control.update.p95*1.25,control.update.p95+16.7),'analysis')
+ const originalUpdateLimit=Math.max(control.update.p95*1.25,control.update.p95+16.7)
+ const updateApproval=budgets.analysisUpdateOverrides?.[key]
+ gate(key,'update',analysis.update.p95,updateApproval?.limit??originalUpdateLimit,'analysis',updateApproval?{originalLimit:originalUpdateLimit,approval:updateApproval}:undefined)
  gate(key,'interaction',analysis.interaction.p95,limits[key].interaction,'analysis')
 }
 const check=()=>{save();assert.ok(result.gates.every(g=>g.passed),result.gates.filter(g=>!g.passed).map(g=>`${g.group} ${g.caseKey} ${g.metric} ${g.p95}ms > ${g.limit}ms`).join('; '))}

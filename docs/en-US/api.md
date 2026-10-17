@@ -106,3 +106,69 @@ Set period.
 () => Period
 ```
 Get period.
+
+## Generic indicator catalog and instances
+
+`ChartProOptions.indicatorCatalog?: IndicatorDescriptor[]` defaults to the complete built-in catalog; supplying it uses this host's explicit per-chart catalog. Global definitions contain KLineChart templates/loaders only. Parameters, results and business data belong to chart instances; avoid business data closures in templates.
+
+```typescript
+import {registerIndicatorDefinition,builtinIndicatorCatalog} from 'trading-chest/chart'
+import type {IndicatorDescriptor,IndicatorParameterSchema} from 'trading-chest/chart'
+import type {IndicatorTemplate} from 'klinecharts'
+```
+
+Call `registerIndicatorDefinition(name,templateOrLoader)` before creating charts. External names need a stable namespace such as `YOUR_APP/Signal`; the template name must match. Loaders return `Promise<IndicatorTemplate>`. Conflicts with built-ins or another definition fail. Multiple catalogs may reference the same registered definition; no new calculation DSL is introduced.
+
+Descriptors contain `name/label/labels?/category/placements/parameters?`. `labels` maps locales to overrides; placements are `main`/`sub`. Parameter schemas use `{items,repeat?:{parameter,minItems,maxItems}}`. Items support number (finite/min/max/step), select (finite option set) and boolean; optional items must be trailing. Repeat counts appended parameters. The UI uses number fields, selectors and switches; parameters without a schema are read-only. Defaults come from the real template: MA has four, RSI three, and unused optional tails are not padded.
+
+| API | Behavior |
+| --- | --- |
+| `getIndicatorCatalog()` | A copy of this chart's catalog |
+| `addIndicator({name,placement,calcParams?})` | Promise of real `{id,name,paneId,yAxisId}`; rejects validation or lifecycle cancellation |
+| `getIndicators()` | Actual instances with calcParams/visible |
+| `updateIndicator(id,{calcParams?,visible?})` | Updates this ID only; absent targets/invalid values fail |
+| `removeIndicator(id)` | Removes this ID only |
+
+Repeated names have independent settings, visibility and removal. Layout v3 stores names, IDs, parameters and pane/axis bindings, never descriptors/functions. Restore preflights catalog, definitions and parameters. Workspace restore stages every cell before replacement; direct restoreLayout does not promise transaction rollback.
+
+## External analysis layers
+
+`getAnalysisContext():AnalysisContext|null` exposes `{token,symbol,period,basis?}` only for confirmed market data. `addAnalysisLayer(context,spec)` synchronously returns a handle with `id/replaceData/setVisible/dispose`; dispose is idempotent. Duplicate IDs, stale tokens and invalid batches fail. Replacement validates/copies the complete input first; errors retain the last accepted data and emit an error state.
+
+| spec.type | data | Alignment/gaps |
+| --- | --- | --- |
+| `line` / `histogram` | `{timestamp,value:number|null,availableAt?}[]` | Strictly increasing unique Unix milliseconds; exact real bar timestamps only; null/absent rows break lines; signed histograms |
+| `band` | `{timestamp,lower:number|null,upper:number|null,availableAt?}[]` | Both bounds null, or finite with lower≤upper |
+| `events` | `{id,timestamp,endTimestamp?,availableAt?,label,data?}[]` | Unique IDs; multiple events per timestamp; exact point/start/end anchors; unaligned events remain in the list |
+| `label-series` | `{id,label,value:number|null,availableAt?}[]` | Independent ordered-label panel; preserve raw labels/values and null ordinal positions; never guess intraday times |
+
+Every spec has `id/label` and optional `visible/color/unit`. Numeric timestamp layers require `placement:'main'|'sub'` and `valueType:'price'|'scalar'|'percent'|'amount'`. Price layers declare their own `dataBasis:string|null`; main requires two known, equal basis identifiers. Unknown values are not equal. Other quantities and unknown-basis prices use independent panes/axes. Percent means percentage points (1 = 1%); absent currencies are not inferred. Label-series is not synchronized to candle crosshairs/viewports and its horizontal spacing does not represent duration.
+
+`analysisLayerListVisible` controls the library list. `onAnalysisLayerChange` reports id/label/type/visible/status (ready/hidden/empty/unaligned/error), unalignedCount and reason. `onAnalysisEventClick({layerId,event,timestamp})` preserves the original event time; `onAnalysisPointSelect({layerId,point})` preserves the original label point. The host opens business details. Events are read-only and do not enter drawing confirmation, Delete or Undo.
+
+Symbol/period switches (including switching away/back) and confirmed basis changes invalidate scope. Same-identity/basis updates, prepends, revisions and successful reloads retain it. Basis prefetch retains the old context until commit. Replay exit releases the cutoff only after both main and comparison recovery succeed; failure retains bars, basis, token, layers and replay state for retry.
+
+Replay filters timestamp and availableAt against the actual visible-prefix cutoff; absent availableAt defaults to timestamp. Ranges clip at the cutoff without future-end labels/metadata. Label-series requires real availableAt on every point; otherwise the entire layer is hidden with an explanation, including canvas/list/tooltips/clicks/counts. A source date is not a precise availability time. Hosts remain responsible for PIT and truthful availability of retrospective results.
+
+Analysis data/visibility are excluded from v3 layouts by actual runtime indicator/pane/axis IDs. Same-scope restore retains valid layers; hosts resend data after scope changes. HTTP/WS, AbortSignal, response ordering, persistence and business calculations remain host responsibilities.
+
+## Workspace presentation
+
+`ChartWorkspaceOptions` adds `locale/theme/height?:number|'100%'` (default 100%; parent must supply height) and `toolbar?:{layout?,sync?,storage?,size?}`. Hiding a group only hides controls; APIs remain usable. `setLocale(locale)`, `setTheme(theme)` and `resize()` update presentation; ResizeObserver follows actual container geometry. Per-cell v3 theme/locale restore retains its existing meaning; host options own workspace chrome.
+
+Library chrome covers Chinese/English; missing ja/ko entries fall back to English. User labels and backend errors retain their original text. Storage is enabled only by an explicit adapter; this version adds no asynchronous cloud layout adapter.
+
+## Retained 0.6.0 contracts
+
+KLineChart remains pinned to 10.1.0. `getChart()` returns the v10 engine; use string actions, filtered getIndicators/getOverlays and independent axes. `reloadData({preserveViewport:true})` reads successfully before replacing bars; failures retain confirmed bars, viewport and drawings. `applySnapshot({symbol,period,bars,basis})` goes through the single loader, including history revision and basis prefetch. `onDataState` reports confirmed basis/timestamp/replay/restoring/error; onDataReady means data applied, not a new chart object.
+
+Layouts use captureLayout/saveLayoutV3/loadLayoutV3/restoreLayout/deleteLayoutV3/listLayoutsV3. Reads distinguish ok/missing/error. v1/v2 migrate in memory without deleting old keys; corrupt v3 does not silently fall back. Backend annotations are references, local drawings use explicit IDs; orders/trades/positions/alerts do not persist. Storage adapters belong to hosts.
+
+`ChartWorkspace` retains 1/2/4 cells, stable cell IDs, independent providers and abortable symbol/period catalogs. All sync starts disabled, matches exact timestamps and actual time intersections, and never syncs original prices across symbols. Restore stages all cells before replacement; failure retains the current workspace and saved document.
+
+`commitDrawing`, undoDrawing and redoDrawing share confirmed/rejected/uncertain outcomes; backend mutations require the host callback. Timeouts do not imply rejection or authorize duplicate creates. restoreDrawings is authoritative read restoration without CRUD/history. Backend IDs may change on undo-delete recreation. Only the active cell handles shortcuts; input fields retain native undo.
+
+Comparisons use independent datafeeds/handles and a fixed first shared real timestamp, with no nearest fill or FX conversion. All return lines share a separate normal percentage axis. Revisions notify/recalculate; pan/prepend do not rebase. Replay pauses providers and clips to the main cutoff, then restores atomically with main data; failures stay paused. Disposing or changing identity invalidates old callbacks. Full TradeVis paired-trade behavior remains distinct from new read-only events.
+
+
+Workspace `onLayoutChange(layout)` lets the host adjust outer height without changing the persisted document. EvoTrader uses 780px for one/two charts and 1160px for four; other hosts choose their own container sizes. External template tooltip names, units and legends are retained; add/restore share instance controls and omit settings without a schema. Failed analysis replacements show an error while retaining confirmed graphics. Unknown price bases are labelled on separate panes. Successful composite replay exit also drains queued history snapshots.

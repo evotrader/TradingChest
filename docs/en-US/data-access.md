@@ -1,68 +1,37 @@
 # Access data
-You can use default data and custom data to complete data access.
 
-## Use default data
-The default data source is https://polygon.io/. You need to apply for an API key before using it. After the application is completed, data access is completed through the built-in `DefaultDatafeed` class.
-Sample,
+Hosts provide a separate Datafeed per chart. SymbolInfo and Period come from a real valid catalog. No trading-system DTO, authentication scheme or endpoint is required by the library.
+
 ```typescript
-import { KLineChartPro, DefaultDatafeed } from '@klinecharts/pro'
-const chart = new KLineChartPro({
-  container: document.getElementById('container'),
-  datafeed: new DefaultDatafeed(`${polygonIoApiKey}`)
-})
+import type {Datafeed,DatafeedRequestContext,HistoryResult,SymbolInfo,Period} from 'trading-chest/chart'
 ```
 
-## Use custom data
-To use custom data, just follow the steps below.
+| Datafeed method | Contract |
+| --- | --- |
+| searchSymbols(search?) | `Promise<SymbolInfo[]>` containing valid symbols |
+| getHistoryKLineData(symbol,period,from,to,context?) | `Promise<HistoryResult>` for this identity/window |
+| subscribe(symbol,period,callback) | Real bar updates for this chart |
+| unsubscribe(symbol,period) | Pause this instance's subscription |
+| dispose?() | Finally release owned connections/resources |
 
-### Step 1: Implement the data access API
-```typescript
-class CustomDatafeed {
-  /**
-   * Fuzzy search symbols
-   * Triggered when the search box is entered
-   * Returns an array of symbol information
-   */
-  searchSymbols (search?: string): Promise<SymbolInfo[]> {
-    // Remote pull of symbol data based on fuzzy fields
-  }
+Propagate context.signal to requests; reason is initial/load-more/resume. Do not share a single-callback provider across charts. HistoryResult is KLineData[] or `{bars,basis?}`. Bars use strictly increasing unique Unix milliseconds and valid OHLCV. Read basis with the same bars, never from global last-request state. Host periods use `{timespan,multiplier,text}`; the loader converts to v10 `{type,span}`.
 
-  /**
-   * Pull historical k-line data
-   * Triggered when the symbol and period change
-   * 
-   * Returns the symbol k-line data array
-   */
-  getHistoryKLineData (symbol: SymbolInfo, period: Period, from: number, to: number): Promise<KLineData[]> {
-    // Complete data request
-  }
+## Authoritative snapshots and confirmation
 
-  /**
-   * Subscribe to real-time data of the symbol in a certain period
-   * Triggered when the symbol and period change
-   * 
-   * Notify chart to receive data through callback
-   */
-  subscribe (symbol: SymbolInfo, period: Period, callback: DatafeedSubscribeCallback): void {
-    // Complete ws subscription or http polling
-  }
+`applySnapshot({symbol,period,bars,basis})` accepts a complete authoritative snapshot matching the current identity. Streaming and same-bar updates use the single loader. Earlier revisions/basis changes successfully reread the loaded range before commit; failures retain confirmed data, viewport and drawings. Missing rows do not imply deletion. Replay holds pending snapshots and resumes providers only after combined main/comparison recovery succeeds.
 
-  /**
-   * Unsubscribe to real-time data of the symbol in a certain period
-   * Triggered when the symbol and period change
-   * 
-   */ 
-  unsubscribe (symbol: SymbolInfo, period: Period): void {
-    // Complete ws subscription cancellation or http polling cancellation
-  }
-}
-```
+`onDataState` reports confirmed basis/timestamp/restoring/replay/error; a new HTTP basis does not mean a chart commit. Obtain getAnalysisContext after onDataReady and bind analytical snapshots to its token. Resend layers after symbol/period/confirmed-basis changes; same-basis continuation retains scope.
 
-### Step 2: Access custom data
-```typescript
-import { KLineChartPro, DefaultDatafeed } from '@klinecharts/pro'
-const chart = new KLineChartPro({
-  container: document.getElementById('container'),
-  datafeed: new CustomDatafeed()
-})
-```
+## Analytical snapshots
+
+Layers accept explicit host snapshots without requests or a second cache. Hosts retain AbortSignal, request sequence and result ownership. replaceData validates complete batches and retains prior data on error. Series match exact real timestamps without nearest fill, interpolation or forward fill. Hosts declare availability/PIT; replay clips timestamp and availableAt, both in milliseconds.
+
+YYYY-MM-DD and other ordered labels use label-series instead of guessed intraday timestamps. Preserve raw values and null ordinal positions. Without exact availableAt, replay hides the entire layer with an explanation. Units belong to sources: normal EvoBacktest values are normalized NAV starting at 1, not money; the generic API does not assume that business meaning. Percent uses percentage points (1 = 1%); absent currencies are not inferred.
+
+Unaligned events retain their original times and explanations, with host-owned detail callbacks. Unknown/different dataBasis prices cannot overlay the main original-price axis; choose a separate pane instead.
+
+## Workspace and storage
+
+mountCell constructs an independent provider per cell; ready resolves after actual data application, dispose cancels only that cell. captureOptions supplies real local drawing IDs and backend annotation references. Runtime analysis, orders, trades and alerts are excluded from layouts. Restore never triggers annotation writes. Storage is enabled only by an explicit host adapter; business data/persistence remain host-owned.
+
+DefaultDatafeed remains an optional Polygon implementation requiring valid upstream credentials; it is not credential-free market data. Distinguish empty, failed and unaligned states and never use demonstration inputs as a production fallback. See the [API](./api) and [standalone isolated example](./getting-started).

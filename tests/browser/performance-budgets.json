@@ -1,0 +1,45 @@
+{
+  "source": "2026-10-17 READY plan G4; original 2026-10-15 single/comparison final gates.limit and first workspace baseline; approved long/comparison cold 500ms",
+  "cases": {
+    "10000": {
+      "cold": 265.60000002384186,
+      "update": 56.39999992847443,
+      "interaction": 55.30000002384186
+    },
+    "50000": {
+      "cold": 500,
+      "update": 90,
+      "interaction": 54.7
+    },
+    "10000x3compare": {
+      "cold": 500,
+      "update": 71.89999992847443,
+      "interaction": 52.50000007152558
+    },
+    "50000x3compare": {
+      "cold": 500,
+      "update": 220.37500008940697,
+      "interaction": 52.49999995231629
+    },
+    "10000x2": {
+      "cold": 484,
+      "update": 58.80000002384186,
+      "interaction": 52.99999995231629
+    },
+    "10000x4": {
+      "cold": 632.250000089407,
+      "update": 105.75000002980232,
+      "interaction": 54.90000004768372
+    },
+    "50000x2": {
+      "cold": 829.624999910593,
+      "update": 161.875,
+      "interaction": 54.2
+    },
+    "50000x4": {
+      "cold": 1766.6249999403954,
+      "update": 323.8750000298023,
+      "interaction": 55.7
+    }
+  }
+}

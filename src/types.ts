@@ -14,6 +14,7 @@
 
 import { KLineData, Styles, DeepPartial } from 'klinecharts'
 import type { Overlay } from 'klinecharts'
+import type {AnalysisOptions} from './analysis/types'
 import type KeyboardShortcutManager from './shortcut'
 
 export interface SymbolInfo {
@@ -102,7 +103,8 @@ export interface OverlayLifecycleEvent {
   source: OverlayLifecycleSource
 }
 
-export interface ChartProOptions {
+export interface ChartProOptions extends AnalysisOptions {
+  indicatorCatalog?:import('./indicator/catalog').IndicatorDescriptor[]
   comparisonSymbols?:SymbolInfo[]
   createComparisonDatafeed?:(symbol:SymbolInfo,period:Period)=>import('./compare/types').ComparisonDatafeed
   onComparisonChange?:(state:import('./compare/types').ComparisonState)=>void
@@ -146,6 +148,13 @@ export interface ChartProOptions {
 }
 
 export interface ChartPro {
+  getAnalysisContext():import('./analysis/types').AnalysisContext|null
+  addAnalysisLayer<S extends import('./analysis/types').AnalysisLayerSpec>(context:import('./analysis/types').AnalysisContext,spec:S):import('./analysis/types').AnalysisLayerHandle<S>
+  getIndicatorCatalog():import('./indicator/catalog').IndicatorDescriptor[]
+  addIndicator(options:import('./indicator/catalog').AddIndicatorOptions):Promise<import('./indicator/catalog').IndicatorHandle>
+  getIndicators():import('./indicator/catalog').IndicatorInstance[]
+  updateIndicator(id:string,updates:{calcParams?:import('./indicator/catalog').IndicatorParameterValue[];visible?:boolean}):void
+  removeIndicator(id:string):void
   commitDrawing(change:Pick<import('./drawing/types').DrawingChange,'kind'|'logicalId'|'after'|'source'>):Promise<import('./drawing/types').DrawingCommitResult>
   getDrawings():import('./drawing/types').DrawingSnapshot[]
   getDrawingHistoryState():import('./drawing/types').DrawingHistoryState

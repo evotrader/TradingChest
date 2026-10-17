@@ -26,7 +26,15 @@ window.setup = (pending = false, container = document.querySelector('#chart')) =
     state.overlayIds.push(result)
     return result
   }
-  window.test = {chart, state, bars, replaceBars: async rows => {state.historyOverride=rows;await chart.reloadData({preserveViewport:false});state.historyOverride=undefined}, resolveHistory: () => resolveHistory?.(bars)}
+  window.test = {chart, state, bars, replaceBars: async rows => {
+    // A same-basis reload retains confirmed history. Build this gap as a fresh source identity.
+    state.historyOverride=rows
+    for(const ticker of ['FIXTURE_RESET','TEST']){
+      const before=state.ready.length,start=performance.now();chart.setSymbol({ticker})
+      while(state.ready.length===before){if(performance.now()-start>15000)throw Error('Fixture identity did not become ready');await new Promise(resolve=>setTimeout(resolve,1))}
+    }
+    state.historyOverride=undefined
+  }, resolveHistory: () => resolveHistory?.(bars)}
 }
 window.ready = true
 </script></body></html>

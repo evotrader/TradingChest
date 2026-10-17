@@ -49,6 +49,11 @@ export default class KLineChartPro implements ChartPro {
       () => (
         <ChartProComponent
           ref={(chart: ChartComponentApi) => { this._chartApi = chart }}
+          indicatorCatalog={options.indicatorCatalog}
+          analysisLayerListVisible={options.analysisLayerListVisible}
+          onAnalysisLayerChange={options.onAnalysisLayerChange}
+          onAnalysisEventClick={options.onAnalysisEventClick}
+          onAnalysisPointSelect={options.onAnalysisPointSelect}
           styles={options.styles ?? {}}
           watermark={options.watermark ?? ''}
           theme={options.theme ?? 'light'}
@@ -71,8 +76,8 @@ export default class KLineChartPro implements ChartPro {
             ]
           }
           timezone={options.timezone ?? 'Asia/Shanghai'}
-          mainIndicators={options.mainIndicators ?? ['MA']}
-          subIndicators={options.subIndicators ?? ['VOL']}
+          mainIndicators={options.mainIndicators ?? (options.indicatorCatalog?.some(d=>d.name==='MA'&&d.placements.includes('main'))||options.indicatorCatalog===undefined?['MA']:[])}
+          subIndicators={options.subIndicators ?? (options.indicatorCatalog?.some(d=>d.name==='VOL'&&d.placements.includes('sub'))||options.indicatorCatalog===undefined?['VOL']:[])}
           datafeed={options.datafeed}
           onPeriodChange={options.onPeriodChange ?? (() => {})}
           onIndicatorClick={options.onIndicatorClick ?? (() => {})}
@@ -451,6 +456,14 @@ export default class KLineChartPro implements ChartPro {
     this._assertNotDisposed()
     return this._alertManager.getAlerts()
   }
+
+  getAnalysisContext(){return this._api().getAnalysisContext()}
+  addAnalysisLayer<S extends import('./analysis/types').AnalysisLayerSpec>(context:import('./analysis/types').AnalysisContext,spec:S){return this._api().addAnalysisLayer(context,spec)}
+  getIndicatorCatalog(){return this._api().getIndicatorCatalog()}
+  addIndicator(options:Parameters<ChartPro['addIndicator']>[0]){return this._api().addIndicator(options)}
+  getIndicators(){return this._api().getIndicators()}
+  updateIndicator(id:string,updates:Parameters<ChartPro['updateIndicator']>[1]){this._api().updateIndicator(id,updates)}
+  removeIndicator(id:string){this._api().removeIndicator(id)}
 
   addComparison(symbol:SymbolInfo,datafeed:import('./compare/types').ComparisonDatafeed){
     this._assertNotDisposed()

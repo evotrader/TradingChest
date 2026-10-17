@@ -1,85 +1,42 @@
 # 快速开始
+
+TradingChest 是通用浏览器图表库。行情、指标计算输入、存储和业务操作由宿主提供，图表不依赖 EvoTrader 服务。
+
 ## 安装
-通过 npm 或 yarn 命令安装 
+
 ```bash
-# npm
-npm install klinecharts @klinecharts/pro
-
-# yarn
-yarn install klinecharts @klinecharts/pro
-```
-如果是直接通过 script 标签引入，可以使用下面两个 CDN 中的任意一个即可
-::: warning 注意
-对于生产环境，推荐使用一个明确的版本号，以避免新版本造成的不可预期的破坏。
-:::
-
-```html
-<!-- unpkg -->
-<script src="https://unpkg.com/@klinecharts/pro/dist/klinecharts-pro.umd.js"></script>
-
-<!-- jsdelivr -->
-<script src="https://cdn.jsdelivr.net/@klinecharts/pro/dist/klinecharts-pro.umd.js"></script>
+npm install trading-chest@0.7.0 klinecharts@10.1.0
 ```
 
-## 使用
-### 第一步，创建容器
-```html
-<div id="container"></div>
-```
-### 第二步，创建实例
-在使用npm, yarn等包管理器中项目中
-```javascript
-// 引入js
-import { KLineChartPro, DefaultDatafeed } from '@klinecharts/pro'
-// 引入样式
-import '@klinecharts/pro/dist/klinecharts-pro.css'
+纯图表使用 `trading-chest/chart`，无需安装 React。已有 React／Solid 分析组件分别从 `trading-chest/react`／`trading-chest/solid` 引入；Solid 宿主与库共享运行时。固定 KLineChart peer 为 10.1.0，原始 Node 图表导入不属于 SSR 支持范围。
 
-// 创建实例
+## 创建与释放
+
+容器必须有明确高度。`datafeed` 是宿主按[数据契约](./data-access)实现的实例，`symbol` 和 `period` 应来自宿主有效目录：
+
+```typescript
+import {KLineChartPro} from 'trading-chest/chart'
+import 'trading-chest/dist/trading-chest.css'
+
 const chart = new KLineChartPro({
-  container: document.getElementById('container'),
-  // 初始化标的信息
-  symbol: {
-    exchange: 'XNYS',
-    market: 'stocks',
-    name: 'Alibaba Group Holding Limited American Depositary Shares, each represents eight Ordinary Shares',
-    shortName: 'BABA',
-    ticker: 'BABA',
-    priceCurrency: 'usd',
-    type: 'ADRC',
-  },
-  // 初始化周期
-  period: { multiplier: 15, timespan: 'minute', text: '15m' },
-  // 这里使用默认的数据接入，如果实际使用中也使用默认数据，需要去 https://polygon.io/ 申请 API key
-  datafeed: new DefaultDatafeed(`${polygonIoApiKey}`)
+  container: document.getElementById('chart')!,
+  symbol,
+  period,
+  datafeed,
+  onDataReady: () => {
+    const context = chart.getAnalysisContext()
+    if (!context) return
+    // Bind host snapshots to this confirmed context.
+  }
 })
+// Call when the host component unmounts.
+chart.dispose()
 ```
 
-在直接通过 script 标签引入的项目中
-```html
-<!-- 引入js -->
-<script src="https://cdn.jsdelivr.net/@klinecharts/pro/dist/klinecharts-pro.umd.js"></script>
+根入口也保留原图表导出；CJS 浏览器入口和 UMD 产物仍可用。直接 script 引入时先加载固定 KLineChart UMD peer，再加载 `trading-chest/dist/trading-chest.umd.js` 和 CSS；库全局名称为 `tradingchest`。根 UMD 还包含 React 分析组件，使用时按其入口依赖提供 React。
 
-<!-- 引入css -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/@klinecharts/pro/dist/klinecharts-pro.css"/>
-<script>
-  // 创建实例
-  const chart = new klinechartspro.KLineChartPro({
-    container: document.getElementById('container'),
-    // 初始化标的信息
-    symbol: {
-      exchange: 'XNYS',
-      market: 'stocks',
-      name: 'Alibaba Group Holding Limited American Depositary Shares, each represents eight Ordinary Shares',
-      shortName: 'BABA',
-      ticker: 'BABA',
-      priceCurrency: 'usd',
-      type: 'ADRC',
-    },
-    // 初始化周期
-    period: { multiplier: 15, timespan: 'minute', text: '15m' },
-    // 这里使用默认的数据接入，如果实际使用中也使用默认数据，需要去 https://polygon.io/ 申请 API key
-    datafeed: new klinechartspro.DefaultDatafeed(`${polygonIoApiKey}`)
-  })
-</script>
-```
-第一个图表就创建完成了. <a href="https://jsfiddle.net/mawsyh/ct65rysp/20/" target="_blank"> 这里的工作示例 </a>
+## 完整独立示例
+
+[analysis-sdk 示例](https://github.com/evotrader/TradingChest/tree/main/examples/analysis-sdk)安装实际 tarball，仅通过公开入口演示外部指标、独立实例、线／柱／带／事件、日期标签面板、回放和布局。输入明确为隔离合成数据，不连接生产或需要凭证；可复制到仓库之外构建运行。生产接入请提供真实 datafeed，不把示例当行情回退。
+
+新增接口见 [API](./api#通用指标目录与实例)，从 0.6.0 迁移见[升级说明](./upgrade/0.7.0)。本地开发依次运行 `npm ci`、`npm run build`、`npm run test:package`、`npx playwright install chromium`、`npm run test:browser`、`npm run docs:build`。浏览器 runner 自行选择空闲端口、启动 Vite 并清理自有进程；JSON、日志与 trace 保存在 `test-results/`。

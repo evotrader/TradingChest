@@ -29,5 +29,5 @@ export function load (key: string, ls: Record<string, string>) {
 }
 
 export default (key: string, locale: string) => {
-  return locales[locale]?.[key] ?? key
+  return locales[locale]?.[key] ?? locales['en-US']?.[key] ?? key
 }

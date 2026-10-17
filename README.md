@@ -15,6 +15,14 @@
   <img src="docs/public/image.png" alt="TradingChest Screenshot" width="800" />
 </p>
 
+## 0.7.0 generic analysis SDK
+
+Namespaced KLineChart templates, per-chart indicator catalogs and ID-addressed instances support number/select/boolean parameters and repeated names. External lines, signed histograms, price bands, read-only events and ordered label panels accept explicit host snapshots. Scope tokens, dataBasis and replay availableAt rules prevent stale or incorrectly aligned presentation. Workspace size/theme/locale/toolbars are host-configurable.
+
+See the [API](docs/en-US/api.md), [0.6.0 migration](docs/en-US/upgrade/0.7.0.md) and [standalone tarball example](examples/analysis-sdk/README.md). The library requires no EvoTrader backend or credentials; examples use explicitly isolated synthetic data. Hosts own computation, data, storage and business callbacks.
+
+`npm run test:package` verifies installed ESM/CJS/UMD/CSS and the standalone example in Chromium. `npx playwright install chromium && npm run test:browser` runs all library browser contracts on a self-managed free port; traces and results go to test-results. CI retains Node 22/24 checks and adds package/browser/docs verification.
+
 ## Features
 
 ### Technical Indicators (73+)
@@ -103,7 +111,7 @@ Candle Solid, Candle Hollow, Up Hollow, Down Hollow, OHLC, Area, **Heikin Ashi**
 ## Install
 
 ```bash
-npm install trading-chest klinecharts@10.1.0
+npm install trading-chest@0.7.0 klinecharts@10.1.0
 ```
 
 ## Usage
@@ -298,7 +306,7 @@ Forked from [KLineChart Pro](https://github.com/klinecharts/pro), significantly 
 - Trade visualization with click detection
 - Indicator panel with category tabs + search
 - Settings panel with grouped options + color picker
-- Full resource cleanup via `dispose()` — zero memory leaks
+- `dispose()` releases owned resources; browser tests exercise repeated cleanup and record available heap evidence
 
 ## License
 

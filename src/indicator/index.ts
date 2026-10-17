@@ -1,34 +1,18 @@
-import { registerIndicator } from 'klinecharts'
-import { IndicatorRegistry } from './registry'
+import { registerIndicator, getSupportedIndicators } from 'klinecharts'
+import { IndicatorRegistry, type IndicatorLoader } from './registry'
 import { indicatorLoaders } from './loaders'
+import type { IndicatorTemplate } from 'klinecharts'
 
-// Global singleton registry
-export const indicatorRegistry = new IndicatorRegistry()
-indicatorRegistry.setRegisterFn(registerIndicator)
-indicatorRegistry.setLoaders(indicatorLoaders)
-
-// 指标分类映射（用于 UI 分类显示）
-// 名称必须与 IndicatorTemplate.name 完全一致
-// labelKey 对应 i18n key（如 'category_trend'）
-export const indicatorCategories: Record<string, { names: string[], labelKey: string }> = {
-  trend: {
-    names: ['MA', 'EMA', 'SMA', 'BOLL', 'SAR', 'BBI', 'ATR', 'SUPERTREND', 'ICHIMOKU', 'ALLIGATOR', 'DEMA', 'TEMA', 'WMA', 'HMA', 'KAMA', 'VWMA', 'ZLEMA', 'MCGINLEY', 'LINEARREGRESSION', 'ENVELOPES', 'T3'],
-    labelKey: 'category_trend'
-  },
-  volatility: {
-    names: ['BOLL', 'KC', 'DC', 'HV', 'STDDEV', 'CV', 'MI', 'UI', 'BBW'],
-    labelKey: 'category_volatility'
-  },
-  volume: {
-    names: ['VOL', 'OBV', 'PVT', 'VR', 'VWAP', 'MFI', 'CMF', 'AD', 'VROC', 'KVO', 'FI', 'ELDER_RAY'],
-    labelKey: 'category_volume'
-  },
-  momentum: {
-    names: ['MACD', 'KDJ', 'RSI', 'BIAS', 'BRAR', 'CCI', 'DMI', 'CR', 'PSY', 'DMA', 'TRIX', 'WR', 'MTM', 'EMV', 'ROC', 'AO', 'StochRSI', 'ADX', 'AROON', 'UO', 'FISHER', 'COPPOCK', 'PPO', 'DPO', 'KST', 'TMF'],
-    labelKey: 'category_momentum'
-  },
-  other: {
-    names: ['PIVOTPOINTS', 'ZIGZAG'],
-    labelKey: 'category_other'
-  }
-}
+const registryKey=Symbol.for('trading-chest.indicator-definitions.v1')
+const scope=globalThis as typeof globalThis&{[registryKey]?:IndicatorRegistry}
+/** Only definitions/loaders are shared across entrypoints; no chart data lives here. */
+export const indicatorRegistry=scope[registryKey]??(()=>{
+  const registry=new IndicatorRegistry()
+  registry.setRegisterFn(registerIndicator)
+  registry.setSupportedProvider(getSupportedIndicators)
+  registry.setLoaders(indicatorLoaders)
+  scope[registryKey]=registry
+  return registry
+})()
+export {indicatorCategories,builtinIndicatorCatalog} from './catalog'
+export function registerIndicatorDefinition(name:string,definition:IndicatorTemplate|IndicatorLoader):void {indicatorRegistry.registerDefinition(name,definition)}

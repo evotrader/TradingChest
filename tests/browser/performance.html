@@ -73,6 +73,81 @@ window.sampleComparisons=async(count,profileOnly=false)=>{
  chart.dispose();await frame();return {cold,update,interaction,subscriptions:state.subscriptions,modern}
 }
 
+// Isolated synthetic benchmark; product consumers never import this fixture.
+const analysisBindings = await import('/src/analysis/renderers.ts')
+window.sampleAnalysis = async (count,layout,enabled,profileOnly=false) => {
+ const root=document.querySelector('#chart'),bars=makeBars(count),charts=[],ticks=[],state={subscriptions:0},hosts=[]
+ root.style.display='flex'
+ const started=performance.now()
+ const tasks=Array.from({length:layout},(_,index)=>{
+  const host=document.createElement('div');host.style.cssText=`width:${1200/layout}px;height:700px;min-width:0`;root.append(host);hosts.push(host)
+  let ready;const loaded=new Promise(resolve=>ready=resolve)
+  const chart=new KLineChartPro({container:host,symbol:{ticker:`SYNTHETIC-${index}`},period:{timespan:'minute',multiplier:1,text:'1m'},mainIndicators:['MA'],subIndicators:['VOL','MACD'],onDataReady:ready,datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,_from,to)=>({bars:to<bars[0].timestamp?[]:bars,basis:'isolated-synthetic'}),subscribe:(_s,_p,cb)=>{state.subscriptions++;ticks[index]=cb},unsubscribe:()=>{if(ticks[index]){state.subscriptions--;ticks[index]=undefined}}}})
+  charts.push(chart)
+  return loaded.then(async()=>{
+   if(enabled){
+    const context=chart.getAnalysisContext();if(!context)throw Error('Missing confirmed analysis context')
+    chart.addAnalysisLayer(context,{id:'bench-line',label:'Synthetic line',type:'line',placement:'sub',valueType:'scalar',data:bars.map((bar,i)=>({timestamp:bar.timestamp,value:Math.sin(i/7)}))})
+    chart.addAnalysisLayer(context,{id:'bench-histogram',label:'Synthetic signed histogram',type:'histogram',placement:'sub',valueType:'amount',data:bars.map((bar,i)=>({timestamp:bar.timestamp,value:(i%17)-8}))})
+    chart.addAnalysisLayer(context,{id:'bench-band',label:'Synthetic price band',type:'band',placement:'main',valueType:'price',dataBasis:'isolated-synthetic',data:bars.map(bar=>({timestamp:bar.timestamp,lower:bar.close-2,upper:bar.close+2}))})
+    chart.addAnalysisLayer(context,{id:'bench-events',label:'Synthetic events',type:'events',data:Array.from({length:1000},(_,i)=>({id:`event-${i}`,timestamp:bars[Math.floor(i*(count-1)/999)].timestamp,label:`Synthetic ${i}`}))})
+   }
+   await settled(chart.getChart(),count)
+   if(enabled){const start=performance.now();while(chart.getChart().getIndicators({name:'TC_ANALYSIS'}).some(i=>i.result.length!==count)){if(performance.now()-start>10000)throw Error('Analysis calculation did not settle');await new Promise(resolve=>setTimeout(resolve,1))}}
+  })
+ })
+ await Promise.all(tasks);await frame()
+ for(const chart of charts){
+  if((chart.getChart().getSize('candle_pane','main')?.height??0)<=0)throw Error('Main price pane is not drawable')
+  if(enabled){const layers=chart.getChart().getIndicators({name:'TC_ANALYSIS'});if(layers.length!==4||layers.some(layer=>layer.result.length!==count||(chart.getChart().getSize(layer.paneId,'main')?.height??0)<=0))throw Error('Analysis renderer or pane is not drawable');if(layers.find(layer=>layer.extendData.type==='events')?.extendData.events.length!==1000)throw Error('Full event input was not rendered')}
+ }
+ const cold=performance.now()-started,update=[],interaction=[]
+ for(let i=0;i<(profileOnly?0:100);i++){
+  const start=performance.now(),next={...bars.at(-1),close:bars.at(-1).close+i/10000},expected=(bars.slice(-5,-1).reduce((sum,b)=>sum+b.close,0)+next.close)/5
+  for(const tick of ticks)tick(next)
+  await Promise.all(charts.map(chart=>settled(chart.getChart(),count,expected)));await frame();update.push(performance.now()-start)
+ }
+ for(let i=0;i<(profileOnly?0:100);i++){const start=performance.now();for(const chart of charts)chart.getChart().scrollToDataIndex(count-1-i,0);await frame();interaction.push(performance.now()-start)}
+ const engines=charts.map(chart=>chart.getChart())
+ for(const chart of charts)chart.dispose()
+ await frame()
+ const runtime=engines.reduce((sum,engine)=>{const binding=analysisBindings.runtimeBindings.get(engine);sum.indicators+=binding?.indicatorIds.size??0;sum.panes+=binding?.paneIds.size??0;sum.axes+=binding?.axisIds.size??0;return sum},{indicators:0,panes:0,axes:0})
+ const dom=hosts.reduce((n,host)=>n+host.childNodes.length,0)
+ hosts.forEach(host=>host.remove());root.style.display=''
+ return {cold,update,interaction,subscriptions:state.subscriptions,dom,runtime}
+}
+window.analysisCleanup=async()=>{
+ const add=EventTarget.prototype.addEventListener,remove=EventTarget.prototype.removeEventListener,timeout=window.setTimeout,clearTimeout=window.clearTimeout,interval=window.setInterval,clearInterval=window.clearInterval,raf=window.requestAnimationFrame,cancelRaf=window.cancelAnimationFrame,Observer=window.ResizeObserver
+ const listeners=[],timers=new Set(),frames=new Set(),observers=new Set()
+ const owned=()=>new Error().stack.split('\n').slice(1).find(line=>!line.includes('/tests/browser/performance.html'))?.includes('/src/')??false
+ const capture=options=>typeof options==='boolean'?options:!!options?.capture
+ EventTarget.prototype.addEventListener=function(type,handler,options){if(handler&&owned()&&!listeners.some(x=>x.target.deref()===this&&x.type===type&&x.handler.deref()===handler&&x.capture===capture(options)))listeners.push({target:new WeakRef(this),type,handler:new WeakRef(handler),capture:capture(options),source:new Error().stack.split('\n').find(line=>line.includes('/src/'))});return add.call(this,type,handler,options)}
+ EventTarget.prototype.removeEventListener=function(type,handler,options){const index=listeners.findIndex(x=>x.target.deref()===this&&x.type===type&&x.handler.deref()===handler&&x.capture===capture(options));if(index>=0)listeners.splice(index,1);return remove.call(this,type,handler,options)}
+ window.setTimeout=(callback,delay,...args)=>{const track=owned();let id;id=timeout.call(window,(...values)=>{timers.delete(id);callback(...values)},delay,...args);if(track)timers.add(id);return id}
+ window.clearTimeout=id=>{timers.delete(id);clearTimeout.call(window,id)}
+ window.setInterval=(callback,delay,...args)=>{const id=interval.call(window,callback,delay,...args);if(owned())timers.add(id);return id}
+ window.clearInterval=id=>{timers.delete(id);clearInterval.call(window,id)}
+ window.requestAnimationFrame=callback=>{const track=owned();let id;id=raf.call(window,time=>{frames.delete(id);callback(time)});if(track)frames.add(id);return id}
+ window.cancelAnimationFrame=id=>{frames.delete(id);cancelRaf.call(window,id)}
+ window.ResizeObserver=class extends Observer{constructor(callback){super(callback);if(owned())observers.add(this)}disconnect(){observers.delete(this);super.disconnect()}}
+ const heap=[{cycle:0,...await collectAnalysisHeap()}],result={cycles:100,subscriptions:0,listeners:0,timers:0,frames:0,observers:0,dom:0,indicators:0,panes:0,axes:0}
+ try{
+  for(let cycle=0;cycle<100;cycle++){
+   const sample=await sampleAnalysis(10000,2,true,true)
+   // Weak references avoid retaining detached JSX nodes merely to instrument them.
+   // Available GC must release those nodes; without GC, only live/global listeners
+   // can be proved active and detached listener counts are reported separately.
+   const collected=await collectAnalysisHeap(),hasGc=collected.usedSize!==undefined
+   for(let index=listeners.length-1;index>=0;index--)if(!listeners[index].target.deref())listeners.splice(index,1)
+   const remaining=listeners.filter(x=>{const target=x.target.deref();return target&&(hasGc||target===window||target===document||target.isConnected)})
+   Object.assign(result,{subscriptions:sample.subscriptions,listeners:remaining.length,timers:timers.size,frames:frames.size,observers:observers.size,dom:sample.dom,...sample.runtime})
+   if(Object.entries(result).some(([key,value])=>key!=='cycles'&&value!==0))throw Error('Analysis resources remained active '+JSON.stringify({...result,listenerDetails:remaining.map(x=>({type:x.type,target:x.target.deref()?.constructor.name,connected:x.target.deref()?.isConnected,source:x.source}))}))
+   if(cycle===49||cycle===99)heap.push({cycle:cycle+1,...collected,detachedLocalListeners:hasGc?0:listeners.filter(x=>x.target.deref()&&!x.target.deref().isConnected).length})
+  }
+  return {...result,heap}
+ }finally{EventTarget.prototype.addEventListener=add;EventTarget.prototype.removeEventListener=remove;window.setTimeout=timeout;window.clearTimeout=clearTimeout;window.setInterval=interval;window.clearInterval=clearInterval;window.requestAnimationFrame=raf;window.cancelAnimationFrame=cancelRaf;window.ResizeObserver=Observer}
+}
+
 window.captureOracle = async () => {
  const bars = makeBars(160), chart=engine.init(document.querySelector('#chart'))
  const names=[...new Set([...engine.getSupportedIndicators(),...Object.keys(indicatorLoaders),...Object.values(indicatorCategories).flatMap(x=>x.names),'HeikinAshi','Baseline','TradeVis'])].sort()

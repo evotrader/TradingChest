@@ -15,6 +15,12 @@
   <img src="docs/public/image.png" alt="TradingChest スクリーンショット" width="800" />
 </p>
 
+## 0.7.0 汎用分析 SDK
+
+パッケージ名は `trading-chest`、KLineChart は `10.1.0` 固定です。指標カタログ、独立インスタンス、分析レイヤー、サイズ／言語／テーマ設定を追加しました。
+
+[English API](docs/en-US/api.md) · [Upgrade guide](docs/en-US/upgrade/0.7.0.md) · [Standalone example](examples/analysis-sdk/README.md)。EvoTrader バックエンドや認証情報は不要です。サンプルは隔離された合成データを使用します。
+
 ## 特徴
 
 ### テクニカル指標（73+）
@@ -103,7 +109,7 @@
 ## インストール
 
 ```bash
-npm install trading-chest klinecharts@^9.8.12
+npm install trading-chest@0.7.0 klinecharts@10.1.0
 ```
 
 ## 使い方
@@ -296,7 +302,7 @@ npm run test        # テスト実行
 - トレード可視化 + クリック検出
 - 指標パネルのカテゴリタブ + 検索
 - 設定パネルのグループ化 + カラーピッカー
-- `dispose()` による完全なリソース解放、メモリリークゼロ
+- `dispose()` で所有リソースを解放；反復ブラウザ検証で解放を確認
 
 ## ライセンス
 

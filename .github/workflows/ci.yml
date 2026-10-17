@@ -22,3 +22,17 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm test
       - run: npm run build
+      - run: npx playwright install --with-deps chromium
+        if: matrix.node-version == 22
+      - run: npm run test:package
+        if: matrix.node-version == 22
+      - run: npm run test:browser
+        if: matrix.node-version == 22
+      - run: npm run docs:build
+        if: matrix.node-version == 22
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.node-version == 22
+        with:
+          name: browser-evidence-node-${{ matrix.node-version }}
+          path: test-results/
+          if-no-files-found: error

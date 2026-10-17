@@ -65,11 +65,13 @@ describe('IndicatorRegistry', () => {
     expect(registry.isRegistered('FAIL_THEN_OK')).toBe(true)
   })
 
-  it('无 loader 的指标视为内置，直接标记', async () => {
+  it('只有引擎确认的内置指标才能在没有 loader 时使用', async () => {
     const registerFn = vi.fn()
     registry.setRegisterFn(registerFn)
 
+    registry.setSupportedProvider(()=>['MA'])
     await registry.ensureRegistered('MA')
+    await expect(registry.ensureRegistered('UNKNOWN')).rejects.toThrow('没有已注册定义')
 
     expect(registry.isRegistered('MA')).toBe(true)
     expect(registerFn).not.toHaveBeenCalled()

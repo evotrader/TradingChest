@@ -15,6 +15,12 @@
   <img src="docs/public/image.png" alt="TradingChest 스크린샷" width="800" />
 </p>
 
+## 0.7.0 범용 분석 SDK
+
+패키지는 `trading-chest`, KLineChart는 `10.1.0` 고정입니다. 지표 카탈로그, 독립 인스턴스, 분석 레이어와 크기／언어／테마 설정을 추가했습니다.
+
+[English API](docs/en-US/api.md) · [Upgrade guide](docs/en-US/upgrade/0.7.0.md) · [Standalone example](examples/analysis-sdk/README.md). EvoTrader 백엔드와 자격 증명이 필요하지 않습니다. 예제는 격리된 합성 데이터입니다.
+
 ## 기능
 
 ### 기술 지표 (73+)
@@ -103,7 +109,7 @@
 ## 설치
 
 ```bash
-npm install trading-chest klinecharts@^9.8.12
+npm install trading-chest@0.7.0 klinecharts@10.1.0
 ```
 
 ## 사용법
@@ -296,7 +302,7 @@ npm run test        # 테스트 실행
 - 트레이드 시각화 + 클릭 감지
 - 지표 패널 카테고리 탭 + 검색
 - 설정 패널 그룹화 + 컬러 피커
-- `dispose()`로 완전한 리소스 해제, 메모리 누수 제로
+- `dispose()`로 소유 리소스 해제; 반복 브라우저 검사로 확인
 
 ## 라이선스
 

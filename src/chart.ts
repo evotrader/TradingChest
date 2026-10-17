@@ -98,3 +98,9 @@ export {resolveDrawingPane} from './drawing/pane'
 export type {DrawingPaneIndicator} from './drawing/pane'
 
 export type {ComparisonDatafeed,ComparisonHandle,ComparisonState} from './compare/types'
+
+export {builtinIndicatorCatalog,registerIndicatorDefinition} from './indicator'
+export type {IndicatorDescriptor,IndicatorParameter,IndicatorParameterSchema,IndicatorParameterValue,IndicatorPlacement,IndicatorHandle,IndicatorInstance,AddIndicatorOptions} from './indicator/catalog'
+export type {IndicatorLoader} from './indicator/registry'
+
+export type {AnalysisContext,AnalysisPoint,AnalysisBandPoint,AnalysisLabelPoint,AnalysisEvent,AnalysisLayerSpec,AnalysisLayerState,AnalysisLayerHandle,AnalysisOptions} from './analysis/types'

@@ -1,0 +1,5 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>TradingChest 通用分析示例</title>
+<style>body{font:14px system-ui;margin:16px;background:#111827;color:#e5e7eb}button,select,input{font:inherit;margin:4px}#chart{width:100%;height:900px}#status{white-space:pre-wrap}nav{display:flex;flex-wrap:wrap}</style>
+<h1>通用分析 SDK 独立示例</h1><p>仅使用隔离合成数据，展示 API 行为；不连接市场、账户或生产服务。</p>
+<nav><button id="add">添加两个指标实例</button><button id="update">修改第一个实例</button><button id="remove">移除第二个实例</button><button id="save">捕获布局</button><button id="restore">恢复布局</button><button id="replay">开始回放</button><button id="forward">向前一步</button><button id="stop">退出回放</button></nav>
+<p id="status" role="status">正在初始化</p><div id="chart"></div><script type="module" src="./main.mjs"></script></html>

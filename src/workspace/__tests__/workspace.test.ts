@@ -4,12 +4,13 @@ import {ChartWorkspace} from '../ChartWorkspace'
 import {syncCrosshair,syncViewport} from '../viewportSync'
 import type {Chart} from 'klinecharts'
 import type {ChartPro,Period} from '../../types'
+import type {ChartWorkspaceOptions} from '../types'
 
 const period:Period={multiplier:1,timespan:'minute',text:'1m'}
 const instances:ChartWorkspace[]=[]
-afterEach(()=>{for(const instance of instances)instance.dispose();instances.length=0;document.body.innerHTML='';vi.restoreAllMocks()})
+afterEach(()=>{for(const instance of instances)instance.dispose();instances.length=0;document.body.innerHTML='';vi.restoreAllMocks();vi.unstubAllGlobals()})
 const settle=async()=>{for(let i=0;i<12;i++)await Promise.resolve()}
-function setup(){
+function setup(overrides:Partial<ChartWorkspaceOptions>={}){
   const container=document.createElement('div');document.body.append(container)
   const disposed:string[]=[],mounts:string[]=[],charts:Record<string,any>={}
   const getPeriods=vi.fn(async()=>[period])
@@ -19,10 +20,57 @@ function setup(){
       const actions=new Map(),engine={resize:vi.fn(),getDom:()=>null,subscribeAction:vi.fn((name,cb)=>actions.set(name,cb)),unsubscribeAction:vi.fn(),getDataList:()=>[{timestamp:1,close:1}],getVisibleRange:()=>({from:0,to:1}),executeAction:vi.fn()}
       const shortcut={setEnabled:vi.fn()},drawing={pending:0};charts[cell.cellId]={engine,shortcut,actions,drawing}
       return {ready:Promise.resolve({getChart:()=>engine,getShortcutManager:()=>shortcut,getDrawingHistoryState:()=>drawing} as unknown as ChartPro),dispose:()=>disposed.push(cell.context)}
-    }})
+    },...overrides})
   instances.push(workspace);return {workspace,container,disposed,mounts,charts,getPeriods}
 }
 describe('workspace ownership',()=>{
+  it('uses the containing height and resizes the current engine without remounting cells',async()=>{
+    const {workspace,container,mounts,charts}=setup();await settle()
+    const root=container.querySelector<HTMLElement>('.tc-workspace')!,grid=container.querySelector<HTMLElement>('.tc-workspace-grid')!
+    expect(root.style.height).toBe('100%');expect(grid.style.height).toBe('')
+    const before=charts.primary.engine.resize.mock.calls.length
+    workspace.resize(640);expect(root.style.height).toBe('640px');expect(charts.primary.engine.resize.mock.calls.length).toBeGreaterThan(before)
+    expect(()=>workspace.resize(0)).toThrow('高度');expect(root.style.height).toBe('640px')
+    workspace.resize('100%');await workspace.setLayout(4)
+    expect(root.style.height).toBe('100%');expect(grid.style.gridTemplateRows).toContain('240px')
+    expect(mounts).toHaveLength(4)
+  })
+  it('hides each toolbar group without disabling its programmatic operation',async()=>{
+    const onLayoutChange=vi.fn(),{workspace,container}=setup({toolbar:{layout:false,sync:false,storage:false,size:false},onLayoutChange});await settle()
+    const groups=[...container.querySelectorAll<HTMLElement>('[data-toolbar-group]')]
+    expect(groups).toHaveLength(4);expect(groups.every(group=>group.hidden)).toBe(true)
+    expect(onLayoutChange).toHaveBeenLastCalledWith(1)
+    await workspace.setLayout(2);expect(workspace.getCells()).toHaveLength(2);expect(onLayoutChange).toHaveBeenLastCalledWith(2)
+    workspace.deleteSaved();expect(container.textContent).toContain('当前图形保留')
+  })
+  it('updates existing chrome and library empty-state errors when locale changes',async()=>{
+    const {workspace,container}=setup({getPeriods:async()=>[]});await settle()
+    expect(container.textContent).toContain('A.X 没有可用行情周期')
+    workspace.setLocale('en-US')
+    expect(container.querySelector('[aria-label="Chart layout"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Symbol primary"]')).not.toBeNull()
+    expect(container.textContent).toContain('No market periods for A.X')
+    expect(container.textContent).not.toContain('图表布局')
+    await expect(workspace.load()).rejects.toThrow('No saved workspace')
+    workspace.setLocale('ja');expect(container.textContent).toContain('No market periods for A.X')
+  })
+  it('retains host error details and chart identity when changing theme and locale',async()=>{
+    const {workspace,container,mounts}=setup({getPeriods:async()=>{throw Error('数据源原始错误 code=FEED_UNAVAILABLE')}});await settle()
+    workspace.setTheme('light');workspace.setLocale('en-US')
+    expect(container.querySelector<HTMLElement>('.tc-workspace')?.dataset.theme).toBe('light')
+    expect(container.textContent).toContain('数据源原始错误 code=FEED_UNAVAILABLE')
+    expect(mounts).toHaveLength(0)
+  })
+  it('disconnects container observation and ignores late resize notifications after disposal',async()=>{
+    let notify!:()=>void
+    const observe=vi.fn(),disconnect=vi.fn()
+    vi.stubGlobal('ResizeObserver',class {constructor(callback:()=>void){notify=callback}observe=observe;disconnect=disconnect})
+    const {workspace,charts}=setup();await settle()
+    expect(observe).toHaveBeenCalledTimes(1)
+    notify();const calls=charts.primary.engine.resize.mock.calls.length
+    workspace.dispose();notify()
+    expect(disconnect).toHaveBeenCalledTimes(1);expect(charts.primary.engine.resize).toHaveBeenCalledTimes(calls)
+  })
   it('retains primary context, releases only removed cells, disables inactive shortcuts',async()=>{
     const {workspace,mounts,disposed,charts}=setup();await settle();await workspace.setLayout(4);await settle()
     expect(mounts).toEqual(['original','original:secondary-1','original:secondary-2','original:secondary-3'])
@@ -55,15 +103,18 @@ describe('workspace ownership',()=>{
   it('waits for initial ownership before restoring a workspace and releases every chart',async()=>{
     const template={version:3,timestamp:1,theme:'dark',locale:'zh-CN',timezone:'UTC',styles:{},indicators:[],panes:[],axes:[],overlayData:[],context:{ticker:'A',period:{multiplier:1,timespan:'minute'}}};
     const doc={version:1,layout:1,activeCellId:'primary',sync:{symbol:false,period:false,crosshair:false,viewport:false},columnRatio:50,rowRatio:50,cells:[{cellId:'primary',context:'x',symbol:{ticker:'A'},period,chart:template}]};
-    const container=document.createElement('div');document.body.append(container);let release!:(value:Period[])=>void;let mounted=0,disposed=0;
+    const container=document.createElement('div');document.body.append(container);let release!:(value:Period[])=>void;let mounted=0,disposed=0;const chartThemes:string[]=[],chartLocales:string[]=[];
     const getPeriods=vi.fn().mockImplementationOnce(()=>new Promise(done=>release=done)).mockResolvedValue([period]);
-    const w=new ChartWorkspace({container,context:'x',symbols:[{ticker:'A'}],initialSymbol:{ticker:'A'},initialPeriod:period,getPeriods,mountCell:()=>{
+    const w=new ChartWorkspace({container,context:'x',locale:'en-US',theme:'light',height:640,toolbar:{size:false},symbols:[{ticker:'A'}],initialSymbol:{ticker:'A'},initialPeriod:period,getPeriods,mountCell:()=>{
       mounted++;const engine={resize:vi.fn(),getDom:()=>null,subscribeAction:vi.fn(),unsubscribeAction:vi.fn(),getIndicators:()=>[],setStyles:vi.fn()};
-      const pro={getChart:()=>engine,getSymbol:()=>({ticker:'A'}),getShortcutManager:()=>({setEnabled:vi.fn()}),getDrawingHistoryState:()=>({pending:0,uncertainLogicalIds:[]}),getDrawings:()=>[],resetDrawingHistory:vi.fn(),setTheme:vi.fn(),setLocale:vi.fn(),setTimezone:vi.fn(),restoreDrawings:vi.fn()};
+      const pro={getChart:()=>engine,getIndicatorCatalog:()=>[],getSymbol:()=>({ticker:'A'}),getShortcutManager:()=>({setEnabled:vi.fn()}),getDrawingHistoryState:()=>({pending:0,uncertainLogicalIds:[]}),getDrawings:()=>[],resetDrawingHistory:vi.fn(),setTheme:(value:string)=>chartThemes.push(value),setLocale:(value:string)=>chartLocales.push(value),setTimezone:vi.fn(),restoreDrawings:vi.fn()};
       return {ready:Promise.resolve(pro as unknown as ChartPro),dispose:()=>disposed++};
     }});instances.push(w);
     const restoring=w.restore(doc as import('../types').WorkspaceDocument);await settle();expect(mounted).toBe(0);expect(getPeriods).toHaveBeenCalledTimes(1);
     release([period]);await restoring;await settle();expect(w.getCells()).toHaveLength(1);expect(container.querySelectorAll('[data-cell-id="primary"]')).toHaveLength(1);
+    expect(chartThemes).toEqual(['dark']);expect(chartLocales).toEqual(['zh-CN'])
+    const chrome=container.querySelector<HTMLElement>('.tc-workspace')!;expect(chrome.dataset.theme).toBe('light');expect(chrome.dataset.locale).toBe('en-US');expect(chrome.style.height).toBe('640px')
+    expect(container.querySelector('[aria-label="Column width"]')).not.toBeNull();expect(container.textContent).toContain('Workspace restored')
     expect(mounted).toBe(2);expect(disposed).toBe(1);w.dispose();expect(disposed).toBe(2);
   })
   it('rejects sync changes while a layout expansion awaits a directory read',async()=>{

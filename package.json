@@ -1,7 +1,7 @@
 {
   "name": "trading-chest",
-  "version": "0.6.0",
-  "description": "Professional trading chart for EvoTrader, based on KLineChart.",
+  "version": "0.7.0",
+  "description": "通用行情与分析图表组件，基于 KLineChart。",
   "type": "module",
   "main": "./dist/trading-chest.umd.js",
   "module": "./dist/trading-chest.js",
@@ -39,9 +39,12 @@
     "docs:preview": "vitepress preview docs",
     "docs:deploy": "npm run docs:build && gh-pages -d website",
     "build-entries": "vite build --config vite.entries.config.ts && TC_ENTRY_FORMAT=cjs vite build --config vite.entries.config.ts",
-    "test:package": "node tests/package/entries.mjs"
+    "test:package": "node tests/package/entries.mjs",
+    "test:browser": "node tests/browser/run.mjs",
+    "test:performance": "node tests/browser/run.mjs --performance"
   },
   "devDependencies": {
+    "@playwright/test": "1.59.1",
     "@solidjs/testing-library": "^0.8.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@types/react": "^18.3.31",

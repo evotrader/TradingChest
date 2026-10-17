@@ -1,0 +1,8 @@
+{
+  "name": "trading-chest-analysis-sdk-example",
+  "private": true,
+  "type": "module",
+  "scripts": {"dev": "vite --host 127.0.0.1", "build": "vite build"},
+  "dependencies": {"klinecharts": "10.1.0", "trading-chest": "file:./trading-chest.tgz"},
+  "devDependencies": {"vite": "^5.4.0"}
+}

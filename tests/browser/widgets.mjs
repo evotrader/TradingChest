@@ -1,13 +1,11 @@
-import { createRequire } from 'node:module'
+import {launchBrowser} from './support.mjs'
 import assert from 'node:assert/strict'
-const require = createRequire(process.env.PLAYWRIGHT_PACKAGE_JSON || import.meta.url)
-const { chromium } = require('playwright')
-const browser = await chromium.launch({executablePath: process.env.CHROMIUM_PATH, chromiumSandbox: true})
+const browser = await launchBrowser()
 try {
   const page = await browser.newPage()
   const errors = []
   page.on('pageerror', e => errors.push(e.message))
-  await page.goto('http://127.0.0.1:4173/tests/browser/widgets.html')
+  await page.goto((process.env.TC_BROWSER_BASE || 'http://127.0.0.1:4173')+'/tests/browser/widgets.html')
   await page.waitForFunction(() => window.ready)
   const result = await page.evaluate(() => {
     const el = document.querySelector('#widget')

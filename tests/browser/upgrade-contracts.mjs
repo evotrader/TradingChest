@@ -1,8 +1,7 @@
+import {launchBrowser} from './support.mjs'
 import assert from 'node:assert/strict'
-import {createRequire} from 'node:module'
-const{chromium}=createRequire(process.env.PLAYWRIGHT_PACKAGE_JSON||new URL('../../../../package.json',import.meta.url))('playwright')
 const expectDisabled=async page=>assert.equal(await page.locator('.klinecharts-pro-replay-bar input').isDisabled(),true)
-const browser=await chromium.launch({chromiumSandbox:true})
+const browser = await launchBrowser()
 try {
  const page=await browser.newPage(),errors=[]
  page.on('pageerror',e=>errors.push(e.message))

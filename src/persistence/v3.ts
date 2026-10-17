@@ -1,3 +1,5 @@
+import {configureIndicatorTooltip} from '../indicator/instances'
+import {runtimeBindings} from '../analysis/bindings'
 import {resolveDrawingPane} from '../drawing/pane'
 import type {Chart,DeepPartial,Styles,YAxisOverride} from 'klinecharts'
 import type { ChartPro } from '../types'
@@ -84,12 +86,13 @@ export function listLayoutsV3(storage:Storage=localStorage):LayoutResult<Array<{
 }
 export function captureLayout(chartPro:ChartPro, options:{localDrawingIds?:string[];annotationRefs?:string[];context?:ChartLayoutV3['context']}={}):ChartLayoutV3 {
   const chart=chartPro.getChart();if(!chart)throw Error('图表尚未就绪')
+  const runtime=runtimeBindings.get(chart)
   const comparisonAxes=new Set(chart.getIndicators().filter(i=>i.name==='COMPARE').map(i=>i.yAxisId))
   const bars=chart.getDataList(),range=chart.getVisibleRange(),from=bars[Math.max(0,range.from)],to=bars[Math.min(bars.length-1,range.to-1)]
   return clean({version:3,timestamp:Date.now(),theme:chartPro.getTheme(),locale:chartPro.getLocale(),timezone:chartPro.getTimezone(),styles:chart.getStyles(),
-    indicators:chart.getIndicators().filter(i=>!['TradeVis','COMPARE'].includes(i.name)).map(i=>({id:i.id,name:i.name,placement:i.paneId==='candle_pane'?'main':'sub',paneId:i.paneId,yAxisId:i.yAxisId,calcParams:i.calcParams,visible:i.visible})),
-    panes:(chart.getPaneOptions() as Array<{id:string;height:number;minHeight:number;order:number}>).map(({id,height,minHeight,order})=>({id,height,minHeight,order})),
-    axes:(chart.getPaneOptions() as Array<{id:string}>).flatMap(p=>chart.getYAxes({paneId:p.id}).filter(a=>!comparisonAxes.has(a.id)).map((a,index)=>({id:a.id,default:index===0,paneId:p.id,name:a.name,reverse:a.reverse,inside:a.inside,position:a.position,scrollZoomEnabled:a.scrollZoomEnabled,gap:a.gap}))),
+    indicators:chart.getIndicators().filter(i=>!['TradeVis','COMPARE'].includes(i.name)&&!runtime?.indicatorIds.has(i.id)).map(i=>({id:i.id,name:i.name,placement:i.paneId==='candle_pane'?'main':'sub',paneId:i.paneId,yAxisId:i.yAxisId,calcParams:i.calcParams,visible:i.visible})),
+    panes:(chart.getPaneOptions() as Array<{id:string;height:number;minHeight:number;order:number}>).filter(p=>!runtime?.paneIds.has(p.id)).map(({id,height,minHeight,order})=>({id,height,minHeight,order})),
+    axes:(chart.getPaneOptions() as Array<{id:string}>).flatMap(p=>chart.getYAxes({paneId:p.id}).filter(a=>!comparisonAxes.has(a.id)&&!runtime?.axisIds.has(a.id)&&!runtime?.paneIds.has(p.id)).map((a,index)=>({id:a.id,default:index===0,paneId:p.id,name:a.name,reverse:a.reverse,inside:a.inside,position:a.position,scrollZoomEnabled:a.scrollZoomEnabled,gap:a.gap}))),
     overlayData:chart.getOverlays().filter(o=>options.localDrawingIds?.includes(o.id)).map(o=>({id:o.id,paneId:o.paneId,name:o.name,groupId:o.groupId,points:o.points.map(({timestamp,dataIndex,value})=>({timestamp,dataIndex,value})),lock:o.lock,visible:o.visible,styles:o.styles??undefined,extendData:o.extendData??undefined})),
     context:options.context,annotationRefs:options.annotationRefs,viewport:from&&to?{fromTimestamp:from.timestamp,toTimestamp:to.timestamp,barSpace:chart.getBarSpace().bar}:undefined}) as unknown as ChartLayoutV3
 }
@@ -104,7 +107,9 @@ export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3):Prom
   }
   assertReady()
   const {indicatorRegistry}=await import('../indicator')
-  for(const indicator of layout.indicators)await indicatorRegistry.ensureRegistered(indicator.name)
+  const {validateIndicatorParams}=await import('../indicator/catalog')
+  const catalog=chartPro.getIndicatorCatalog()
+  for(const indicator of layout.indicators){const d=catalog.find(d=>d.name===indicator.name);if(!d||!d.placements.includes(indicator.placement))throw Error(`无法恢复指标 ${indicator.name}：不在当前目录或窗格不支持`);if(indicator.calcParams!==undefined)validateIndicatorParams(d,indicator.calcParams);await indicatorRegistry.ensureRegistered(indicator.name)}
   const {getSupportedIndicators}=await import('klinecharts')
   const supported=new Set(getSupportedIndicators())
   for(const indicator of layout.indicators)if(!supported.has(indicator.name))throw Error(`无法恢复指标 ${indicator.name}：当前引擎未注册该指标，当前工作台已保留`)
@@ -113,13 +118,14 @@ export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3):Prom
   chartPro.resetDrawingHistory()
   chartPro.setTheme(layout.theme);chartPro.setLocale(layout.locale);chartPro.setTimezone(layout.timezone)
   chart.setStyles(layout.styles as DeepPartial<Styles> ?? {})
-  for(const indicator of chart.getIndicators())if(!['TradeVis','COMPARE'].includes(indicator.name))chart.removeIndicator({id:indicator.id})
+  for(const indicator of chart.getIndicators())if(!['TradeVis','COMPARE'].includes(indicator.name)&&!runtimeBindings.get(chart)?.indicatorIds.has(indicator.id))chart.removeIndicator({id:indicator.id})
   const axisIds=new Map<string,string>()
   for(const axis of layout.axes)if(axis.default && axis.paneId==='candle_pane' && axis.id){const real=chart.getYAxes({paneId:'candle_pane'})[0];if(real)axisIds.set(axis.id,real.id)}
   for(const i of layout.indicators){
     const paneId=i.placement==='main'?'candle_pane':i.paneId,yAxisId=i.yAxisId?axisIds.get(i.yAxisId)??i.yAxisId:undefined
     const id=chart.createIndicator({name:i.name,id:i.id,paneId,yAxisId,calcParams:i.calcParams,visible:i.visible},true)
     const actual=id?chart.getIndicators({id}):[]
+    if(actual.length===1){const descriptor=catalog.find(d=>d.name===i.name)!;validateIndicatorParams(descriptor,actual[0].calcParams);configureIndicatorTooltip(chart,actual[0],descriptor)}
     if(!id||actual.length!==1||actual[0].name!==i.name||(i.id&&actual[0].id!==i.id)||(paneId&&actual[0].paneId!==paneId)||(yAxisId&&actual[0].yAxisId!==yAxisId))throw Error(`无法恢复指标 ${i.name}：创建结果或窗格／价格轴绑定不匹配`)
   }
   for(const pane of layout.panes)chart.setPaneOptions(pane)

@@ -1,86 +1,42 @@
 # Getting started
 
-## Installing
-Use npm or yarn
+TradingChest is a general browser chart library. Hosts own market data, analytical inputs, persistence and business actions; no EvoTrader service is required.
+
+## Install
+
 ```bash
-# npm
-npm install klinecharts @klinecharts/pro
-
-# yarn
-yarn install klinecharts @klinecharts/pro
-```
-If it is imported directly through a script tag, you can use either of the following two CDNs
-::: warning Note
-For production environments, it is recommended to use a clear version number to avoid unexpected damage caused by new versions.
-:::
-
-```html
-<!-- unpkg -->
-<script src="https://unpkg.com/@klinecharts/pro/dist/klinecharts-pro.umd.js"></script>
-
-<!-- jsdelivr -->
-<script src="https://cdn.jsdelivr.net/@klinecharts/pro/dist/klinecharts-pro.umd.js"></script>
+npm install trading-chest@0.7.0 klinecharts@10.1.0
 ```
 
-## Usage
-### Step 1: Create a container
-```html
-<div id="container"></div>
-```
-### Step 2: Create an instance
-In projects using package managers such as npm and yarn
-```javascript
-// Import js
-import { KLineChartPro, DefaultDatafeed } from '@klinecharts/pro'
-// Import css
-import '@klinecharts/pro/dist/klinecharts-pro.css'
+Use `trading-chest/chart` for charts without React. Existing analytical components use `trading-chest/react` or `trading-chest/solid`; Solid hosts share the runtime with the library. KLineChart is pinned to 10.1.0. Raw Node chart imports are outside the SSR support contract.
 
-// Create Instance
+## Create and dispose
+
+Give the container an explicit height. Implement `datafeed` using the [data contract](./data-access), and obtain `symbol` and `period` from your host's valid catalog:
+
+```typescript
+import {KLineChartPro} from 'trading-chest/chart'
+import 'trading-chest/dist/trading-chest.css'
+
 const chart = new KLineChartPro({
-  container: document.getElementById('container'),
-  // Default symbol info
-  symbol: {
-    exchange: 'XNYS',
-    market: 'stocks',
-    name: 'Alibaba Group Holding Limited American Depositary Shares, each represents eight Ordinary Shares',
-    shortName: 'BABA',
-    ticker: 'BABA',
-    priceCurrency: 'usd',
-    type: 'ADRC',
-  },
-  // Default period
-  period: { multiplier: 15, timespan: 'minute', text: '15m' },
-  // The default data access is used here. If the default data is also used in actual use, you need to go to the https://polygon.io/ apply for API key
-  datafeed: new DefaultDatafeed(`${polygonIoApiKey}`)
+  container: document.getElementById('chart')!,
+  symbol,
+  period,
+  datafeed,
+  onDataReady: () => {
+    const context = chart.getAnalysisContext()
+    if (!context) return
+    // Bind host snapshots to this confirmed context.
+  }
 })
+// Call when the host component unmounts.
+chart.dispose()
 ```
 
-In projects introduced directly through script tags
-```html
-<!-- Import js -->
-<script src="https://cdn.jsdelivr.net/@klinecharts/pro/dist/klinecharts-pro.umd.js"></script>
+The root entry retains chart exports. CJS browser entrypoints and UMD assets remain available. For script tags, load the pinned KLineChart UMD peer before `trading-chest/dist/trading-chest.umd.js` and its CSS. The library global is `tradingchest`. The root UMD also contains React analytical components, so provide React as required by that entry.
 
-<!-- Import css -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/@klinecharts/pro/dist/klinecharts-pro.css"/>
-<script>
-  // Create Instance
-  const chart = new klinechartspro.KLineChartPro({
-    container: document.getElementById('container'),
-    // Default symbol info
-    symbol: {
-      exchange: 'XNYS',
-      market: 'stocks',
-      name: 'Alibaba Group Holding Limited American Depositary Shares, each represents eight Ordinary Shares',
-      shortName: 'BABA',
-      ticker: 'BABA',
-      priceCurrency: 'usd',
-      type: 'ADRC',
-    },
-    // Default period
-    period: { multiplier: 15, timespan: 'minute', text: '15m' },
-    // The default data access is used here. If the default data is also used in actual use, you need to go to the https://polygon.io/ apply for API key
-    datafeed: new klinechartspro.DefaultDatafeed(`${polygonIoApiKey}`)
-  })
-</script>
-```
-The first chart is created. Working <a href="https://jsfiddle.net/mawsyh/ct65rysp/20/" target="_blank">example</a>
+## Standalone example
+
+The [analysis-sdk example](https://github.com/evotrader/TradingChest/tree/main/examples/analysis-sdk) installs an actual tarball and uses public exports to demonstrate external indicators, separate instances, lines/histograms/bands/events, an ordered label panel, replay and layouts. Its deterministic data is explicitly isolated and requires no backend or credentials. Copy it outside this repository to run and build it. Supply a real datafeed for production; example data is never a fallback.
+
+See the [API](./api#generic-indicator-catalog-and-instances) and [0.6.0 migration guide](./upgrade/0.7.0). Local verification: `npm ci`, `npm run build`, `npm run test:package`, `npx playwright install chromium`, `npm run test:browser`, then `npm run docs:build`. The browser runner chooses a free port, starts Vite and cleans up its own processes. JSON, logs and traces are retained under `test-results/`.

@@ -2,3 +2,5 @@
 /dist
 /website
 /docs/.vitepress/cache.worktrees
+
+/test-results

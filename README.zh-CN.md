@@ -15,6 +15,14 @@
   <img src="docs/public/image.png" alt="TradingChest 截图" width="800" />
 </p>
 
+## 0.7.0 通用分析 SDK
+
+支持带命名空间的 KLineChart 模板、每图指标目录与按 ID 操作的真实实例，参数含数字／选择器／布尔开关，同名实例互不串改。外部线、正负柱、价格带、只读事件和有序标签面板接受宿主显式快照，落实 scope token、dataBasis 与回放 availableAt 规则。工作台尺寸／主题／语言／工具栏由宿主配置。
+
+见 [API](docs/api.md)、[0.6.0 升级说明](docs/upgrade/0.7.0.md)和[独立 tarball 示例](examples/analysis-sdk/README.md)。库不依赖 EvoTrader 后端或凭证，示例为明确隔离合成数据；业务计算、数据、存储和操作回调由宿主负责。
+
+`npm run test:package` 验证安装后的 ESM／CJS／UMD／CSS，并在 Chromium 操作独立示例。`npx playwright install chromium && npm run test:browser` 自行管理空闲端口及包内服务，证据写入 test-results。CI 保留 Node 22／24 原检查，新增包／浏览器／文档构建。
+
 ## 特性
 
 ### 技术指标（73+）
@@ -104,7 +112,7 @@
 ## 安装
 
 ```bash
-npm install trading-chest klinecharts@^9.8.12
+npm install trading-chest@0.7.0 klinecharts@10.1.0
 ```
 
 ## 使用
@@ -299,7 +307,7 @@ Fork 自 [KLineChart Pro](https://github.com/klinecharts/pro)，在此基础上�
 - 交易可视化 + 点击检测
 - 指标面板分类搜索
 - 设置面板分组 + 颜色选择器
-- `dispose()` 完整资源释放，零内存泄漏
+- `dispose()` 释放自有资源；浏览器验证重复卸载，并记录可用的堆趋势证据
 
 ## 许可证
 

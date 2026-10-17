@@ -1,25 +1,13 @@
+import {launchBrowser} from './support.mjs'
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
-import {readFileSync,writeFileSync} from 'node:fs';
+import {writeFileSync} from 'node:fs';
 
-const require=createRequire(process.env.PLAYWRIGHT_PACKAGE_JSON||new URL('../../../../package.json',import.meta.url));
-const {chromium}=require('playwright');
-const {transformSync}=createRequire(new URL('../../package.json',import.meta.url))('esbuild');
-const consumer=readFileSync(new URL('../../../../src/components/charts/trading-chart/TradingChart.tsx',import.meta.url),'utf8');
-const host=readFileSync(new URL('../../../../src/components/charts/ChartWorkspaceHost.tsx',import.meta.url),'utf8');
-const helpers=host.slice(host.indexOf('export function resolutionPeriod(')).replaceAll('export function','function');
-const mapper=consumer.slice(consumer.indexOf('function resToPeriod('),consumer.indexOf('\nfunction toKData('));
-const parse=Function(transformSync(helpers+mapper,{loader:'ts'}).code+';return resToPeriod')();
-const evidence={syntheticInputs:true,periods:[]};
-for(const [resolution,multiplier,timespan] of [['2h',2,'hour'],['3m',3,'minute'],['10m',10,'minute'],['2d',2,'day']]){
-  const actual=parse(resolution);assert.equal(actual.multiplier,multiplier);assert.equal(actual.timespan,timespan);evidence.periods.push({resolution,actual});
-}
-assert.throws(()=>parse('0m'),/无效行情周期/);
-const browser=await chromium.launch({chromiumSandbox:true});
+const evidence={syntheticInputs:true};
+const browser = await launchBrowser()
 try{
   const page=await browser.newPage({viewport:{width:1280,height:1000}}),errors=[];
   page.on('pageerror',error=>errors.push(error.message));
-  await page.goto((process.env.TC_BROWSER_BASE||'http://127.0.0.1:4291')+'/tests/browser/workspace.html');
+  await page.goto((process.env.TC_BROWSER_BASE||'http://127.0.0.1:4173')+'/tests/browser/workspace.html');
   await page.waitForFunction(()=>window.ready);await page.evaluate(()=>setupWorkspace());
   evidence.rejectedLayouts=await page.evaluate(async()=>{
     const original=workspace.getCells()[0].chart,engine=original.getChart();

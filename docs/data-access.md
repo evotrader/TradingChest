@@ -1,95 +1,37 @@
 # 接入数据
-可以使用默认的数据，和自定义数据完成数据接入。
 
-## 使用默认数据
-默认数据来源于 https://polygon.io/ ，在使用前需要去申请API key。申请完成后，通过内置`DefaultDatafeed`这个类完成数据接入。
-示例：
+宿主提供每图独立的 Datafeed，真实目录决定 SymbolInfo 与 Period。库不依赖某个交易系统的 DTO、鉴权或接口路径。
+
 ```typescript
-import { KLineChartPro, DefaultDatafeed } from '@klinecharts/pro'
-const chart = new KLineChartPro({
-  container: document.getElementById('container'),
-  datafeed: new DefaultDatafeed(`${polygonIoApiKey}`)
-})
+import type {Datafeed,DatafeedRequestContext,HistoryResult,SymbolInfo,Period} from 'trading-chest/chart'
 ```
 
-## 使用自定义数据
-需要使用自定义数据，只需要按如下步骤即可。
+| Datafeed 方法 | 契约 |
+| --- | --- |
+| searchSymbols(search?) | `Promise<SymbolInfo[]>`，返回真实有效目录 |
+| getHistoryKLineData(symbol,period,from,to,context?) | `Promise<HistoryResult>`，按当前身份及窗口读取 |
+| subscribe(symbol,period,callback) | 给当前图提供真实 bar 更新 |
+| unsubscribe(symbol,period) | 暂停该实例订阅 |
+| dispose?() | 最终释放自有连接／资源 |
 
-### 第一步，实现数据接入API
-```typescript
-class CustomDatafeed {
-  /**
-   * 模糊搜索标的
-   * 在搜索框输入的时候触发
-   * 返回标的信息数组
-   */
-  searchSymbols (search?: string): Promise<SymbolInfo[]> {
-    // 根据模糊字段远程拉取标的数据
-  }
+`context.signal` 用于取消读取，reason 为 initial/load-more/resume。不要跨图共享单回调 provider。HistoryResult 是 KLineData[] 或 `{bars,basis?}`；bars 使用 Unix 毫秒、严格递增唯一时标和有效 OHLCV。basis 必须与此次 bars 同源读取，不用全局最后状态。周期是宿主 `{timespan,multiplier,text}`，内部统一转 v10 `{type,span}`。
 
-  /**
-   * 获取历史k线数据
-   * 当标的和周期发生变化的时候触发
-   * 
-   * 返回标的k线数据数组
-   */
-  getHistoryKLineData (symbol: SymbolInfo, period: Period, from: number, to: number): Promise<KLineData[]> {
-    // 完成数据请求
-  }
+## 权威快照与确认
 
-  /**
-   * 订阅标的在某个周期的实时数据
-   * 当标的和周期发生变化的时候触发
-   * 
-   * 通过callback告知图表接收数据
-   */
-  subscribe (symbol: SymbolInfo, period: Period, callback: DatafeedSubscribeCallback): void {
-    // 完成ws订阅或者http轮询
-  }
+`applySnapshot({symbol,period,bars,basis})` 接完整权威快照。身份必须匹配当前图。续读与同根更新走唯一 loader；更早修订／basis 变化先成功读取已加载范围再提交，失败保留最后确认数据、视窗和绘图。缺行不自动代表删除。回放保留待应用快照，退出主图与比较组合恢复成功后再继续订阅。
 
-  /**
-   * 取消订阅标的在某个周期的实时数据
-   * 当标的和周期发生变化的时候触发
-   * 
-   */ 
-  unsubscribe (symbol: SymbolInfo, period: Period): void {
-    // 完成ws订阅取消或者http轮询取消
-  }
-}
-```
+`onDataState` 返回已确认 basis、timestamp、restoring、replay 和 error；收到 HTTP 新口径不表示图形已提交。`onDataReady` 后调用 getAnalysisContext，分析层必须绑定该 token。标的／周期／确认口径变化后重新提供图层，同口径续读保持。
 
-### 第二步，接入自定义数据
-```typescript
-import { KLineChartPro, DefaultDatafeed } from '@klinecharts/pro'
-const chart = new KLineChartPro({
-  container: document.getElementById('container'),
-  datafeed: new CustomDatafeed()
-})
-```
+## 分析结果快照
 
-## 0.6.0 引擎迁移
+分析层只接受宿主显式快照，不发请求或建立另一份缓存。宿主沿原 AbortSignal、请求序号和结果归属控制返回顺序；replaceData 整批校验失败保旧。序列只匹配真实相同时标，无近邻、前填或插值。数据可用时刻与 PIT 由宿主声明，回放同时裁剪 timestamp 和 availableAt；时间戳单位为毫秒。
 
-本版固定 `klinecharts@10.1.0`，`getChart()` 返回 v10 Chart。宿主使用库自有 Period，加载器统一转换为 `{type, span}`；直接调用引擎时使用 v10 的字符串 action、`getIndicators(filter)`、`getOverlays(filter)` 和独立价格轴。旧 `applyNewData`／`updateData` 不再可用。
+日级 YYYY-MM-DD 或其他有序标签走 label-series，不转成猜测日内时刻。保留原始数值与 null 位置；没有精确 availableAt，回放整层隐藏并说明。单位由来源声明：标准 EvoBacktest 净值初始为 1，不是金额；通用 API 不假定该业务含义。百分数点 1 表示 1%，缺币种不猜测。
 
-`reloadData({preserveViewport:true})` 先成功读取，再替换数据。失败保留最后确认的行情、视窗与绘图；回放中须先用退出／重试入口恢复实时模式。币种等元数据缺失时显示未知，不从标的名称推断。
+未对齐事件保留原时刻并显示原因，点击由宿主打开详情。dataBasis 未知或不同的价格不能叠到 main 原价轴，可选择独立副图。
 
-当前布局只通过 `captureLayout`、`saveLayoutV3`、`loadLayoutV3`、`restoreLayout`、`deleteLayoutV3`、`listLayoutsV3` 写读 v3。读取结果为 `ok`／`missing`／`error`；错误携带 code 和 message。旧 v1／v2 只在内存迁移，原键保留；新版损坏不会回落旧记录。恢复前先准备同身份、同周期的数据。后端标注只保存引用，本地绘图须显式提供 IDs，订单、成交、持仓及报警状态不写入布局。
+## 工作台与存储
 
-设置面板和快捷键使用 `getYAxes`／`overrideYAxis` 修改真实价格轴，名称为 `normal`／`percentage`／`logarithm`；价格轴类型不再写入 `styles.yAxis.type`。
+每个 cell 的 mountCell 构造独立 provider，ready 在真实数据应用后完成，dispose 取消本 cell 工作。captureOptions 只返回真实本地绘图 ID 和后端标注引用；运行时分析层、订单、成交和报警不入布局，不因恢复调用标注写接口。显式传 storage 才启用保存，存储与业务数据由宿主维护。
 
-图表支持浏览器打包及 UMD，React 分析入口保持独立。原始 Node 图表导入不属于 SSR 支持范围。CJS 浏览器子入口为规避上游 CJS→ESM 型 UMD 入口缺陷，打包同一发布版的真实 ESM 引擎；ESM 和 UMD 仍消费固定 peer。
-## 权威快照续读
-
-宿主可以调用 `chart.applySnapshot({symbol, period, bars, basis})`。`symbol.ticker` 必须为当前完整标的 ID；周期也必须完全相同。`bars` 必须按时标严格递增且 OHLCV 有效，重复和错身份会拒绝。
-
-同根修改和新根通过当前引擎订阅 callback 更新；更早数据的修订先重读整个已加载范围，成功后替换并保留视窗和绘图，不触发实时报警。缺少旧行不代表删除。回放中只保留待应用输入，退出时重读权威历史。
-
-`Datafeed.getHistoryKLineData` 可返回原数组，或 `{bars, basis}`。`basis` 是该次读取的口径标识，例如后端 `adjustment_status` 与 `adjustment_basis` 的组合，必须与 bars 同次取得；不能使用全局“最后一次”状态。口径变化时必须成功读齐已加载时标才能替换；失败保留旧图并显示恢复错误，下一次快照或重试继续恢复。
-
-
-`onDataState` 返回引擎已确认的 `basis`、末根 `timestamp`、`restoring`、`replay` 和错误。宿主应据此标注当前图形口径；刚收到 HTTP 新口径不等于旧图已完成替换。实盘历史分页通过 `adjustment_end` 沿用当前序列的参考日期，并比较实际累计因子，不能仅比较 adjusted 状态。
-## 工作台宿主
-
-每个 `WorkspaceCell` 有稳定 `cellId`、完整 symbol、period 和 context。`mountCell` 必须为本窗格构造并释放独立 provider，不得共享单回调 feed。目录读取遵守传入的 AbortSignal；移除窗格、身份切换和销毁会取消本窗格工作，不取消其他窗格。
-
-`captureOptions` 只返回确实由本实例用户创建的本地绘图 ID 和后端标注引用。禁止将订单、TradeVis、报警状态或 API 标注复制为本地布局对象。布局恢复不调用标注写接口。
+DefaultDatafeed 仍是可选 Polygon 数据实现，使用时按其上游服务要求提供有效凭证；它不是无凭证的默认行情。无数据、失败、未对齐应区分展示，不把演示输入当生产回退。完整类型和错误／释放行为见 [API](./api)，独立隔离示例见[快速开始](./getting-started)。

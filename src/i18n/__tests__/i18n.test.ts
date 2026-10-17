@@ -21,8 +21,8 @@ describe('translate', () => {
     expect(translate('__nonexistent_key__', 'en-US')).toBe('__nonexistent_key__')
   })
 
-  it('returns the key itself when the locale does not exist', () => {
-    expect(translate('indicator', 'fr-FR')).toBe('indicator')
+  it('uses English when the locale does not exist', () => {
+    expect(translate('indicator', 'fr-FR')).toBe('Indicator')
   })
 
   it('returns the key itself for both unknown locale and unknown key', () => {
@@ -50,8 +50,9 @@ describe('load', () => {
     expect(translate('foo', 'test-LANG')).toBe('Bar')
   })
 
-  it('missing keys in a loaded locale fall back to the key', () => {
+  it('missing keys in a loaded locale fall back to English and then the key', () => {
     load('test-PARTIAL', { only_key: 'Only Value' })
+    expect(translate('indicator', 'test-PARTIAL')).toBe('Indicator')
     expect(translate('missing_key', 'test-PARTIAL')).toBe('missing_key')
   })
 

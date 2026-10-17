@@ -1,4 +1,5 @@
 import { type Component, For, Show, createMemo } from 'solid-js'
+import i18n from '../../i18n'
 import WidgetState from '../shared/WidgetState'
 import {
   STATUS_TOKEN,
@@ -16,11 +17,13 @@ export interface MetricSeriesPoint {
   /** Domain x key (ISO timestamp or ordered label) — layout only. */
   x: string
   /** Precomputed series value; widget does not derive it. */
-  y: number
+  y: number | null
   label?: string
 }
 
 export interface MetricSeriesProps {
+  locale?:string
+  theme?:string
   viewState: WidgetViewState
   points: ReadonlyArray<MetricSeriesPoint>
   height?: number
@@ -53,7 +56,7 @@ export const MetricSeries: Component<MetricSeriesProps> = (props) => {
     if (pts.length === 0) {
       return { coords: [] as Array<{ point: MetricSeriesPoint, x: number, y: number }>, path: '' }
     }
-    const ys = pts.map(p => p.y).filter(Number.isFinite)
+    const ys = pts.map(p => p.y).filter((v):v is number=>typeof v==='number'&&Number.isFinite(v))
     const minY = Math.min(...ys, 0)
     const maxY = Math.max(...ys, 0)
     const range = Math.max(maxY - minY, 1e-9)
@@ -64,7 +67,7 @@ export const MetricSeries: Component<MetricSeriesProps> = (props) => {
     const commands: string[] = []
     let connected = false
     pts.forEach((point, i) => {
-      if (!Number.isFinite(point.y)) {
+      if (point.y===null||!Number.isFinite(point.y)) {
         connected = false
         return
       }
@@ -83,9 +86,9 @@ export const MetricSeries: Component<MetricSeriesProps> = (props) => {
       class={props.class}
       data-testid="metric-series"
       style={{
-        border: `1px solid ${STATUS_TOKEN.border}`,
+        border: '1px solid var(--klinecharts-pro-border-color, #27313D)',
         'border-radius': '6px',
-        background: STATUS_TOKEN.surface,
+        background: props.theme==='light'?'var(--klinecharts-pro-background-color, #fff)':STATUS_TOKEN.surface,
         padding: '12px',
         'min-height': `${height() + 24}px`,
       }}
@@ -98,7 +101,7 @@ export const MetricSeries: Component<MetricSeriesProps> = (props) => {
           when={layout().coords.length > 0}
           fallback={
             <div role="status" style={{ color: STATUS_TOKEN.muted, 'text-align': 'center', padding: '16px' }}>
-              暂无数据
+              {i18n('analysis_empty',props.locale??'zh-CN')}
             </div>
           }
         >
@@ -115,7 +118,7 @@ export const MetricSeries: Component<MetricSeriesProps> = (props) => {
               y={PAD_Y}
               width={WIDTH - PAD_X * 2}
               height={height() - PAD_Y * 2}
-              fill="#141C26"
+              fill={props.theme==='light'?'var(--klinecharts-pro-background-color, #fff)':'#141C26'}
               stroke={STATUS_TOKEN.border}
             />
             <path
@@ -142,7 +145,7 @@ export const MetricSeries: Component<MetricSeriesProps> = (props) => {
                     role="button"
                     aria-label={
                       c.point.label
-                      ?? `${c.point.x}: ${formatSignedNumber(c.point.y)}`
+                      ?? `${c.point.x}: ${formatSignedNumber(c.point.y!)}`
                     }
                     style={{ cursor: props.onPointSelect ? 'pointer' : 'default' }}
                     onClick={() => props.onPointSelect?.(c.point)}
@@ -157,6 +160,9 @@ export const MetricSeries: Component<MetricSeriesProps> = (props) => {
               )}
             </For>
           </svg>
+          <div class="klinecharts-pro-metric-values" style={{display:'flex','flex-wrap':'wrap',gap:'12px',color:props.theme==='light'?'var(--klinecharts-pro-text-color, #051441)':STATUS_TOKEN.text}}>
+            <For each={props.points}>{point=><button data-analysis-point-id={point.id} disabled={point.y===null||!Number.isFinite(point.y)} onClick={()=>props.onPointSelect?.(point)}>{point.x}: {point.y===null||!Number.isFinite(point.y)?'—':String(point.y)}</button>}</For>
+          </div>
         </Show>
       </Show>
     </div>

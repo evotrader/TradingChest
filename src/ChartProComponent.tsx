@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, Component, ErrorBoundary,untrack } from 'solid-js'
+import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, Component, ErrorBoundary,untrack,For } from 'solid-js'
 
 import {
   init, dispose, utils, Nullable, Chart, OverlayMode, Styles,
@@ -36,7 +36,12 @@ import { translateTimezone } from './widget/timezone-modal/data'
 
 import { SymbolInfo, Period, ChartProOptions, ChartPro } from './types'
 import { indicatorRegistry } from './indicator'
+import {configureIndicatorTooltip} from './indicator/instances'
+import {builtinIndicatorCatalog,copyIndicatorCatalog,validateIndicatorParams,indicatorInstance,type AddIndicatorOptions,type IndicatorHandle} from './indicator/catalog'
 import { EngineDataLoader } from './core/engineDataLoader'
+import i18n from './i18n'
+import {AnalysisManager,type AnalysisView} from './analysis/manager'
+import {MetricSeries} from './widget/metric-series/MetricSeries'
 import {ComparisonManager} from './compare/manager'
 import type {ComparisonState} from './compare/types'
 import {DrawingHistory} from './drawing/history'
@@ -50,7 +55,12 @@ export interface ChartComponentApi extends ChartPro {
   createDrawing: (overlay: OverlayCreate) => void
 }
 
-export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'|'comparisonSymbols'|'createComparisonDatafeed'|'onComparisonChange'|'onDrawingSelect'|'drawingOwner'|'isDrawingEditable'|'commitDrawing'|'onDrawingHistoryChange'>> {
+export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'analysisLayerListVisible'|'onAnalysisLayerChange'|'onAnalysisEventClick'|'onAnalysisPointSelect'|'indicatorCatalog' | 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'|'comparisonSymbols'|'createComparisonDatafeed'|'onComparisonChange'|'onDrawingSelect'|'drawingOwner'|'isDrawingEditable'|'commitDrawing'|'onDrawingHistoryChange'>> {
+  analysisLayerListVisible?:ChartProOptions['analysisLayerListVisible']
+  onAnalysisLayerChange?:ChartProOptions['onAnalysisLayerChange']
+  onAnalysisEventClick?:ChartProOptions['onAnalysisEventClick']
+  onAnalysisPointSelect?:ChartProOptions['onAnalysisPointSelect']
+  indicatorCatalog?:ChartProOptions['indicatorCatalog']
   comparisonSymbols?:ChartProOptions['comparisonSymbols']
   createComparisonDatafeed?:ChartProOptions['createComparisonDatafeed']
   onComparisonChange?:ChartProOptions['onComparisonChange']
@@ -78,22 +88,6 @@ interface PrevSymbolPeriod {
   period: Period
 }
 
-async function createIndicator (widget: Nullable<Chart>, indicatorName: string, isStack?: boolean, paneOptions?: Partial<PaneOptions>, isActive: () => boolean = () => true): Promise<Nullable<string>> {
-  await indicatorRegistry.ensureRegistered(indicatorName)
-  if (!isActive() || !widget) return null
-  const id = widget.createIndicator({
-    name: indicatorName, paneId: paneOptions?.id,
-    createTooltipDataSource: ({ chart, indicator }: any) => {
-      const defaults = chart.getStyles().indicator.tooltip.features
-      const features = [defaults[indicator.visible ? 1 : 0], defaults[2], defaults[3]].filter(Boolean)
-      return { features }
-    }
-  } as any, isStack)
-  const indicator = id ? widget.getIndicators({ id })[0] : undefined
-  if (indicator && paneOptions) widget.setPaneOptions({...paneOptions, id: indicator.paneId})
-  if (indicatorName === 'VOL' && indicator) widget.overrideYAxis({id:indicator.yAxisId,paneId:indicator.paneId,gap:{bottom:2}})
-  return indicator?.paneId ?? null
-}
 
 function snapshotOverlay (overlay: Overlay): OverlayLifecycleEvent['overlay'] {
   return {
@@ -129,8 +123,29 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const [symbol, setSymbol] = createSignal(props.symbol)
   const [period, setPeriod] = createSignal(props.period)
   const [indicatorModalVisible, setIndicatorModalVisible] = createSignal(false)
-  const [mainIndicators, setMainIndicators] = createSignal([...(props.mainIndicators!)])
-  const [subIndicators, setSubIndicators] = createSignal({})
+  const catalog=copyIndicatorCatalog(props.indicatorCatalog??builtinIndicatorCatalog)
+  const [indicatorInstances,setIndicatorInstances]=createSignal<import('./indicator/catalog').IndicatorInstance[]>([])
+  let indicatorGeneration=0
+  const refreshIndicators=()=>setIndicatorInstances(widget?.getIndicators().filter(i=>catalog.some(d=>d.name===i.name)).map(indicatorInstance)??[])
+  const descriptor=(name:string)=>{const d=catalog.find(d=>d.name===name);if(!d)throw Error(`指标 ${name} 不在当前目录中`);return d}
+  const addIndicator=async(options:AddIndicatorOptions):Promise<IndicatorHandle>=>{
+    const d=descriptor(options.name),generation=indicatorGeneration
+    if(!d.placements.includes(options.placement))throw Error('指标不支持目标窗格')
+    if(options.calcParams!==undefined)validateIndicatorParams(d,options.calcParams)
+    await indicatorRegistry.ensureRegistered(options.name)
+    if(disposed||generation!==indicatorGeneration||!widget)throw new DOMException('指标创建已取消','AbortError')
+    const id=widget.createIndicator({name:options.name,paneId:options.placement==='main'?'candle_pane':undefined,calcParams:options.calcParams},true)
+    const i=id?widget.getIndicators({id})[0]:undefined
+    if(!i||i.name!==options.name||!i.paneId||!i.yAxisId||!widget.getYAxes({id:i.yAxisId,paneId:i.paneId}).length||(options.placement==='main')!==(i.paneId==='candle_pane')){if(id)widget.removeIndicator({id});throw Error('指标未创建真实实例或窗格／价格轴绑定错误')}
+    try{validateIndicatorParams(d,i.calcParams)}catch(e){widget.removeIndicator({id:i.id});throw e}
+    configureIndicatorTooltip(widget,i,d)
+    if(i.name==='VOL')widget.overrideYAxis({id:i.yAxisId,paneId:i.paneId,gap:{bottom:2}})
+    refreshIndicators();return {id:i.id,name:i.name,paneId:i.paneId,yAxisId:i.yAxisId}
+  }
+  const requireIndicator=(id:string)=>{const i=widget?.getIndicators({id})[0];if(!i)throw Error('指标实例已不存在');descriptor(i.name);return i}
+  const updateIndicator=(id:string,updates:{calcParams?:import('./indicator/catalog').IndicatorParameterValue[];visible?:boolean})=>{const i=requireIndicator(id);if(updates.calcParams!==undefined){if(!descriptor(i.name).parameters)throw Error('指标参数只读');validateIndicatorParams(descriptor(i.name),updates.calcParams)}if(updates.visible!==undefined&&typeof updates.visible!=='boolean')throw Error('指标显隐值无效');widget!.overrideIndicator({id,name:i.name,...updates});refreshIndicators()}
+  const removeIndicator=(id:string)=>{requireIndicator(id);widget!.removeIndicator({id});refreshIndicators()}
+  const openIndicatorSettings=(id:string)=>{const i=requireIndicator(id);if(!descriptor(i.name).parameters)throw Error('指标参数只读');setIndicatorSettingModalParams({visible:true,indicatorId:i.id,indicatorName:i.name,paneId:i.paneId,calcParams:i.calcParams})}
 
   const [timezoneModalVisible, setTimezoneModalVisible] = createSignal(false)
   const [timezone, setTimezone] = createSignal<SelectDataSourceItem>({ key: props.timezone, text: translateTimezone(props.timezone, props.locale) })
@@ -232,13 +247,18 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const [comparisonState,setComparisonState]=createSignal<ComparisonState>({handles:[],pending:[],replay:false,restoring:false})
   const [comparisonSelected,setComparisonSelected]=createSignal('')
   let factoryGeneration=0
-  const comparisons=new ComparisonManager({chart:()=>widget,symbol,period,instanceId:`compare_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,onChange:state=>{if(!disposed){setComparisonState(state);resizeComparisonPanel();props.onComparisonChange?.(state)}}})
+  const comparisons=new ComparisonManager({locale,chart:()=>widget,symbol,period,instanceId:`compare_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,onChange:state=>{if(!disposed){setComparisonState(state);resizeComparisonPanel();props.onComparisonChange?.(state)}}})
   const addSelectedComparison=async()=>{
     const selected=props.comparisonSymbols?.find(value=>value.ticker===comparisonSelected()),factory=props.createComparisonDatafeed
     if(!selected||!factory)return
     const epoch=factoryGeneration
     try{const feed=await factory(selected,period());if(disposed||epoch!==factoryGeneration){feed.dispose?.();return}await comparisons.add(selected,feed)}catch(reason){if(!disposed&&!(reason instanceof DOMException&&reason.name==='AbortError'))setComparisonState({...comparisons.getState(),error:reason instanceof Error?reason.message:String(reason)})}
   }
+
+  const [analysisViews,setAnalysisViews]=createSignal<AnalysisView[]>([])
+  const analysis=new AnalysisManager({chart:()=>widget,locale,changed:setAnalysisViews,onAnalysisLayerChange:props.onAnalysisLayerChange,onAnalysisEventClick:props.onAnalysisEventClick,onAnalysisPointSelect:props.onAnalysisPointSelect})
+  let analysisResizeObserver:ResizeObserver|undefined
+  const analysisClick=(event:MouseEvent)=>analysis.click(event)
 
   // 回放状态
   const defaultReplayState: ReplayState = { active: false, playing: false, speed: 1, position: 0, totalBars: 0 }
@@ -248,6 +268,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   const setChartPeriod = (nextPeriod: Period) => {
     if (replayEngine) return
+    ++indicatorGeneration
     setPeriod(nextPeriod)
     props.onPeriodChange?.(nextPeriod)
   }
@@ -292,12 +313,15 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     const current=()=>!disposed&&replayEngine===engine&&replayRevision===revision
     const assertCurrent=()=>{if(!current())throw new DOMException('回放位置已改变，旧恢复已取消','AbortError')}
     const retainedReplay=widget?.getDataList().map(bar=>({...bar}))??[],retainedRange=widget?.getVisibleRange(),retainedSpace=widget?.getBarSpace().bar
+    const transaction=loader?.beginReplayResume()
     let mainRestored=false
     const reloadMain=()=>{assertCurrent();return (loader?.reload(true)??Promise.resolve()).then(()=>{assertCurrent();mainRestored=true})}
     const restore=comparisons.getState().handles.length?comparisons.prepareResume().then(reloadMain):reloadMain()
     restore.then(() => {
       assertCurrent()
+      transaction?.prepare()
       comparisons.leaveReplay()
+      transaction?.commit()
       replayEngine?.dispose()
       replayEngine = null
       replayPrefix=[]
@@ -305,7 +329,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       props.onReplayActiveChange?.(false)
       props.onDataReady?.({symbol:symbol(),period:period()})
     }).catch(error => {
-      if(current()&&mainRestored&&comparisons.getState().replay){loader?.setReplay(retainedReplay);props.onReplayReset?.(retainedReplay.at(-1)?.close,retainedReplay.at(-1)?.timestamp);if(retainedSpace!==undefined)widget?.setBarSpace(retainedSpace);if(retainedRange){widget?.scrollToDataIndex(Math.min(retainedReplay.length-1,retainedRange.to-1),0);if(retainedSpace!==undefined)widget?.scrollByDistance(retainedSpace/2,0)}}
+      if(current()&&!mainRestored)transaction?.rollback()
+      if(current()&&mainRestored){transaction?.rollback();props.onReplayReset?.(retainedReplay.at(-1)?.close,retainedReplay.at(-1)?.timestamp);if(retainedSpace!==undefined)widget?.setBarSpace(retainedSpace);if(retainedRange){widget?.scrollToDataIndex(Math.min(retainedReplay.length-1,retainedRange.to-1),0);if(retainedSpace!==undefined)widget?.scrollByDistance(retainedSpace/2,0)}}
       if(!disposed)setLoadError(error instanceof DOMException&&error.name==='AbortError'?'回放恢复已取消，请重试退出回放':`回放恢复失败：${error instanceof Error?error.message:String(error)}`)
     }).finally(() => {setResuming(false)})
   }
@@ -317,7 +342,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const [drawingState,setDrawingState]=createSignal<DrawingHistoryState>({pending:0,canUndo:false,canRedo:false,uncertainLogicalIds:[]})
   const editable=(overlay:OverlayLifecycleEvent['overlay'])=>overlay.name!=='alertLine'&&!overlay.id?.startsWith('alert_')&&(props.isDrawingEditable?.(overlay)??true)
   const applyDrawing=(id:string,value:DrawingSnapshot|null):DrawingSnapshot|null=>{
-    if(!widget)throw Error('图表尚未就绪')
+    if(!widget)throw Error(i18n('chart_not_ready',locale()))
     if(value?.overlay.paneId&&!widget.getPaneOptions(value.overlay.paneId))throw Error('绘图所在副图不存在，请恢复对应指标后刷新标注')
     const selected=selectedOverlay()?.id===id
     applyingDrawing=true
@@ -327,21 +352,22 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       const overlay=value.overlay
       const created=widget.createOverlay({...overlay,id,styles:overlay.styles??undefined,extendData:overlay.extendData??undefined,...drawingHandlers()})
       const actual=widget.getOverlays({id})[0]
-      if(created!==id||!actual||(overlay.paneId&&actual.paneId!==overlay.paneId))throw Error('已确认绘图无法应用到图表，请刷新标注')
+      if(created!==id||!actual||(overlay.paneId&&actual.paneId!==overlay.paneId))throw Error(i18n('drawing_render_failure',locale()))
       ownedDrawingIds.add(id);completedDrawingIds.add(id)
       if(selected)markSelectedOverlay(actual)
       return {...value,logicalId:id,overlay:snapshotOverlay(actual)}
     }finally{applyingDrawing=false}
   }
   const drawingHistory=new DrawingHistory({
-    context:()=>({symbol:symbol(),period:period()}),apply:applyDrawing,commit:change=>props.commitDrawing?props.commitDrawing(change):Promise.resolve({status:'rejected',message:'后端绘图没有接入确认回调'}),
+    locale,
+    context:()=>({symbol:symbol(),period:period()}),apply:applyDrawing,commit:change=>props.commitDrawing?props.commitDrawing(change):Promise.resolve({status:'rejected',message:i18n('drawing_message_3',locale())}),
     onChange:state=>{if(disposed)return;setDrawingState(state);props.onDrawingHistoryChange?.(state);queueMicrotask(()=>{if(!disposed)widget?.resize()})},
     onConfirmed:change=>{const event={overlay:(change.after??change.before)!.overlay,source:change.source};if(change.kind==='create')props.onOverlayCreate?.(event);else if(change.kind==='update')props.onOverlayUpdate?.(event);else props.onOverlayDelete?.(event)},
   })
   const commitDrawing=(change:Pick<DrawingChange,'kind'|'logicalId'|'after'|'source'>)=>{
-    if(!widget)return Promise.reject(Error('图表尚未就绪'))
+    if(!widget)return Promise.reject(Error(i18n('chart_not_ready',locale())))
     const overlay=change.after?.overlay??drawingHistory.getDrawings().find(d=>d.logicalId===change.logicalId)?.overlay
-    if(overlay&&!editable(overlay))return Promise.reject(Error('系统覆盖物不能作为可编辑绘图'))
+    if(overlay&&!editable(overlay))return Promise.reject(Error(i18n('drawing_protected',locale())))
     return drawingHistory.submit(change.kind,change.logicalId,change.after,change.source)
   }
   let activeDrawingId: string | null = null
@@ -401,17 +427,23 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
 
   props.ref({
+    getAnalysisContext:()=>analysis.getContext(),
+    addAnalysisLayer:(context,spec)=>analysis.add(context,spec),
+    getIndicatorCatalog:()=>copyIndicatorCatalog(catalog),
+    addIndicator,
+    getIndicators:()=>{refreshIndicators();return indicatorInstances()},
+    updateIndicator,removeIndicator,
     locateTimestamp: () => { throw new Error('[TradingChest] locateTimestamp must be called on KLineChartPro instance') },
     cancelDrawing, deleteSelectedDrawing, createDrawing,
     commitDrawing,
     getDrawings:()=>drawingHistory.getDrawings(),
     getDrawingHistoryState:()=>drawingHistory.getState(),
-    restoreDrawings:(owner,values)=>{if(values.some(value=>!editable(value.overlay)))throw Error('系统覆盖物不能恢复为可编辑绘图');drawingHistory.reconcile(owner,values)},
+    restoreDrawings:(owner,values)=>{if(values.some(value=>!editable(value.overlay)))throw Error(i18n('drawing_restore_protected',locale()));drawingHistory.reconcile(owner,values)},
     resetDrawingHistory:()=>drawingHistory.reset(),
     undoDrawing:()=>drawingHistory.undo(),
     redoDrawing:()=>drawingHistory.redo(),
     reloadData: options => replayEngine ? Promise.reject(new Error('回放中请先退出回放，再重新加载行情')) : loader?.reload(options?.preserveViewport ?? true) ?? Promise.resolve(),
-    applySnapshot: snapshot => loader?.applySnapshot(snapshot) ?? Promise.reject(new Error('图表尚未就绪')),
+    applySnapshot: snapshot => loader?.applySnapshot(snapshot) ?? Promise.reject(new Error(i18n('chart_not_ready',locale()))),
     setTheme,
     getTheme: () => theme(),
     setStyles,
@@ -420,7 +452,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     getLocale: () => locale(),
     setTimezone: (tz: string) => { setTimezone({ key: tz, text: translateTimezone(tz, locale()) }) },
     getTimezone: () => timezone().key,
-    setSymbol: (s: SymbolInfo) => { if (!replayEngine) setSymbol(s) },
+    setSymbol: (s: SymbolInfo) => { if (!replayEngine) {++indicatorGeneration;setSymbol(s)} },
     getSymbol: () => symbol(),
     setPeriod: setChartPeriod,
     getPeriod: () => period(),
@@ -473,6 +505,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     window.addEventListener('resize', documentResize)
     // 绑定到 container 而非 window，避免图表外的按键误触发
     widgetRef!.addEventListener('keydown', handleKeyDown)
+    widgetRef!.addEventListener('click',analysisClick,true)
+    if(typeof ResizeObserver!=='undefined'){analysisResizeObserver=new ResizeObserver(()=>widget?.resize());analysisResizeObserver.observe(widgetRef!)}
     widget = init(widgetRef!, {
       locale:locale(), timezone:timezone().key, styles:theme(),
       hotkey: {enabled:false},
@@ -533,6 +567,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     }
 
     if (widget) loader = new EngineDataLoader(widget, props.datafeed, {
+      committed:state=>analysis.sync(state),
       state: state=>{comparisons.mainChanged();props.onDataState?.(state)},
       loading: active => {setLoading(active);setLoadingVisible(active)},
       ready: identity => {setLoadError('');if(!resuming())props.onDataReady?.(identity)},
@@ -549,16 +584,9 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       initializing = true
       setLoadingVisible(true)
       void (async () => {
-        for (const indicator of mainIndicators()) {
-          if(!widget?.getIndicators({name:indicator,paneId:'candle_pane'}).length) await createIndicator(widget,indicator,true,{id:'candle_pane'},()=>!disposed)
-        }
-        const map:Record<string,string>={}
-        for(const indicator of props.subIndicators!) {
-          const existing=widget?.getIndicators({name:indicator}).find(i=>i.paneId!=='candle_pane')
-          const paneId=existing?.paneId ?? await createIndicator(widget,indicator,true,undefined,()=>!disposed)
-          if(paneId)map[indicator]=paneId
-        }
-        if(!disposed){setSubIndicators(map);setEngineReady(true)}
+        for(const name of props.mainIndicators){if(!widget?.getIndicators({name,paneId:'candle_pane'}).length)await addIndicator({name,placement:'main'})}
+        for(const name of props.subIndicators){if(!widget?.getIndicators({name}).some(i=>i.paneId!=='candle_pane'))await addIndicator({name,placement:'sub'})}
+        if(!disposed){refreshIndicators();setEngineReady(true)}
       })().catch(error=>{if(!disposed){setLoadError('指标初始化失败，请重试');setLoadingVisible(false);props.onError?.({type:'indicator-init',message:'指标初始化失败',raw:error})}}).finally(()=>{initializing=false})
     }
     retryInitialization()
@@ -567,14 +595,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       const indicator = data.indicator
       if (!indicator) return
       switch (data.feature.id) {
-        case 'visible': widget?.overrideIndicator({name:indicator.name,id:indicator.id,visible:true}); break
-        case 'invisible': widget?.overrideIndicator({name:indicator.name,id:indicator.id,visible:false}); break
-        case 'setting': setIndicatorSettingModalParams({visible:true,indicatorId:indicator.id,indicatorName:indicator.name,paneId:indicator.paneId,calcParams:indicator.calcParams}); break
-        case 'close': {
-          widget?.removeIndicator({id:indicator.id})
-          if(indicator.paneId==='candle_pane') setMainIndicators(mainIndicators().filter(name=>name!==indicator.name))
-          else {const next:Record<string,string>={...subIndicators()};delete next[indicator.name];setSubIndicators(next)}
-        }
+        case 'visible': updateIndicator(indicator.id,{visible:true}); break
+        case 'invisible': updateIndicator(indicator.id,{visible:false}); break
+        case 'setting': openIndicatorSettings(indicator.id); break
+        case 'close': removeIndicator(indicator.id); break
       }
     })
     // 点击蜡烛区域时清除 overlay 选中状态
@@ -586,7 +610,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   onCleanup(() => {
     disposed = true
+    ++indicatorGeneration
     if(comparisonResizeFrame!==undefined)cancelAnimationFrame(comparisonResizeFrame)
+    analysisResizeObserver?.disconnect()
+    analysis.dispose()
+    widgetRef!.removeEventListener('click',analysisClick,true)
     ++factoryGeneration;comparisons.dispose()
     drawingHistory.dispose()
     loader?.dispose()
@@ -609,7 +637,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         priceUnitDom.textContent = s?.priceCurrency.toLocaleUpperCase()
         priceUnitDom.style.display = 'flex'
       } else {
-        priceUnitDom.textContent = '币种未知'
+        priceUnitDom.textContent = i18n('price_currency_unknown',locale())
         priceUnitDom.style.display = 'flex'
       }
     }
@@ -618,11 +646,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   createEffect((prev?: PrevSymbolPeriod) => {
     const s = symbol(), p = period()
     if(!engineReady())return undefined
-    if (prev) untrack(()=>{++factoryGeneration;comparisons.clear();cancelDrawing();drawingHistory.reset(true);setSelectedOverlay(null);props.onDataReset?.(s)})
+    if (prev) untrack(()=>{analysis.clear();++indicatorGeneration;++factoryGeneration;comparisons.clear();cancelDrawing();drawingHistory.reset(true);setSelectedOverlay(null);props.onDataReset?.(s)})
     setLoadError('')
     loader?.activate(s,p)
     return {symbol:s,period:p}
   })
+
+  createEffect(()=>{locale();analysis.refreshPresentation();comparisons.refreshPresentation()})
 
   createEffect(() => {
     const t = theme()
@@ -737,47 +767,25 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       <i class="icon-close klinecharts-pro-load-icon"/>
       <Show when={symbolSearchModalVisible()}>
         <SymbolSearchModal
-          locale={props.locale}
+          locale={locale()}
           datafeed={props.datafeed}
           onSymbolSelected={symbol => { setSymbol(symbol) }}
           onClose={() => { setSymbolSearchModalVisible(false) }}/>
       </Show>
       <Show when={indicatorModalVisible()}>
         <IndicatorModal
-          locale={props.locale}
-          mainIndicators={mainIndicators()}
-          subIndicators={subIndicators()}
+          locale={locale()}
+          catalog={catalog}
+          instances={indicatorInstances()}
           onClose={() => { setIndicatorModalVisible(false) }}
-          onMainIndicatorChange={async data => {
-            const newMainIndicators = [...mainIndicators()]
-            if (data.added) {
-              await createIndicator(widget, data.name, true, { id: 'candle_pane' })
-              newMainIndicators.push(data.name)
-            } else {
-              widget?.removeIndicator({id:widget?.getIndicators({paneId:'candle_pane',name:data.name})[0]?.id,paneId:'candle_pane',name:data.name})
-              newMainIndicators.splice(newMainIndicators.indexOf(data.name), 1)
-            }
-            setMainIndicators(newMainIndicators)
-          }}
-          onSubIndicatorChange={async data => {
-            const newSubIndicators: Record<string, string> = { ...subIndicators() }
-            if (data.added) {
-              const paneId = await createIndicator(widget, data.name)
-              if (paneId) {
-                newSubIndicators[data.name] = paneId
-              }
-            } else {
-              if (data.paneId) {
-                widget?.removeIndicator({paneId:data.paneId,name:data.name})
-                delete newSubIndicators[data.name]
-              }
-            }
-            setSubIndicators(newSubIndicators)
-          }}/>
+          onAdd={(name,placement)=>addIndicator({name,placement})}
+          onRemove={removeIndicator}
+          onUpdate={(id,visible)=>updateIndicator(id,{visible})}
+          onSettings={openIndicatorSettings}/>
       </Show>
       <Show when={timezoneModalVisible()}>
         <TimezoneModal
-          locale={props.locale}
+          locale={locale()}
           timezone={timezone()}
           onClose={() => { setTimezoneModalVisible(false) }}
           onConfirm={setTimezone}
@@ -785,7 +793,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       </Show>
       <Show when={settingModalVisible()}>
         <SettingModal
-          locale={props.locale}
+          locale={locale()}
           currentStyles={{...utils.clone(widget!.getStyles()), axis:{name:widget!.getYAxes({paneId:'candle_pane'})[0]?.name ?? 'normal',reverse:widget!.getYAxes({paneId:'candle_pane'})[0]?.reverse ?? false}}}
           onClose={() => { setSettingModalVisible(false) }}
           onChange={style => {
@@ -808,52 +816,53 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       </Show>
       <Show when={screenshotUrl().length > 0}>
         <ScreenshotModal
-          locale={props.locale}
+          locale={locale()}
           url={screenshotUrl()}
           onClose={() => { setScreenshotUrl('') }}
         />
       </Show>
       <Show when={indicatorSettingModalParams().visible}>
         <IndicatorSettingModal
-          locale={props.locale}
+          locale={locale()}
+          descriptor={descriptor(indicatorSettingModalParams().indicatorName)}
           params={indicatorSettingModalParams()}
           onClose={() => { setIndicatorSettingModalParams({ visible: false, indicatorId:'',indicatorName: '', paneId: '', calcParams: [] }) }}
           onConfirm={(params)=> {
             const modalParams = indicatorSettingModalParams()
             const indicator=modalParams.indicatorId?widget?.getIndicators({id:modalParams.indicatorId})[0]:undefined
-            if(!indicator||indicator.name!==modalParams.indicatorName||indicator.paneId!==modalParams.paneId){setLoadError('待设置的指标实例已不存在，请重新打开指标设置');return}
-            widget?.overrideIndicator({id:indicator.id,name:indicator.name,calcParams:params,paneId:indicator.paneId})
+            if(!indicator||indicator.name!==modalParams.indicatorName||indicator.paneId!==modalParams.paneId){throw Error('待设置的指标实例已不存在，请重新打开指标设置')}
+            updateIndicator(indicator.id,{calcParams:params})
           }}
         />
       </Show>
       <div class="klinecharts-pro-drawing-history" style={{display:'flex','flex-wrap':'wrap',gap:'8px',padding:'4px 8px','font-size':'12px'}}>
-        <button aria-label="撤销绘图" disabled={!drawingState().canUndo||drawingState().pending>0} onClick={()=>void drawingHistory.undo().catch(()=>{})}>撤销绘图</button>
-        <button aria-label="重做绘图" disabled={!drawingState().canRedo||drawingState().pending>0} onClick={()=>void drawingHistory.redo().catch(()=>{})}>重做绘图</button>
-        <Show when={drawingState().pending>0}><span role="status">等待确认：{drawingState().pending} 项</span></Show>
+        <button aria-label={i18n('drawing_undo',locale())} disabled={!drawingState().canUndo||drawingState().pending>0} onClick={()=>void drawingHistory.undo().catch(()=>{})}>{i18n('drawing_undo',locale())}</button>
+        <button aria-label={i18n('drawing_redo',locale())} disabled={!drawingState().canRedo||drawingState().pending>0} onClick={()=>void drawingHistory.redo().catch(()=>{})}>{i18n('drawing_redo',locale())}</button>
+        <Show when={drawingState().pending>0}><span role="status">{i18n('drawing_pending',locale())}: {drawingState().pending}</span></Show>
         <Show when={drawingState().error}><span role="alert">{drawingState().error}</span></Show>
       </div>
       <div ref={comparisonPanel} class="klinecharts-pro-comparisons" style={{'max-height':'140px','overflow-y':'auto','flex-shrink':'0',display:'flex','flex-wrap':'wrap',gap:'8px',padding:'4px 8px','font-size':'12px'}}>
-        <label>比较标的 <select aria-label="比较标的" value={comparisonSelected()} disabled={!props.createComparisonDatafeed||!props.comparisonSymbols?.length||comparisonState().replay||comparisonState().restoring} onChange={e=>setComparisonSelected(e.currentTarget.value)}>
-          <option value="">选择目录标的</option>
+        <label>{i18n('comparison_select',locale())} <select aria-label={i18n('comparison_select',locale())} value={comparisonSelected()} disabled={!props.createComparisonDatafeed||!props.comparisonSymbols?.length||comparisonState().replay||comparisonState().restoring} onChange={e=>setComparisonSelected(e.currentTarget.value)}>
+          <option value="">{i18n('comparison_choose',locale())}</option>
           {props.comparisonSymbols?.filter(value=>value.ticker!==symbol().ticker).map(value=><option value={value.ticker}>{value.name??value.ticker}</option>)}
         </select></label>
-        <button disabled={!comparisonSelected()||!props.createComparisonDatafeed||comparisonState().replay||comparisonState().restoring} onClick={()=>void addSelectedComparison()}>添加比较</button>
-        <Show when={!props.createComparisonDatafeed||!props.comparisonSymbols?.length}><span>当前入口没有可用的比较目录或数据通道</span></Show>
-        {comparisonState().pending.map(value=><span>{value.symbol.ticker} 读取中 <button aria-label={`取消比较 ${value.symbol.ticker}`} onClick={()=>comparisons.cancel(value.id)}>取消比较</button></span>)}
-        {comparisonState().handles.map(value=><span data-comparison-symbol={value.symbol.ticker} data-comparison-return={value.plottedReturn} data-comparison-timestamp={value.plottedTimestamp}>{value.symbol.ticker} · 加载末根收益 {value.plottedReturn===undefined?'无可比收益':`${value.plottedReturn.toFixed(2)}%`} · {value.mode==='static'?'静态读取':value.mode==='http-snapshot'?'HTTP 续读':'订阅更新'} · 最近读取 {value.readAt?new Date(value.readAt).toISOString():'未知'} · 源末根 {value.sourceTimestamp?new Date(value.sourceTimestamp).toISOString():'未知'} <button aria-label={`移除比较 ${value.symbol.ticker}`} onClick={()=>comparisons.remove(value.id)}>移除比较</button></span>)}
+        <button disabled={!comparisonSelected()||!props.createComparisonDatafeed||comparisonState().replay||comparisonState().restoring} onClick={()=>void addSelectedComparison()}>{i18n('comparison_add',locale())}</button>
+        <Show when={!props.createComparisonDatafeed||!props.comparisonSymbols?.length}><span>{i18n('comparison_unavailable',locale())}</span></Show>
+        {comparisonState().pending.map(value=><span>{value.symbol.ticker} {i18n('comparison_loading',locale())} <button aria-label={`${i18n('comparison_cancel',locale())} ${value.symbol.ticker}`} onClick={()=>comparisons.cancel(value.id)}>{i18n('comparison_cancel',locale())}</button></span>)}
+        {comparisonState().handles.map(value=><span data-comparison-symbol={value.symbol.ticker} data-comparison-return={value.plottedReturn} data-comparison-timestamp={value.plottedTimestamp}>{value.symbol.ticker} · {i18n('comparison_latest_return',locale())} {value.plottedReturn===undefined?i18n('comparison_no_return',locale()):`${value.plottedReturn.toFixed(2)}%`} · {value.mode==='static'?i18n('comparison_static',locale()):value.mode==='http-snapshot'?i18n('comparison_snapshot',locale()):i18n('comparison_stream',locale())} · {i18n('comparison_read_at',locale())} {value.readAt?new Date(value.readAt).toISOString():i18n('unknown',locale())} · {i18n('comparison_source_at',locale())} {value.sourceTimestamp?new Date(value.sourceTimestamp).toISOString():i18n('unknown',locale())} <button aria-label={`${i18n('comparison_remove',locale())} ${value.symbol.ticker}`} onClick={()=>comparisons.remove(value.id)}>{i18n('comparison_remove',locale())}</button></span>)}
         <Show when={comparisonState().handles.length>0}>
-          <span data-main-return={comparisonState().mainReturn}>主图加载末根收益：{comparisonState().mainReturn===undefined?'无可比收益':`${comparisonState().mainReturn!.toFixed(2)}%`}</span>
-          <button disabled={comparisonState().replay||comparisonState().restoring} onClick={()=>void comparisons.resetRange().catch(()=>{})}>重设比较区间</button>
-          <span data-comparison-base={comparisonState().baseTimestamp}>共同基准：{comparisonState().baseTimestamp?new Date(comparisonState().baseTimestamp!).toISOString():'不可比较'}；原价蜡烛／订单使用原价轴；主收益与比较收益共用左侧 % 轴。</span>
-          <span>{[symbol(),...comparisonState().handles.map(h=>h.symbol)].map(value=>`${value.ticker}：${value.priceCurrency?`本币 ${value.priceCurrency}`:'报价单位百分比，币种未知'}`).join('；')}；未做汇率换算。</span>
+          <span data-main-return={comparisonState().mainReturn}>{i18n('comparison_main_latest',locale())}: {comparisonState().mainReturn===undefined?i18n('comparison_no_return',locale()):`${comparisonState().mainReturn!.toFixed(2)}%`}</span>
+          <button disabled={comparisonState().replay||comparisonState().restoring} onClick={()=>void comparisons.resetRange().catch(()=>{})}>{i18n('comparison_reset',locale())}</button>
+          <span data-comparison-base={comparisonState().baseTimestamp}>{i18n('comparison_common_base',locale())}: {comparisonState().baseTimestamp?new Date(comparisonState().baseTimestamp!).toISOString():i18n('comparison_incomparable',locale())} · {i18n('comparison_axes',locale())}</span>
+          <span>{[symbol(),...comparisonState().handles.map(h=>h.symbol)].map(value=>`${value.ticker}：${value.priceCurrency?`${i18n('comparison_local_currency',locale())} ${value.priceCurrency}`:i18n('comparison_unknown_currency',locale())}`).join('；')} · {i18n('comparison_no_fx',locale())}</span>
         </Show>
         <Show when={comparisonState().notice}><span role="status">{comparisonState().notice}</span></Show>
-        <Show when={comparisonState().replay}><span>比较续读已暂停，收益仅显示回放截止之前。</span></Show>
-        <Show when={comparisonState().restoring}><span role="status">正在重读比较行情…</span></Show>
-        <Show when={comparisonState().error}><button disabled={comparisonState().restoring} onClick={()=>void comparisons.retry().catch(()=>{})}>重试比较</button><span role="alert">比较失败：{comparisonState().error}；下一步：重新添加或重设区间后重试。</span></Show>
+        <Show when={comparisonState().replay}><span>{i18n('comparison_paused',locale())}</span></Show>
+        <Show when={comparisonState().restoring}><span role="status">{i18n('comparison_restoring',locale())}</span></Show>
+        <Show when={comparisonState().error}><button disabled={comparisonState().restoring} onClick={()=>void comparisons.retry().catch(()=>{})}>{i18n('comparison_retry',locale())}</button><span role="alert">{i18n('comparison_failure',locale())}: {comparisonState().error} · {i18n('comparison_next',locale())}</span></Show>
       </div>
       <PeriodBar
-        locale={props.locale}
+        locale={locale()}
         symbol={symbol()}
         spread={drawingBarVisible()}
         period={period()}
@@ -866,7 +875,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         }}
         onSymbolClick={() => { setSymbolSearchModalVisible(!symbolSearchModalVisible()) }}
         onPeriodChange={setChartPeriod}
-        onIndicatorClick={() => { setIndicatorModalVisible((visible => !visible)) }}
+        onIndicatorClick={() => { refreshIndicators();setIndicatorModalVisible((visible => !visible)) }}
         onTimezoneClick={() => { setTimezoneModalVisible((visible => !visible)) }}
         onSettingClick={() => { setSettingModalVisible((visible => !visible)) }}
         onScreenshotClick={() => {
@@ -886,13 +895,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       />
       <div
         class="klinecharts-pro-content">
-        <Show when={loadError()}><div role="alert" class="klinecharts-pro-data-error">{loadError()} <button onClick={() => {!engineReady() ? retryInitialization?.() : replayEngine ? stopReplay() : void loader?.reload(true).catch(()=>{})}}>重试</button></div></Show>
+        <Show when={loadError()}><div role="alert" class="klinecharts-pro-data-error">{loadError()} <button onClick={() => {!engineReady() ? retryInitialization?.() : replayEngine ? stopReplay() : void loader?.reload(true).catch(()=>{})}}>{i18n('retry',locale())}</button></div></Show>
         <Show when={loadingVisible()}>
           <Loading/>
         </Show>
         <Show when={drawingBarVisible()}>
           <DrawingBar
-            locale={props.locale}
+            locale={locale()}
             onDrawingItemClick={overlay => {
               createDrawing(overlay)
             }}
@@ -907,7 +916,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           data-drawing-bar-visible={drawingBarVisible()}/>
         {/* 绘图 overlay 浮动属性工具栏 */}
         <OverlayPropertyBar
-          locale={props.locale}
+          locale={locale()}
           visible={selectedOverlay() !== null}
           position={{ x: selectedOverlay()?.x ?? 0, y: selectedOverlay()?.y ?? 0 }}
           overlayId={selectedOverlay()?.id ?? ''}
@@ -970,7 +979,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onClose={() => setSelectedOverlay(null)}
         />
         <ReplayControlBar
-          locale={props.locale}
+          locale={locale()}
           state={replayState()}
           busy={resuming()}
           onPlay={() => { if(!resuming())replayEngine?.play() }}
@@ -981,6 +990,19 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onPositionChange={(pos: number) => { if(!resuming())replayEngine?.goToPosition(pos) }}
           onStop={() => { stopReplay() }}
         />
+      </div>
+      <div class="klinecharts-pro-analysis" style={{'max-height':analysisViews().some(v=>v.state.type==='label-series'&&v.state.visible)?'240px':'100px','overflow-y':'auto','flex-shrink':'0'}}>
+        <Show when={props.analysisLayerListVisible!==false&&analysisViews().length}><div aria-label={i18n('analysis_layers',locale())}>
+          <For each={analysisViews()}>{view=><div data-analysis-layer={view.state.id} data-analysis-status={view.state.status}>
+            <label><input type="checkbox" checked={view.state.visible} onChange={e=>analysis.setVisible(view.state.id,e.currentTarget.checked)}/>{view.state.label}</label>
+            <span role={view.state.status==='error'?'alert':'status'}>{i18n(`analysis_${view.state.status}`,locale())}{view.state.reason?` · ${view.state.reason}`:''}{view.state.unalignedCount?` (${view.state.unalignedCount})`:''}</span>
+            <Show when={view.state.type==='events'}><ul><For each={view.events}>{event=><li><button onClick={()=>analysis.selectEvent(view.state.id,event.id)}>{event.label} · {new Date(event.timestamp).toISOString()}{event.endTimestamp!==undefined?` → ${new Date(event.endTimestamp).toISOString()}`:''}</button></li>}</For></ul></Show>
+          </div>}</For>
+        </div></Show>
+        <For each={analysisViews().filter(v=>v.state.type==='label-series'&&v.state.visible)}>{view=><section data-analysis-label-series={view.state.id} aria-label={view.state.label}><strong>{view.state.label}</strong>
+          <Show when={view.state.status==='error'}><p role="alert">{view.state.reason}</p></Show>
+          <MetricSeries locale={locale()} theme={theme()} height={120} viewState={{status:view.state.status==='hidden'?'unavailable':view.points.length?'ready':view.state.status==='error'?'error':'empty',message:view.state.reason??i18n('analysis_empty',locale())}} points={view.points.map(p=>({id:p.id,x:p.label,y:p.value,label:p.label}))} onPointSelect={p=>analysis.selectPoint(view.state.id,p.id)}/>
+        </section>}</For>
       </div>
     </ErrorBoundary>
   )

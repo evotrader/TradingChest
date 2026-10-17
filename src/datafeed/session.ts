@@ -55,7 +55,7 @@ export function createSessionDatafeed(provider: SessionProvider, options: {
   /** Host must reload/reconcile revisions explicitly; they are never appended as new bars. */
   onRevisionRequired?: (update: SessionUpdate) => void
 } = {}): Datafeed {
-  let active: { session: DataSession; identity: SeriesIdentity; key: string; request: string; stop?: () => void; stopStatus?:()=>void; latest: number; subscription: number } | undefined
+  let active: { session: DataSession; identity: SeriesIdentity; key: string; request: string; stop?: () => void; stopStatus?:()=>void; latest: number; subscription: number; historyGeneration: number } | undefined
   let disposed = false
   const listeners=new Set<{request:string;accept:(status:DatafeedStatus)=>void}>()
   const notify=(owner:NonNullable<typeof active>,status:DatafeedStatus)=>{if(active===owner)for(const listener of listeners)if(listener.request===owner.request)listener.accept(status)}
@@ -79,7 +79,7 @@ export function createSessionDatafeed(provider: SessionProvider, options: {
       if (identity.ticker !== symbol.ticker || identity.multiplier !== period.multiplier || identity.timespan !== period.timespan ||
         symbol.market && identity.market !== symbol.market || symbol.exchange && identity.exchange !== symbol.exchange ||
         symbol.priceCurrency && identity.currency !== symbol.priceCurrency) throw new Error('Session identity does not match chart request')
-      active = {session,identity,key,request,latest:-Infinity,subscription:0}
+      active = {session,identity,key,request,latest:-Infinity,subscription:0,historyGeneration:0}
       const owner=active
       const stopStatus=session.subscribeStatus?.(status=>notify(owner,status))
       if(active!==owner){stopStatus?.();throw new DOMException('Session replaced','AbortError')}
@@ -92,11 +92,12 @@ export function createSessionDatafeed(provider: SessionProvider, options: {
     async getHistoryKLineData(symbol,period,query,context) {
       context?.signal.throwIfAborted()
       const owner = ensure(symbol,period)
+      const generation = owner.historyGeneration
       options.onStatus?.({state:'loading',identity:owner.identity})
       try {
         const batch = await owner.session.getHistory(query,context)
         context?.signal.throwIfAborted()
-        if (active !== owner) throw new DOMException('Session replaced','AbortError')
+        if (active !== owner || generation !== owner.historyGeneration) throw new DOMException('Session replaced','AbortError')
         if (seriesIdentityKey(batch.identity) !== owner.key) throw new Error('Historical series identity mismatch')
         // Normalize provider revisions within the validated identity before publishing.
         const bars=[...new Map(batch.bars.map(bar=>[bar.timestamp,{...bar}])).values()].sort((a,b)=>a.timestamp-b.timestamp)
@@ -106,7 +107,7 @@ export function createSessionDatafeed(provider: SessionProvider, options: {
         if(result.metadata)options.onStatus?.({state:result.metadata.state,identity:owner.identity,sourceTimestamp:result.metadata.sourceTimestamp,delayMs:result.metadata.delayMs})
         return {bars:result.bars,basis:result.basis,metadata:result.metadata,hasMoreBefore:result.hasMoreBefore}
       } catch (error) {
-        if (active === owner && !context?.signal.aborted) options.onStatus?.({state:'error',identity:owner.identity,error})
+        if (active === owner && generation === owner.historyGeneration && !context?.signal.aborted) options.onStatus?.({state:'error',identity:owner.identity,error})
         throw error
       }
     },
@@ -132,7 +133,14 @@ export function createSessionDatafeed(provider: SessionProvider, options: {
       if (active !== owner || generation !== owner.subscription) stop()
       else owner.stop = stop
     },
-    unsubscribe(symbol,period) { if (active?.request === requestKey(symbol,period)) close() },
+    unsubscribe(symbol,period) {
+      if (active?.request !== requestKey(symbol,period)) return
+      // Pause this stream without changing the identity of already confirmed history.
+      const owner=active
+      ++owner.subscription
+      ++owner.historyGeneration
+      const stop=owner.stop;owner.stop=undefined;stop?.()
+    },
     dispose() { disposed=true; close();listeners.clear() }
   }
 }

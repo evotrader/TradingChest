@@ -17,6 +17,8 @@ import type {Datafeed,DatafeedRequestContext,HistoryResult,SymbolInfo,Period} fr
 
 Propagate context.signal to requests; reason is initial/load-more/resume. Do not share a single-callback provider across charts. HistoryResult is always an object `{bars,basis?,metadata?,hasMoreBefore?}`. Bars use Date-representable, strictly increasing unique Unix milliseconds and valid OHLCV. Read basis with the same bars, never from global last-request state. Host periods use `{timespan,multiplier,text}`; the loader converts to v10 `{type,span}`.
 
+`createSessionDatafeed` retains one complete session for the same chart request identity. Unsubscribe pauses the stream and invalidates pending history reads; a subsequent subscribe reuses that session. Request identity changes or dispose release it. Both history and live updates validate the full identity, including source, adjustment, sessionFilter and timezone.
+
 ## History requests and boundaries
 
 ```typescript
@@ -45,6 +47,8 @@ A range may omit hasMoreBefore, meaning unknown. A partial range cannot confirm 
 Metadata is optional. sourceTimestamp is the provider-declared observation time and delayMs its declared delay. Show **unknown** when absent. HTTP completion, the latest bar's opening timestamp and local clock differences must not impersonate freshness. ready means this response is usable, empty means this successful read is empty, and partial is an explicit provider declaration. None implies tradable freshness or complete market history.
 
 `chart.retryData()` retries the original failed request. Prepend retries retain the before anchor and merge earlier bars before reopening pagination. With no failed request it completes idempotently. `reloadData({preserveViewport:true})` reads the full loaded interval before commit. Failures retain bars, basis, analysis token, viewport and drawings. Identity changes and disposal cancel obsolete requests/listeners.
+
+During reload prefetch, pagination and streaming continue on the confirmed basis. Commit merges the latest confirmed dataset and preserves viewport changes made while waiting. On the same basis, bars added or changed during the wait take precedence over the delayed range response; other historical revisions still use response values. A new basis must cover every timestamp loaded at commit; otherwise retain the current chart and report a retryable error. Empty retry-page metadata belongs only to lastRead and never marks a nonempty merged dataset empty.
 
 ## Authoritative snapshots and confirmation
 

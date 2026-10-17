@@ -17,6 +17,8 @@ import type {Datafeed,DatafeedRequestContext,HistoryResult,SymbolInfo,Period} fr
 
 `context.signal` 用于取消读取，reason 为 initial/load-more/resume。不要跨图共享单回调 provider。HistoryResult 只接受对象 `{bars,basis?,metadata?,hasMoreBefore?}`；bars 使用可被 Date 表达的 Unix 毫秒、严格递增唯一时标和有效 OHLCV。basis 必须与此次 bars 同源读取，不用全局最后状态。周期是宿主 `{timespan,multiplier,text}`，内部统一转 v10 `{type,span}`。
 
+`createSessionDatafeed` 在同一图表请求身份下保留同一完整会话。unsubscribe 仅暂停实时订阅并使未完成历史读取失效，随后 subscribe 继续使用该会话；标的／周期等请求身份变化或 dispose 才释放会话。历史与实时始终校验 source、adjustment、sessionFilter、timezone 等完整身份。
+
 ## 历史请求与边界
 
 ```typescript
@@ -45,6 +47,8 @@ range 的 `hasMoreBefore` 可省略，表示边界未知。partial range 不能�
 metadata 可省略。sourceTimestamp 是来源声明的观察时刻，delayMs 是来源声明的延迟；未声明时显示**未知**。不能用 HTTP 完成时刻、末根开盘时刻或本机时间差冒充新鲜度。ready 仅表示本次响应可用，empty 表示本次成功读取为空，partial 表示来源明确声明部分结果；均不等于可交易新鲜或市场历史完整。
 
 `chart.retryData()` 重试失败的原请求；分页失败保留原 before 锚点，成功后合入更早数据并恢复继续分页；无失败请求时幂等完成。`reloadData({preserveViewport:true})` 先完整读取已加载区间再提交。失败保留 bars、basis、分析 token、视窗和绘图；身份切换或销毁取消旧请求与状态监听。
+
+重载预取期间继续接收当前确认口径的分页与实时数据，提交时合并最新已确认集合，并保留等待期间用户调整的视窗。同口径下，等待期间已确认的新增或变化 bar 优先于迟到的 range 响应；其它历史修订仍采用响应值。更换口径时，响应必须覆盖提交时全部已加载时标；若等待期间新增数据未被覆盖，则保留当前图并报告可重试错误。空页重试的 empty 元数据只进入 lastRead，不标记合并后的非空集合为空。
 
 ## 权威快照与确认
 

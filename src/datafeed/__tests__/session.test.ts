@@ -87,6 +87,32 @@ describe('opt-in session-to-legacy adapter',()=>{
 })
 
 describe('session status installation ownership',()=>{
+ it('does not publish stale history errors over a ready read after pausing',async()=>{
+  const f=fixture();await f.feed.getHistoryKLineData(symbol,period,query)
+  let release!:(batch:HistoryBatch)=>void
+  f.history.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve}))
+  const stale=f.feed.getHistoryKLineData(symbol,period,query)
+  f.feed.unsubscribe(symbol,period)
+  f.history.mockResolvedValueOnce({identity,bars:[bar(1)],hasMoreBefore:false,metadata:{state:'ready',sourceTimestamp:3}})
+  await f.feed.getHistoryKLineData(symbol,period,query)
+  const status=f.status.mock.calls.at(-1)?.[0],count=f.status.mock.calls.length
+  release({identity,bars:[bar(1)],hasMoreBefore:false})
+  await expect(stale).rejects.toMatchObject({name:'AbortError'})
+  expect(f.status).toHaveBeenCalledTimes(count);expect(status).toMatchObject({state:'ready',sourceTimestamp:3})
+  f.feed.dispose?.()
+ })
+ it.each(['source','adjustment','sessionFilter','timezone'] as const)('retains the historical %s identity across a subscription pause',async field=>{
+  let opened=0
+  const callbacks:Array<(update:SessionUpdate)=>void>=[],stop=vi.fn(),dispose=vi.fn()
+  const openSession=vi.fn(()=>{const owned={...identity,[field]:++opened===1?identity[field]:'another'};return {identity:owned,getHistory:async()=>({identity:owned,bars:[bar(1)],basis:owned.adjustment,hasMoreBefore:false}),subscribe:(callback:(update:SessionUpdate)=>void)=>{callbacks.push(callback);return stop},dispose}})
+  const feed=createSessionDatafeed({searchSymbols:async()=>[],openSession}),price=vi.fn()
+  await feed.getHistoryKLineData(symbol,period,query);feed.subscribe(symbol,period,price)
+  await feed.getHistoryKLineData(symbol,period,query);feed.unsubscribe(symbol,period);feed.subscribe(symbol,period,price)
+  expect(openSession).toHaveBeenCalledTimes(1);expect(dispose).not.toHaveBeenCalled()
+  callbacks[0]({identity,bar:bar(2),kind:'update'});expect(price).not.toHaveBeenCalled()
+  callbacks[1]({identity,bar:bar(2),kind:'update'});expect(price).toHaveBeenCalledOnce()
+  feed.dispose?.();expect(stop).toHaveBeenCalledTimes(2);expect(dispose).toHaveBeenCalledOnce()
+ })
  it('reopens a session after status installation throws',async()=>{
   let opened=0,disposed=0
   const feed=createSessionDatafeed({searchSymbols:async()=>[],openSession:()=>{const index=++opened;let closed=false;return {identity,getHistory:async()=>{if(closed)throw Error('disposed session');return {identity,bars:[bar(1)],hasMoreBefore:false}},subscribe:()=>()=>{},subscribeStatus:()=>{if(index===1)throw Error('isolated status failure');return()=>{}},dispose:()=>{closed=true;disposed++}}}})

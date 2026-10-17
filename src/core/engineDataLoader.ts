@@ -48,7 +48,7 @@ export class EngineDataLoader implements DataLoader {
   private current?: {symbol: SymbolInfo; period: Period}
   private subscription?: {symbol: SymbolInfo; period: Period;pending:KLineData[]}
   private stream?: (bar: KLineData) => void
-  private prepared?: HistoryResult & {read?:ChartDataState['lastRead'];completion?:{resolve:()=>void;reject:(error:unknown)=>void}}
+  private prepared?: Omit<HistoryResult,'metadata'> & {read?:ChartDataState['lastRead'];completion?:{resolve:()=>void;reject:(error:unknown)=>void}}
   private reading:ReadingState={connection:'unknown',revisionRequired:false}
   private stopStatus?:()=>void
   private statusQueue?:DatafeedStatus[]
@@ -130,6 +130,7 @@ export class EngineDataLoader implements DataLoader {
     let attempt:typeof this.failed
     let previous:{reading:ReadingState;basis?:string;confirmed:boolean;error?:string}|undefined
     try {
+      if(!active()||controller.signal.aborted)return
       const query:HistoryQuery={kind:'before',before:request.type==='init'?Date.now():(request.timestamp??0),countBack:500}
       const operation=request.type==='init'?'initial':'load-more'
       if(!(request.type==='init'&&this.prepared))this.reading.operation=operation
@@ -187,8 +188,9 @@ export class EngineDataLoader implements DataLoader {
   }
   private startSubscription():void {
     if(!this.current)return
-    this.startStatus()
     const identity=this.current,generation=this.generation
+    this.startStatus()
+    if(this.disposed||this.current!==identity||generation!==this.generation)return
     const subscription={...identity,pending:[] as KLineData[]}
     this.subscription=subscription
     try {this.feed.subscribe(identity.symbol,identity.period,bar=>{
@@ -281,36 +283,44 @@ export class EngineDataLoader implements DataLoader {
     if (this.disposed || !this.current) throw new DOMException('行情恢复已取消或图表尚未就绪','AbortError')
     const generation = this.generation, identity = this.current, controller = new AbortController()
     this.requests.add(controller)
-    this.readError=undefined
-    this.setLoading(true)
-    this.suspended=true
     let completionGeneration = generation
     let transaction:ReturnType<EngineDataLoader['beginRestore']>|undefined
-    const data = this.chart.getDataList(), range = this.chart.getVisibleRange(), space = this.chart.getBarSpace().bar
-    const anchor = data[Math.min(data.length-1, Math.max(0,range.to-1))]?.timestamp
-    const anchorX=anchor===undefined?undefined:(this.chart.convertToPixel({timestamp:anchor},{paneId:'candle_pane'}) as {x?:number}|undefined)?.x
-    const query:HistoryQuery=retryQuery??(data.length?{kind:'range',from:Math.min(data[0].timestamp,earliestTimestamp),to:Math.max(Date.now(),data.at(-1)!.timestamp+1)}:{kind:'before',before:Date.now(),countBack:500})
-    this.failed={query,operation:retryQuery?'load-more':'reload',requireComplete,earliestTimestamp}
+    const initialData = this.chart.getDataList()
+    const initialBars=new Map(initialData.map(bar=>[bar.timestamp,{...bar}]))
+    const query:HistoryQuery=retryQuery??(initialData.length?{kind:'range',from:Math.min(initialData[0].timestamp,earliestTimestamp),to:Math.max(Date.now(),initialData.at(-1)!.timestamp+1)}:{kind:'before',before:Date.now(),countBack:500})
+    const attempt={query,operation:retryQuery?'load-more' as const:'reload' as const,requireComplete,earliestTimestamp}
+    this.failed=attempt
     this.reading.operation=retryQuery?'load-more':'reload'
+    this.readError=undefined
     try {
+      this.setLoading(true)
+      if (this.disposed || generation !== this.generation || controller.signal.aborted) throw new DOMException('行情恢复已取消','AbortError')
       const result = await readHistory(this.feed,identity.symbol,identity.period,query,{signal:controller.signal,reason:retryQuery?'load-more':'resume'})
       if(result.metadata?.state==='partial')throw Error('历史区间尚未完整，保留旧图；请重试')
       if (this.disposed || generation !== this.generation || controller.signal.aborted) throw new DOMException('行情恢复已取消','AbortError')
+      // Keep confirmed pagination, stream updates and viewport changes made during prefetch.
+      const data = this.chart.getDataList(), range = this.chart.getVisibleRange(), space = this.chart.getBarSpace().bar
+      const anchor = data[Math.min(data.length-1, Math.max(0,range.to-1))]?.timestamp
+      const anchorX=anchor===undefined?undefined:(this.chart.convertToPixel({timestamp:anchor},{paneId:'candle_pane'}) as {x?:number}|undefined)?.x
       const basisChanged = result.basis !== this.basis
       if(retryQuery&&data.length&&basisChanged)throw Error('历史复权口径已变化，请重新加载行情')
       const timestamps=new Set(result.bars.map(bar=>bar.timestamp))
       if ((requireComplete || basisChanged) && data.some(bar=>!timestamps.has(bar.timestamp))) throw new Error('新复权口径未覆盖全部已加载历史，保留旧图；请重试')
-      const bars=(basisChanged || requireComplete) ? result.bars : [...new Map([...data,...result.bars].map(bar=>[bar.timestamp,bar])).values()].sort((a,b)=>a.timestamp-b.timestamp)
+      // A delayed range response may predate a confirmed update to the current candle.
+      const concurrent=data.filter(bar=>{const original=initialBars.get(bar.timestamp);return !original||Object.keys(bar).some(key=>bar[key]!==original[key])})
+      const bars=(basisChanged || requireComplete) ? result.bars : [...new Map([...data,...result.bars,...concurrent].map(bar=>[bar.timestamp,bar])).values()].sort((a,b)=>a.timestamp-b.timestamp)
       if(!this.resumeCheckpoint)transaction=this.beginRestore()
       // The prefetch has finished; invalidation must not abort its completed signal.
       this.requests.delete(controller)
       this.invalidate()
       completionGeneration = this.generation
       this.replay = undefined
-      const initialized=new Promise<void>((resolve,reject)=>{this.prepared={...result,bars,read:{query:{...query},metadata:result.metadata&&{...result.metadata},hasMoreBefore:result.hasMoreBefore},completion:{resolve,reject}}})
+      const initialized=new Promise<void>((resolve,reject)=>{this.prepared={bars,basis:result.basis,hasMoreBefore:result.hasMoreBefore,read:{query:{...query},metadata:result.metadata&&{...result.metadata},hasMoreBefore:result.hasMoreBefore},completion:{resolve,reject}}})
       this.chart.resetData()
       await initialized
+      if(this.disposed||this.current!==identity||completionGeneration!==this.generation)throw new DOMException('行情恢复已取消','AbortError')
       transaction?.prepare()
+      if(this.disposed||this.current!==identity||completionGeneration!==this.generation)throw new DOMException('行情恢复已取消','AbortError')
       if (preserveViewport && anchor !== undefined) {
         this.chart.setBarSpace(space)
         const index = bars.findIndex(bar => bar.timestamp === anchor)
@@ -318,17 +328,18 @@ export class EngineDataLoader implements DataLoader {
       }
       this.reading.revisionRequired=false
       transaction?.commit()
-      this.failed=undefined
+      if(this.disposed||this.current!==identity||completionGeneration!==this.generation)throw new DOMException('行情恢复已取消','AbortError')
+      if(this.failed===attempt)this.failed=undefined
     } catch (error) {
-      const current=!this.disposed&&completionGeneration===this.generation&&!controller.signal.aborted
+      const current=!this.disposed&&this.current===identity&&completionGeneration===this.generation&&!controller.signal.aborted
       transaction?.rollback()
-      if(current&&transaction)completionGeneration=this.generation
-      if (current) {
-        this.failed={query,operation:retryQuery?'load-more':'reload',requireComplete,earliestTimestamp}
+      if(current&&transaction&&this.current===identity)completionGeneration=this.generation
+      if (current&&!this.disposed&&this.current===identity&&completionGeneration===this.generation&&!controller.signal.aborted) {
+        this.failed=attempt
         this.reportError({type:'data-reload',message:error instanceof Error ? error.message : '行情恢复失败',raw:error})
       }
       throw error
-    } finally {this.requests.delete(controller);if(!this.disposed && completionGeneration===this.generation)this.setLoading(false)}
+    } finally {this.requests.delete(controller);if(!this.disposed && this.current===identity && completionGeneration===this.generation)this.setLoading(false)}
   }
   private restoreAnchor(timestamp:number,x:number|undefined,space:number):void {
     const index=this.chart.getDataList().findIndex(bar=>bar.timestamp===timestamp)
@@ -349,11 +360,11 @@ export class EngineDataLoader implements DataLoader {
     this.resumeCheckpoint=checkpoint
     const active=()=>!this.disposed&&this.resumeCheckpoint===checkpoint
     let prepared=false
-    const prepare=()=>{if(!active())throw new DOMException('回放恢复已取消','AbortError');if(!prepared){this.startSubscription();prepared=true}}
+    const prepare=()=>{if(!active())throw new DOMException('回放恢复已取消','AbortError');if(!prepared){this.startSubscription();if(!active())throw new DOMException('回放恢复已取消','AbortError');prepared=true}}
     return {
       prepare,
-      commit:()=>{prepare();const identity=this.current,generation=this.generation;this.resumeCheckpoint=undefined;this.flushSubscription();if(this.disposed||this.current!==identity||this.generation!==generation)return;this.emitState();if(identity)this.hooks.ready(identity);queueMicrotask(()=>{void this.drainSnapshots().catch(()=>{})})},
-      rollback:()=>{if(!active())return;this.invalidate();this.basis=checkpoint.basis;this.confirmed=checkpoint.confirmed;this.replay=checkpoint.replay;this.prepared=checkpoint.replay?undefined:{bars:checkpoint.bars,basis:checkpoint.basis,hasMoreBefore:checkpoint.reading.hasMoreBefore,read:checkpoint.reading.lastRead};this.chart.resetData();this.confirmed=checkpoint.confirmed;this.suspended=checkpoint.replay?checkpoint.suspended:true;this.reading=checkpoint.reading;this.resumeCheckpoint=undefined;this.chart.setBarSpace(checkpoint.space);const index=this.chart.getDataList().findIndex(b=>b.timestamp===checkpoint.anchor);if(index>=0)this.restoreAnchor(checkpoint.anchor!,checkpoint.anchorX,checkpoint.space);this.emitState()}
+      commit:()=>{prepare();const identity=this.current,generation=this.generation;this.resumeCheckpoint=undefined;this.flushSubscription();if(this.disposed||this.current!==identity||this.generation!==generation)return;this.emitState();if(this.disposed||this.current!==identity||this.generation!==generation)return;if(identity)this.hooks.ready(identity);if(this.disposed||this.current!==identity||this.generation!==generation)return;queueMicrotask(()=>{void this.drainSnapshots().catch(()=>{})})},
+      rollback:()=>{if(!active())return;this.invalidate();if(!active())return;this.basis=checkpoint.basis;this.confirmed=checkpoint.confirmed;this.replay=checkpoint.replay;this.prepared=checkpoint.replay?undefined:{bars:checkpoint.bars,basis:checkpoint.basis,hasMoreBefore:checkpoint.reading.hasMoreBefore,read:checkpoint.reading.lastRead};this.chart.resetData();if(!active())return;this.confirmed=checkpoint.confirmed;this.suspended=checkpoint.replay?checkpoint.suspended:true;this.reading=checkpoint.reading;this.resumeCheckpoint=undefined;this.chart.setBarSpace(checkpoint.space);const index=this.chart.getDataList().findIndex(b=>b.timestamp===checkpoint.anchor);if(index>=0)this.restoreAnchor(checkpoint.anchor!,checkpoint.anchorX,checkpoint.space);this.emitState()}
     }
   }
   setReplay(bars: KLineData[]): void {

@@ -180,7 +180,7 @@ import type {IndicatorTemplate} from 'klinecharts'
 | API | 行为 |
 | --- | --- |
 | `getIndicatorCatalog()` | 本图目录副本 |
-| `addIndicator({name,placement,calcParams?})` | Promise 返回真实 `{id,name,paneId,yAxisId}`；错误与生命周期取消拒绝 |
+| `addIndicator({name,placement,calcParams?})` | Promise 返回真实 `{id,name,paneId,yAxisId}`；错误与生命周期取消拒绝。先验证参数为合法数组，再固定该次 placement／参数副本，懒模板等待期间输入后改不影响创建 |
 | `getIndicators()` | 实际实例及 calcParams/visible，不以目录名称伪装已安装 |
 | `updateIndicator(id,{calcParams?,visible?})` | 只修改这个 ID；不存在或参数非法报错 |
 | `removeIndicator(id)` | 只删除这个 ID |

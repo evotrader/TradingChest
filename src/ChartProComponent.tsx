@@ -130,10 +130,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   let indicatorGeneration=0
   const refreshIndicators=()=>setIndicatorInstances(widget?.getIndicators().filter(i=>catalog.some(d=>d.name===i.name)).map(indicatorInstance)??[])
   const descriptor=(name:string)=>{const d=catalog.find(d=>d.name===name);if(!d)throw Error(i18n('indicator_not_in_catalog',locale()).replace('{name}',name));return d}
-  const addIndicator=async(options:AddIndicatorOptions):Promise<IndicatorHandle>=>{
+  const addIndicator=async(input:AddIndicatorOptions):Promise<IndicatorHandle>=>{
+    const options={...input}
     const d=descriptor(options.name),generation=indicatorGeneration
     if(!d.placements.includes(options.placement))throw Error(i18n('indicator_placement_invalid',locale()))
-    if(options.calcParams!==undefined)validateIndicatorParams(d,options.calcParams,locale())
+    if(options.calcParams!==undefined){validateIndicatorParams(d,options.calcParams,locale());options.calcParams=[...options.calcParams]}
     await indicatorRegistry.ensureRegistered(options.name)
     if(disposed||generation!==indicatorGeneration||!widget)throw new DOMException(i18n('indicator_creation_cancelled',locale()),'AbortError')
     const id=widget.createIndicator({name:options.name,paneId:options.placement==='main'?'candle_pane':undefined,calcParams:options.calcParams},true)

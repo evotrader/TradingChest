@@ -124,7 +124,7 @@ Descriptors contain `name/label/labels?/category/placements/parameters?`. `label
 | API | Behavior |
 | --- | --- |
 | `getIndicatorCatalog()` | A copy of this chart's catalog |
-| `addIndicator({name,placement,calcParams?})` | Promise of real `{id,name,paneId,yAxisId}`; rejects validation or lifecycle cancellation |
+| `addIndicator({name,placement,calcParams?})` | Promise of real `{id,name,paneId,yAxisId}`; rejects validation or lifecycle cancellation. Validates an actual parameter array, then owns placement and parameter copies throughout lazy loading |
 | `getIndicators()` | Actual instances with calcParams/visible |
 | `updateIndicator(id,{calcParams?,visible?})` | Updates this ID only; absent targets/invalid values fail |
 | `removeIndicator(id)` | Removes this ID only |

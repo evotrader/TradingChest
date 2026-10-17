@@ -17,6 +17,8 @@ import type {Datafeed,DatafeedRequestContext,HistoryResult,SymbolInfo,Period} fr
 
 Propagate context.signal to requests; reason is initial/load-more/resume. Do not share a single-callback provider across charts. HistoryResult is always an object `{bars,basis?,metadata?,hasMoreBefore?}`. Bars use Date-representable, strictly increasing unique Unix milliseconds and valid OHLCV. Read basis with the same bars, never from global last-request state. Host periods use `{timespan,multiplier,text}`; the loader converts to v10 `{type,span}`.
 
+History handoff validates and copies the bars array, each OHLCV object and metadata. Providers may maintain their own mutable caches; later cache changes cannot directly alter confirmed graphics. Publish subsequent prices through subscriptions or snapshots. Validation and copying share one traversal, and the loader still rechecks before commit.
+
 `createSessionDatafeed` retains one complete session for the same chart request identity. Unsubscribe pauses the stream and invalidates pending history reads; a subsequent subscribe reuses that session. Request identity changes or dispose release it. Both history and live updates validate the full identity, including source, adjustment, sessionFilter and timezone.
 
 ## History requests and boundaries

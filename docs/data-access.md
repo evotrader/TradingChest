@@ -17,6 +17,8 @@ import type {Datafeed,DatafeedRequestContext,HistoryResult,SymbolInfo,Period} fr
 
 `context.signal` 用于取消读取，reason 为 initial/load-more/resume。不要跨图共享单回调 provider。HistoryResult 只接受对象 `{bars,basis?,metadata?,hasMoreBefore?}`；bars 使用可被 Date 表达的 Unix 毫秒、严格递增唯一时标和有效 OHLCV。basis 必须与此次 bars 同源读取，不用全局最后状态。周期是宿主 `{timespan,multiplier,text}`，内部统一转 v10 `{type,span}`。
 
+历史读取交接时校验并复制 bars 数组、每根 OHLCV 对象与 metadata。provider 可继续维护自己的缓存；缓存后改不会直接改变已确认图形，后续价格变化仍通过订阅或快照提交。验证与取得副本在同一次遍历完成，loader 提交前仍复验。
+
 `createSessionDatafeed` 在同一图表请求身份下保留同一完整会话。unsubscribe 仅暂停实时订阅并使未完成历史读取失效，随后 subscribe 继续使用该会话；标的／周期等请求身份变化或 dispose 才释放会话。历史与实时始终校验 source、adjustment、sessionFilter、timezone 等完整身份。
 
 ## 历史请求与边界

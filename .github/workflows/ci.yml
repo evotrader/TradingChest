@@ -24,6 +24,13 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
         if: matrix.node-version == 22
+      - name: Allow Chromium sandbox user namespaces
+        if: matrix.node-version == 22
+        run: |
+          # The ephemeral Ubuntu runner must permit Chromium's sandbox namespace.
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - run: npm run test:package
         if: matrix.node-version == 22
       - run: npm run test:browser

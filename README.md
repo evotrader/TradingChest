@@ -21,7 +21,7 @@ Namespaced KLineChart templates, per-chart indicator catalogs and ID-addressed i
 
 History uses before/countBack or complete range queries, explicit exhaustion and optional source metadata. Charts expose confirmed data/connection state and retryData. Named workspaces use asynchronous scoped stores with revision checks; IndexedDB and explicit legacy import are supplied. Workspace v1 and chart v3 documents retain their formats.
 
-See the [0.7.0 migration](docs/en-US/upgrade/0.8.0.md), [data access](docs/en-US/data-access.md), [API](docs/en-US/api.md), [0.6.0 migration](docs/en-US/upgrade/0.7.0.md) and [standalone tarball example](examples/analysis-sdk/README.md). The library requires no EvoTrader backend or credentials; examples use explicitly isolated synthetic data. Hosts own computation, data, storage and business callbacks.
+See the [0.8.0 migration](docs/en-US/upgrade/0.8.0.md), [data access](docs/en-US/data-access.md), [API](docs/en-US/api.md), [0.7.0 migration](docs/en-US/upgrade/0.7.0.md) and [standalone tarball example](examples/analysis-sdk/README.md). The library requires no EvoTrader backend or credentials; examples use explicitly isolated synthetic data. Hosts own computation, data, storage and business callbacks.
 
 `npm run test:package` verifies installed ESM/CJS/UMD/CSS and the standalone example in Chromium. `npx playwright install chromium && npm run test:browser` runs all library browser contracts on a self-managed free port; traces and results go to test-results. CI retains Node 22/24 checks and adds package/browser/docs verification.
 

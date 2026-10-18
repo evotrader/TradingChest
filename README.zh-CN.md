@@ -21,7 +21,7 @@
 
 历史读取使用 before/countBack 或完整 range，请求明确返回穷尽边界及可选来源元数据。图表提供已确认数据／连接状态及 retryData。命名工作台注入异步分区存储并校验 revision，内置 IndexedDB 与显式旧布局导入；工作台 v1、单图 v3 格式不变。
 
-见 [0.7.0 迁移说明](docs/upgrade/0.8.0.md)、[数据接入](docs/data-access.md)、[API](docs/api.md)、[0.6.0 升级说明](docs/upgrade/0.7.0.md)和[独立 tarball 示例](examples/analysis-sdk/README.md)。库不依赖 EvoTrader 后端或凭证，示例为明确隔离合成数据；业务计算、数据、存储和操作回调由宿主负责。
+见 [0.8.0 迁移说明](docs/upgrade/0.8.0.md)、[数据接入](docs/data-access.md)、[API](docs/api.md)、[0.7.0 升级说明](docs/upgrade/0.7.0.md)和[独立 tarball 示例](examples/analysis-sdk/README.md)。库不依赖 EvoTrader 后端或凭证，示例为明确隔离合成数据；业务计算、数据、存储和操作回调由宿主负责。
 
 `npm run test:package` 验证安装后的 ESM／CJS／UMD／CSS，并在 Chromium 操作独立示例。`npx playwright install chromium && npm run test:browser` 自行管理空闲端口及包内服务，证据写入 test-results。CI 保留 Node 22／24 原检查，新增包／浏览器／文档构建。
 

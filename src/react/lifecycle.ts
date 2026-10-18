@@ -2,7 +2,8 @@ import * as React from 'react'
 
 export function useLatest<T>(value:T):React.MutableRefObject<T> {
   const latest=React.useRef(value)
-  latest.current=value
+  // Publish only on commit, before descendant layout effects can emit events.
+  React.useInsertionEffect(()=>{latest.current=value},[value])
   return latest
 }
 

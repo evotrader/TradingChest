@@ -327,7 +327,7 @@ import type {
 | createDatafeed(signal) | 必填；每次真实挂载创建独立 Datafeed 或 Promise；初始化取消传 signal |
 | height | 必填；number 像素或 `'100%'`，后者要求父容器确定高度 |
 | theme／locale／timezone／styles | 可更新，使用原 setter；styles 合并，省略保持 |
-| events | 按原 ChartProOptions 通知 `on*` 键取类型，通知读取最新回调 |
+| events | 按原 ChartProOptions 通知 `on*` 键取类型，通知读取最新已提交的 React 回调 |
 | onReady(chart) | ref 安装后报告实例创建；不代表数据已应用 |
 | className／style／aria-label | 外层容器属性；height prop 决定实际高度 |
 | ref | 原 ChartPro 或 null，卸载清空 |
@@ -342,7 +342,7 @@ import type {
 | store | 借用 WorkspaceStore，组件不得关闭 |
 | createStore(signal) | 与 store 互斥；返回自有 OwnedWorkspaceStore 或 Promise；必须具有 dispose() |
 | onReady(workspace) | ref 安装后报告原 ChartWorkspace 实例，不代表全部子图已就绪 |
-| onActiveCell／onLayoutChange／onError | 与原 ChartWorkspaceOptions 同类型，读取最新回调 |
+| onActiveCell／onLayoutChange／onError | 与原 ChartWorkspaceOptions 同类型，读取最新已提交的 React 回调 |
 | className／style／aria-label | 容器属性 |
 | ref | 原 ChartWorkspace 或 null，卸载清空 |
 

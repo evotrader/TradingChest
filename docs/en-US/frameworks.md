@@ -42,7 +42,7 @@ Each call to `host.createDatafeed(signal)` must return a separate feed; never re
 
 `initialOptions` is a mount snapshot: initial symbol/period, catalogs, drawing commit policy and comparison factories. Apply new initialization settings through a new React `key`. Ordinary rerenders do not reverse users' in-chart symbol/period selections. Use `chart.current?.setSymbol(...)` or `setPeriod(...)` for imperative runtime changes.
 
-`theme`, `locale`, `timezone`, `styles` and `height` are presentation props. Updates call the existing setters/resize without rebuilding market data. Styles merge; omission keeps prior values. Use a new key for a complete reset. Notifications in `events` use the latest callbacks while initialization policies retain their original snapshot.
+`theme`, `locale`, `timezone`, `styles` and `height` are presentation props. Updates call the existing setters/resize without rebuilding market data. Styles merge; omission keeps prior values. Use a new key for a complete reset. Notifications in `events` use the latest committed React callbacks while initialization policies retain their original snapshot. Suspended or cancelled renders never replace the active instance's callbacks; workspace notifications follow the same rule.
 
 `onReady` means the instance exists and its ref is installed. `events.onDataReady` means real history has been applied. Initialization errors show retry and call `events.onError`; retry creates a fresh feed. History errors and `retryData()` retain the chart's original behavior. Instance readiness does not confirm data.
 

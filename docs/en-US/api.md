@@ -287,7 +287,7 @@ New components are exported only from the `react` subpath. The root retains Live
 | createDatafeed(signal) | Required; a separate Datafeed or Promise for each real mount; receives initialization cancellation |
 | height | Required; pixel number or `'100%'` with a definite parent height |
 | theme/locale/timezone/styles | Dynamic presentation via existing setters; styles merge and omission retains values |
-| events | Original ChartProOptions `on*` notification types; latest callbacks |
+| events | Original ChartProOptions `on*` notification types; latest committed React callbacks |
 | onReady(chart) | Instance created, ref already installed; does not confirm applied data |
 | className/style/aria-label | Outer-container attributes; height prop determines its height |
 | ref | Original ChartPro or null, cleared on unmount |
@@ -302,7 +302,7 @@ Use ref methods for runtime symbol/period changes. Initialization has loading/er
 | store | Borrowed WorkspaceStore, never closed by the component |
 | createStore(signal) | Mutually exclusive with store; owned OwnedWorkspaceStore or Promise, with mandatory dispose() |
 | onReady(workspace) | Original ChartWorkspace instance, ref already installed; does not confirm readiness of every cell |
-| onActiveCell/onLayoutChange/onError | Original ChartWorkspaceOptions callback types, latest callbacks |
+| onActiveCell/onLayoutChange/onError | Original ChartWorkspaceOptions callback types, latest committed React callbacks |
 | className/style/aria-label | Container attributes |
 | ref | Original ChartWorkspace or null, cleared on unmount |
 

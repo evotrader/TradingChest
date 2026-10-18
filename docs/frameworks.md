@@ -42,7 +42,7 @@ export function PriceChart() {
 
 `initialOptions` 是单次挂载快照，包括初始标的／周期、目录、绘图提交策略及比较工厂。要应用新的初始化配置，用 React `key` 明确重建。普通重渲染不会回滚用户在图内选择的标的／周期；运行时操作可调用 `chart.current?.setSymbol(...)` 或 `setPeriod(...)`。
 
-`theme`、`locale`、`timezone`、`styles` 和 `height` 是呈现 props。更新它们调用已有 setter／resize，不重建行情。styles 使用合并语义，省略不清空；完全重置用新 key。`events` 每次通知读取最新回调，而初始化策略保持快照。
+`theme`、`locale`、`timezone`、`styles` 和 `height` 是呈现 props。更新它们调用已有 setter／resize，不重建行情。styles 使用合并语义，省略不清空；完全重置用新 key。`events` 每次通知读取最新已提交的 React 回调，而初始化策略保持快照。被 Suspense 挂起或取消的渲染不会替换活实例的回调；工作台通知也遵循同一规则。
 
 `onReady` 表示实例已创建，ref 已安装；`events.onDataReady` 才表示真实历史已应用。初始化失败显示重试并调用 `events.onError`，重试会创建新 feed。历史读取失败的展示和 `retryData()` 沿原图表行为，不用 `onReady` 冒充数据确认。
 

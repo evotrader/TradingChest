@@ -1,122 +1,72 @@
 import { defineConfig } from 'vitepress'
 
-// https://vitepress.dev/reference/site-config
 export default defineConfig({
-  title: 'KLineChart Pro',
-  description: '基于KLineChart构建的开箱即用的金融图表',
+  title: 'TradingChest',
+  description: '通用行情、分析与多图工作台组件，基于 KLineChart',
+  base: '/TradingChest/',
   outDir: '../website',
+  // Keep implementation plans and historical acceptance notes in the repository.
+  srcExclude: ['superpowers/**', 'upgrade/STATUS.md', 'upgrade/STAGE*.md'],
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/TradingChest/logo.svg' }],
   ],
+  // docs:site adds this generated demo index to the same deployment artifact.
+  ignoreDeadLinks: [/^\/demos\/(?:index)?$/],
   markdown: {
-    theme: {
-      dark: 'material-theme-palenight',
-      light: 'github-light'
-    }  
+    theme: { dark: 'material-theme-palenight', light: 'github-light' }
   },
   locales: {
     root: {
-      label: '简体中文',
-      lang: 'zh-CN',
-      link: '/',
+      label: '简体中文', lang: 'zh-CN', link: '/',
       themeConfig: {
-        nav: [{ text: '预览', link: 'https://preview.klinecharts.com' }],
-        sidebar: [
-          {
-            text: '介绍',
-            link: '/introduction'
-          },
-          {
-            text: '快速开始',
-            link: '/getting-started'
-          },
-          {
-            text: '数据说明',
-            link: '/data-description'
-          },
-          {
-            text: '数据接入',
-            link: '/data-access'
-          },
-          {
-            text: 'API',
-            link: '/api'
-          },
-          {
-            text: '升级到 0.8.0',
-            link: '/upgrade/0.8.0'
-          },
-          {
-            text: '定制主题',
-            link: '/theme'
-          },
-          {
-            text: '国际化',
-            link: '/i18n'
-          }
+        nav: [
+          { text: '接入指南', link: '/getting-started' },
+          { text: '演示', link: '/demos/' }
         ],
-        docFooter: {
-          prev: '上一篇',
-          next: '下一篇'
-        },
-        sidebarMenuLabel: '菜单',
-        darkModeSwitchLabel: '主题',
-        outlineTitle: '本页目录'
+        sidebar: [
+          { text: '介绍', link: '/introduction' },
+          { text: '快速开始', link: '/getting-started' },
+          { text: 'React / Next / Vue', link: '/frameworks' },
+          { text: '数据说明', link: '/data-description' },
+          { text: '数据接入', link: '/data-access' },
+          { text: 'API', link: '/api' },
+          { text: '升级到 0.9.0', link: '/upgrade/0.9.0' },
+          { text: '升级到 0.8.0', link: '/upgrade/0.8.0' },
+          { text: '定制主题', link: '/theme' },
+          { text: '国际化', link: '/i18n' }
+        ],
+        docFooter: { prev: '上一篇', next: '下一篇' },
+        sidebarMenuLabel: '菜单', darkModeSwitchLabel: '主题', outlineTitle: '本页目录'
       }
     },
     'en-US': {
-      label: 'English',
-      lang: 'en-US',
-      link: '/en-US/',
+      label: 'English', lang: 'en-US', link: '/en-US/',
       themeConfig: {
-        nav: [{ text: 'Preview', link: 'https://preview.klinecharts.com/#en-US' }],
+        nav: [
+          { text: 'Getting started', link: '/en-US/getting-started' },
+          { text: 'Demos', link: '/demos/' }
+        ],
         sidebar: [
-          {
-            text: 'Introduction',
-            link: '/en-US/introduction'
-          },
-          {
-            text: 'Getting Started',
-            link: '/en-US/getting-started'
-          },
-          {
-            text: 'Data Description',
-            link: '/en-US/data-description'
-          },
-          {
-            text: 'Data access',
-            link: '/en-US/data-access'
-          },
-          {
-            text: 'API',
-            link: '/en-US/api'
-          },
-          {
-            text: 'Upgrade to 0.8.0',
-            link: '/en-US/upgrade/0.8.0'
-          },
-          {
-            text: 'Theme',
-            link: '/en-US/theme'
-          },
-          {
-            text: 'Internationalization',
-            link: '/en-US/i18n'
-          }
+          { text: 'Introduction', link: '/en-US/introduction' },
+          { text: 'Getting started', link: '/en-US/getting-started' },
+          { text: 'React / Next / Vue', link: '/en-US/frameworks' },
+          { text: 'Data description', link: '/en-US/data-description' },
+          { text: 'Data access', link: '/en-US/data-access' },
+          { text: 'API', link: '/en-US/api' },
+          { text: 'Upgrade to 0.9.0', link: '/en-US/upgrade/0.9.0' },
+          { text: 'Upgrade to 0.8.0', link: '/en-US/upgrade/0.8.0' },
+          { text: 'Theme', link: '/en-US/theme' },
+          { text: 'Internationalization', link: '/en-US/i18n' }
         ]
       }
-    },
+    }
   },
   themeConfig: {
-    // https://vitepress.dev/reference/default-theme-config
     logo: '/logo.svg',
-    socialLinks: [
-      { icon: 'github', link: 'https://github.com/klinecharts/pro' }
-    ],
-
+    socialLinks: [{ icon: 'github', link: 'https://github.com/evotrader/TradingChest' }],
     footer: {
-      message: 'Released under the Apache License V2.',
-      copyright: 'Copyright © 2018-present liihuu'
+      message: 'Apache License 2.0 · Derived from KLineChart Pro',
+      copyright: 'TradingChest contributors · Upstream copyright © 2018-present liihuu'
     }
   }
 })

@@ -267,3 +267,76 @@ readLegacyWorkspace(scope:string,options:{symbols:SymbolInfo[];
 `WorkspaceStoreError.code` is WORKSPACE_NOT_FOUND, WORKSPACE_STORE_UNAVAILABLE, WORKSPACE_INVALID_DOCUMENT or WORKSPACE_CONFLICT. Conflicts never overwrite automatically; refresh/reselect or save as another record. Cancellation/timeouts can leave a committed write. The UI reads the same scope/ID to resolve unknown outcomes before allowing another storage mutation. Only one mutation runs per instance; charts remain interactive.
 
 Without a store, management is disabled with an explanation. IndexedDB failure has no fallback. Saving is explicitly manual; save edits before switching. Import reads old workspace and supported single-chart v1/v2/v3 keys without auto-loading or modifying them. Content stays WorkspaceDocument v1 and chart v3, with names/IDs/revisions outside it and no market/runtime analytical data. Dispose the workspace before its owned store; borrowers must not close a shared store. Single-chart saveLayoutV3/listLayoutsV3 retain their original responsibilities.
+
+## React component APIs (0.9.0)
+
+```typescript
+import {TradingChart, TradingWorkspace} from 'trading-chest/react'
+import type {
+  TradingChartProps, TradingChartInitialOptions, TradingChartEvents,
+  TradingWorkspaceProps, TradingWorkspaceInitialOptions,
+  ReactWorkspaceCellProps, ReactWorkspaceCellReady, OwnedWorkspaceStore
+} from 'trading-chest/react'
+```
+
+New components are exported only from the `react` subpath. The root retains LiveSharpeChart/DrawdownAreaChart and their types; root/UMD do not gain TradingChart/TradingWorkspace. React and ReactDOM are optional peers. React consumers install paired versions; pure chart/testing consumers do not need them.
+
+| TradingChart prop | Contract |
+| --- | --- |
+| initialOptions | ChartProOptions excluding container, datafeed, `on*` notifications and theme/locale/timezone/styles; mount snapshot, replace via key |
+| createDatafeed(signal) | Required; a separate Datafeed or Promise for each real mount; receives initialization cancellation |
+| height | Required; pixel number or `'100%'` with a definite parent height |
+| theme/locale/timezone/styles | Dynamic presentation via existing setters; styles merge and omission retains values |
+| events | Original ChartProOptions `on*` notification types; latest callbacks |
+| onReady(chart) | Instance created, ref already installed; does not confirm applied data |
+| className/style/aria-label | Outer-container attributes; height prop determines its height |
+| ref | Original ChartPro or null, cleared on unmount |
+
+Use ref methods for runtime symbol/period changes. Initialization has loading/error/retry states; retries create a fresh feed. Initialization failures call `events.onError`. The wrapper owns feed disposal before handoff; the chart alone owns it afterward. Each StrictMode setup/cleanup is independent. Core `events.onDataReady` still follows actual history application.
+
+| TradingWorkspace prop | Contract |
+| --- | --- |
+| initialOptions | ChartWorkspaceOptions excluding container/mountCell/store/height/locale/theme/`on*`; mount snapshot |
+| renderCell(props) | ReactNode rendered through a Context-preserving portal, without a separate React root |
+| height/locale/theme | Required height is a number or `'100%'`; presentation updates use original resize/setters |
+| store | Borrowed WorkspaceStore, never closed by the component |
+| createStore(signal) | Mutually exclusive with store; owned OwnedWorkspaceStore or Promise, with mandatory dispose() |
+| onReady(workspace) | Original ChartWorkspace instance, ref already installed; does not confirm readiness of every cell |
+| onActiveCell/onLayoutChange/onError | Original ChartWorkspaceOptions callback types, latest callbacks |
+| className/style/aria-label | Container attributes |
+| ref | Original ChartWorkspace or null, cleared on unmount |
+
+```typescript
+interface ReactWorkspaceCellReady {
+  chart: ChartPro
+  captureOptions?: () => {localDrawingIds?:string[]; annotationRefs?:string[]}
+}
+interface ReactWorkspaceCellProps {
+  cell: WorkspaceCell
+  height: number
+  signal: AbortSignal
+  onReady(value: ReactWorkspaceCellReady): void
+  onError(error: Error): void
+}
+type OwnedWorkspaceStore = WorkspaceStore & {dispose():void}
+```
+
+Cells hand off onReady after actual data application. Subsequent confirmations map to the existing subscribeReady contract. captureOptions retains real local drawing IDs/backend annotation references. Cancellation, removal and failed staging release that binding; obsolete readiness cannot revive it. Owned stores close after workspace/cell cleanup, including late results. External owners close borrowed stores last. Missing stores retain disabled management without fallback. Original staged replacement, old-view retention on failure and unknown-write reconciliation remain.
+
+The React entry preserves `use client`. ESM/CJS can be imported and rendered through renderToString in Node without DOM; the server only renders a stable initial container. Canvas is created in client effects. This does not extend SSR support to root/chart/UMD. Define Next factories inside Client Components. See [framework integration](./frameworks).
+
+## testing history validators (0.9.0)
+
+```typescript
+import {HistoryError, validateHistoryQuery, validateHistoryResult} from 'trading-chest/testing'
+import type {
+  HistoryQuery, HistoryResult, HistorySnapshot, HistoryMetadata,
+  DatafeedRequestContext, Datafeed, SymbolInfo, Period
+} from 'trading-chest/testing'
+
+validateHistoryQuery(query: HistoryQuery): void
+validateHistoryResult(result: HistoryResult, query: HistoryQuery): HistoryResult
+// HistoryError extends Error, with readonly code: string.
+```
+
+ESM/CJS and declarations reuse production history validation without DOM/Solid/React. On success, validateHistoryResult returns the same object, without copying/freezing. It checks timestamps, OHLCV, request bounds and response structure; it cannot establish truthful market provenance, basis or hasMoreBefore declarations. Loader copy/handoff ownership remains unchanged. Use independent expectations for adapter semantics; see the [contract template](./data-access#independent-validation-and-contract-template).

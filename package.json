@@ -1,6 +1,6 @@
 {
   "name": "trading-chest",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "通用行情与分析图表组件，基于 KLineChart。",
   "type": "module",
   "main": "./dist/trading-chest.umd.js",
@@ -29,7 +29,7 @@
   "private": false,
   "scripts": {
     "build-core": "tsc && vite build",
-    "build-dts": "dts-bundle-generator --config dts.entries.json",
+    "build-dts": "dts-bundle-generator --config dts.entries.json && node scripts/link-entry-types.mjs",
     "build": "npm run build-core && npm run build-entries && npm run build-dts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -37,17 +37,22 @@
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "docs:deploy": "npm run docs:build && gh-pages -d website",
+    "docs:deploy": "npm run docs:site && gh-pages -d website",
     "build-entries": "vite build --config vite.entries.config.ts && TC_ENTRY_FORMAT=cjs vite build --config vite.entries.config.ts",
     "test:package": "node tests/package/entries.mjs",
     "test:browser": "node tests/browser/run.mjs",
-    "test:performance": "node tests/browser/run.mjs --performance"
+    "test:performance": "node tests/browser/run.mjs --performance",
+    "test:integration": "node tests/integration/frameworks.mjs",
+    "docs:site": "node tests/integration/site.mjs --build",
+    "test:site": "node tests/integration/site.mjs --test",
+    "prepare:examples": "node tests/integration/frameworks.mjs --prepare-only --update-locks"
   },
   "devDependencies": {
     "@playwright/test": "1.59.1",
     "@solidjs/testing-library": "^0.8.0",
     "@testing-library/jest-dom": "^6.9.1",
-    "@types/react": "^18.3.31",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
     "@typescript-eslint/eslint-plugin": "^5.54.0",
     "babel-preset-solid": "^1.9.0",
     "dts-bundle-generator": "^9.5.0",
@@ -61,6 +66,7 @@
     "less": "^4.6.0",
     "less-loader": "^11.1.0",
     "react": "19.2.3",
+    "react-dom": "19.2.3",
     "typescript": "^5.5.4",
     "vite": "^5.4.0",
     "vite-plugin-solid": "^2.10.0",
@@ -72,7 +78,8 @@
   },
   "peerDependencies": {
     "klinecharts": "10.1.0",
-    "react": ">=18.0.0"
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
   },
   "exports": {
     ".": {
@@ -96,10 +103,18 @@
       "require": "./dist/entries/react.cjs"
     },
     "./dist/*": "./dist/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./testing": {
+      "types": "./dist/entries/testing.d.ts",
+      "import": "./dist/entries/testing.js",
+      "require": "./dist/entries/testing.cjs"
+    }
   },
   "peerDependenciesMeta": {
     "react": {
+      "optional": true
+    },
+    "react-dom": {
       "optional": true
     }
   }

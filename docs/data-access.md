@@ -79,3 +79,30 @@ DefaultDatafeed 仍是可选 Polygon 数据实现，需要上游有效凭证。�
 无数据、失败、未对齐应区分展示，不把演示输入当生产回退。完整类型见 [API](./api)，独立隔离示例见[快速开始](./getting-started)，0.7.0 调用方迁移见 [0.8.0 升级说明](./upgrade/0.8.0)。
 
 临时分析副图不具有持久绘图目标。库按当前图表的运行时 pane 所有权判断，在 UI／提交／整批恢复入口明确拒绝，且不调用标注写接口；主图上的分析层及普通指标副图不受此限制。布局捕获遇到指定本地 ID 仍在临时副图时保留对象并报错，不静默丢弃。
+
+## 独立校验与契约测试模板
+
+0.9.0 新增无 DOM 的 `trading-chest/testing`，直接重导出生产加载器使用的同一历史校验：
+
+```typescript
+import {validateHistoryQuery, validateHistoryResult, HistoryError} from 'trading-chest/testing'
+import type {HistoryQuery} from 'trading-chest/testing'
+
+const query: HistoryQuery = {kind: 'before', before: upperBound, countBack: 500}
+validateHistoryQuery(query)
+const result = await host.readHistory(symbol, period, query, signal)
+try {
+  validateHistoryResult(result, query)
+} catch (error) {
+  if (error instanceof HistoryError) console.error(error.code, error.message)
+  throw error
+}
+```
+
+成功返回原对象，不复制、不冻结。它能拒绝重复／乱序时标、无效 OHLCV、越界、缺失 before 边界声明和空页加 true；不能证明来源真实性、basis 准确或 false 的穷尽声明。数据进入图表时仍按原 loader 校验并取得副本。
+
+[examples/datafeed-contract](https://github.com/evotrader/TradingChest/tree/main/examples/datafeed-contract) 提供普通 JS adapter 与 Node 内置 `node:test`／`assert` 测试模板。宿主提供 readHistory／subscribe／search，自己决定 URL、鉴权、单位与真实穷尽；模板不创建第二个生产数据源或通用 DSL。
+
+可控源的预期应独立于 adapter：before 严格上界、短页仍有历史、完整半开 range、basis 随响应、空与失败、无效 OHLCV／乱序／重复、同根更新／追加、双图独立退订、重试与取消。假穷尽由夹具预期发现，不能用 validator 成功冒充正确。模板用实际 loopback HTTP 检查 AbortSignal 传到请求；这不要求所有 provider 的 transport 同步停止，核心仍隔离忽略 signal 的迟到结果。
+
+React 的 `createDatafeed(signal)` 每次挂载创建独立实例，取消覆盖初始化；后续读取继续传 `context.signal`。工作台每 cell 同样独立。完整生命周期见[框架接入](./frameworks)。契约模板只证明所测适配行为，不替代真实来源核验、生产浏览器接线或真实后端 E2E。

@@ -1,23 +1,59 @@
 name: Deploy docs
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'src/**'
+      - 'examples/**'
+      - 'scripts/**'
+      - 'tests/integration/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite*.config.ts'
+      - 'dts.entries.json'
+      - 'tsconfig.json'
+      - '.github/workflows/deploy-docs.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '22.22.2'
           cache: npm
+      - uses: actions/configure-pages@v5
       - run: npm ci
-      - run: npm run docs:build
-      - uses: peaceiris/actions-gh-pages@v4
+      - run: npm run build
+      - run: npm run docs:site
+      - uses: actions/upload-pages-artifact@v4
         with:
-          github_token: ${{ secrets.DEPLOY_TOKEN }}
-          publish_dir: ./website
+          path: website/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

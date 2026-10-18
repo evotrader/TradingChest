@@ -79,3 +79,30 @@ DefaultDatafeed still uses the Polygon protocol with valid upstream credentials.
 Distinguish empty, failed and unaligned states; demonstration inputs never serve as production fallbacks. See the [API](./api), [standalone isolated example](./getting-started) and [0.8.0 migration guide](./upgrade/0.8.0).
 
 Transient analysis panes are not persistent drawing targets. The library checks actual runtime pane ownership at UI, commit and whole-batch restore boundaries before annotation writes. Analysis layers on the main chart and regular indicator panes remain valid drawing targets. Capture explicitly fails and retains objects when a selected local drawing still targets a transient pane; it never silently drops drawings.
+
+## Independent validation and contract template
+
+Version 0.9.0 adds DOM-free `trading-chest/testing`, directly re-exporting the same validators used by the production loader:
+
+```typescript
+import {validateHistoryQuery, validateHistoryResult, HistoryError} from 'trading-chest/testing'
+import type {HistoryQuery} from 'trading-chest/testing'
+
+const query: HistoryQuery = {kind: 'before', before: upperBound, countBack: 500}
+validateHistoryQuery(query)
+const result = await host.readHistory(symbol, period, query, signal)
+try {
+  validateHistoryResult(result, query)
+} catch (error) {
+  if (error instanceof HistoryError) console.error(error.code, error.message)
+  throw error
+}
+```
+
+Successful validation returns the same object without copying/freezing. It rejects duplicate/out-of-order timestamps, invalid OHLCV, bounds violations, absent before-boundary declarations and empty pages claiming more history. It cannot prove provenance, an accurate basis or truthful exhaustion. The chart loader continues validating and acquiring its own copies during handoff.
+
+[examples/datafeed-contract](https://github.com/evotrader/TradingChest/tree/main/examples/datafeed-contract) supplies a plain JS adapter and Node built-in `node:test`/`assert` template. Hosts provide readHistory/subscribe/search and determine URLs, authentication, units and actual exhaustion. It adds no second production data source or generic DSL.
+
+Keep controlled-source expectations independent of the adapter: strict before bounds, short pages with earlier history, complete half-open ranges, response-local basis, empty/error results, invalid OHLCV/order/duplicates, same-bar updates/appends, separate two-chart unsubscribe, retry and cancellation. Fixture expectations detect false exhaustion; validator success cannot prove it. A real loopback HTTP check verifies AbortSignal forwarding. This does not require synchronous transport abort from every provider; the core still isolates late results from providers ignoring signals.
+
+React `createDatafeed(signal)` creates a separate instance per mount and receives initialization cancellation. Later reads continue forwarding `context.signal`. Workspace cells are independent too; see [framework integration](./frameworks). The template proves only tested adapter behavior, not market provenance, production browser wiring or backend E2E.

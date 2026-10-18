@@ -1,5 +1,5 @@
 <h1 align="center">TradingChest</h1>
-<p align="center">Professional trading chart library targeting TradingView-level capabilities. Built on KLineChart.</p>
+<p align="center">Open-source market charts, analytical layers and multi-chart workspaces. Built on KLineChart; data and business logic stay with the host.</p>
 
 <div align="center">
 
@@ -15,15 +15,15 @@
   <img src="docs/public/image.png" alt="TradingChest Screenshot" width="800" />
 </p>
 
-## 0.8.0 data access and named workspaces
+## 0.9.0 framework integration
 
-Namespaced KLineChart templates, per-chart indicator catalogs and ID-addressed instances support number/select/boolean parameters and repeated names. External lines, signed histograms, price bands, read-only events and ordered label panels accept explicit host snapshots. Scope tokens, dataBasis and replay availableAt rules prevent stale or incorrectly aligned presentation. Workspace size/theme/locale/toolbars are host-configurable.
+`trading-chest/react` adds TradingChart and TradingWorkspace with explicit per-mount datafeed ownership, cancellation, Context-preserving portals and borrowed/owned store lifecycles. React/ReactDOM 18.3.1 and 19.2.3 are paired integration targets. The React entry preserves `use client` and supports DOM-free Node imports/renderToString; Canvas is initialized on the client. Next.js factories belong inside Client Components. Pure chart/testing consumers do not need React.
 
-History uses before/countBack or complete range queries, explicit exhaustion and optional source metadata. Charts expose confirmed data/connection state and retryData. Named workspaces use asynchronous scoped stores with revision checks; IndexedDB and explicit legacy import are supplied. Workspace v1 and chart v3 documents retain their formats.
+`trading-chest/testing` reuses production history validators without DOM, Solid or React. Validators do not copy/freeze responses or prove data provenance/exhaustion. Before/countBack and complete-range history, confirmed state/retry, named stores, analytical snapshots and existing layout formats retain their 0.8.0 contracts. The engine remains pinned to **10.1.0**.
 
-See the [0.8.0 migration](docs/en-US/upgrade/0.8.0.md), [data access](docs/en-US/data-access.md), [API](docs/en-US/api.md), [0.7.0 migration](docs/en-US/upgrade/0.7.0.md) and [standalone tarball example](examples/analysis-sdk/README.md). The library requires no EvoTrader backend or credentials; examples use explicitly isolated synthetic data. Hosts own computation, data, storage and business callbacks.
+See [getting started](docs/en-US/getting-started.md), [React / Next / Vue](docs/en-US/frameworks.md), [0.9.0 migration](docs/en-US/upgrade/0.9.0.md), [data access](docs/en-US/data-access.md) and [API](docs/en-US/api.md). Source examples are [analysis-sdk](examples/analysis-sdk/README.md), [react-vite](examples/react-vite), [next-app](examples/next-app), [vue-vite](examples/vue-vite) and [datafeed-contract](examples/datafeed-contract). Both original analysis-sdk pages remain. Examples use explicitly isolated synthetic inputs, require no EvoTrader backend/credentials and never act as production fallbacks.
 
-`npm run test:package` verifies installed ESM/CJS/UMD/CSS and the standalone example in Chromium. `npx playwright install chromium && npm run test:browser` runs all library browser contracts on a self-managed free port; traces and results go to test-results. CI retains Node 22/24 checks and adds package/browser/docs verification.
+This describes the 0.9.0 source contract. Local source/tarball validation does not imply npm publication or a publicly deployed Pages site. Before publication, build and install the actual `npm pack` tarball.
 
 ## Features
 
@@ -113,10 +113,29 @@ Candle Solid, Candle Hollow, Up Hollow, Down Hollow, OHLC, Area, **Heikin Ashi**
 ## Install
 
 ```bash
-npm install trading-chest@0.8.0 klinecharts@10.1.0
+npm install trading-chest@0.9.0 klinecharts@10.1.0
 ```
 
-## Usage
+## React usage
+
+Install paired `react` and `react-dom` (18.3.1 or 19.2.3), then:
+
+```tsx
+import {TradingChart} from 'trading-chest/react'
+import 'trading-chest/dist/trading-chest.css'
+
+// symbol, period and createHostDatafeed belong to your host adapter.
+<TradingChart
+  height={600}
+  initialOptions={{symbol, period}}
+  createDatafeed={signal => createHostDatafeed(signal)}
+  theme="dark"
+/>
+```
+
+The factory creates a separate feed for each mount, including StrictMode. `initialOptions` is a mount snapshot; use a new key to replace it. Presentation props update through existing setters. `onReady` means the instance exists with its ref installed; `events.onDataReady` means history was actually applied. See the framework guide for complete workspace, Next and Vue lifecycles. The new wrappers are only in the React subpath; original root analytical exports remain.
+
+## Browser usage
 
 ```typescript
 import { KLineChartPro } from 'trading-chest/chart'
@@ -279,21 +298,29 @@ import {
 - **UI Framework**: [Solid.js](https://www.solidjs.com/) (reactive, lightweight)
 - **Build Tool**: [Vite](https://vitejs.dev/) (ESM + UMD dual output)
 - **Language**: TypeScript (zero `@ts-expect-error` for project code)
-- **Testing**: Vitest (211 tests, 18 test files)
+- **Testing**: Vitest and real package/browser integration checks; see current command output for counts
 
 ## Build
 
 ```bash
-npm install
+npm ci
 npm run build       # Full build (JS + CSS + .d.ts)
-npm run test        # Run tests
+npm test
+npm run test:package
+npx playwright install chromium
+npm run test:browser
+npm run test:integration
+npm run docs:site
+npm run test:site
 ```
 
 Build artifacts:
-- `dist/trading-chest.js` — ES Module (~291KB, gzip ~81KB)
+- `dist/trading-chest.js` — root ES Module
 - `dist/trading-chest.umd.js` — UMD
-- `dist/trading-chest.css` — Styles (~42KB)
+- `dist/trading-chest.css` — styles
 - `dist/index.d.ts` — TypeScript declarations
+
+`dist/entries/` contains ESM/CJS/declarations for chart, solid, react and testing. `npm run docs:build` builds documentation only. `npm run docs:site` builds the complete docs/static-demo artifact in `website/` with base `/TradingChest/`. The official Pages workflow deploys that same directory using GitHub's Pages artifact/deploy actions and GITHUB_TOKEN permissions. Next remains a source/local-Node-server example rather than a static Pages demo. Public deployment is a separate maintainer action.
 
 ## Based On
 

@@ -13,6 +13,7 @@ export async function launchBrowser(options={}) {
       const page = await newPage(options), context = page.context()
       await context.tracing.start({screenshots:true,snapshots:true,sources:true})
       contexts.push(context)
+      context.once('close',()=>{const index=contexts.indexOf(context);if(index>=0)contexts.splice(index,1)})
       return page
     }
   }

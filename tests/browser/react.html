@@ -1,0 +1,63 @@
+<!doctype html><html><meta charset="UTF-8"><body><div id="host" style="width:1200px;height:1160px"></div>
+<script type="module">
+import * as React from 'react'
+import {createRoot} from 'react-dom/client'
+import {TradingChart,TradingWorkspace} from '/src/react.ts'
+import {loadChartCore} from '/src/react/lifecycle.ts'
+import {makeBars} from './syntheticBars.ts'
+await loadChartCore()
+const core=await import('/src/chart.ts'),host=document.getElementById('host')
+const symbol={ticker:'SYNTHETIC'},period={multiplier:1,timespan:'minute',text:'1m'}
+const options={symbol,period,mainIndicators:['MA'],subIndicators:['VOL','MACD']}
+const frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
+const until=async(condition)=>{const deadline=performance.now()+15000;while(!condition()){if(performance.now()>deadline)throw Error('React case did not settle');await new Promise(resolve=>setTimeout(resolve,1))}}
+const settled=async(chart,count)=>until(()=>['MA','VOL','MACD'].every(name=>chart.getIndicators({name})[0]?.result.length===count))
+const feed=(bars,state)=>{state.created++;let active=false,disposed=false;return {searchSymbols:async()=>[symbol],getHistoryKLineData:async(_s,_p,q)=>({bars:bars.filter(b=>q.kind==='before'?b.timestamp<q.before:b.timestamp>=q.from&&b.timestamp<q.to),hasMoreBefore:q.kind==='before'?false:undefined}),subscribe:()=>{if(active)throw Error('Duplicate subscription');active=true;state.subscriptions++},unsubscribe:()=>{if(active){active=false;state.subscriptions--}},dispose:()=>{if(disposed)throw Error('Duplicate feed disposal');disposed=true;state.disposed++}}}
+function BenchCell({cell,height,onReady,count,state,charts}){const ref=React.useRef(null);return React.createElement(TradingChart,{ref,height,initialOptions:{...options,symbol:cell.symbol,period:cell.period},createDatafeed:()=>feed(makeBars(count),state),events:{onDataReady:()=>{if(!charts.includes(ref.current))charts.push(ref.current);onReady({chart:ref.current})}}})}
+window.sampleReactCold=async(count,layout,enabled)=>{
+ const state={created:0,disposed:0,subscriptions:0},charts=[],bars=layout===1?makeBars(count):undefined
+ let root,workspace,chart
+ const started=performance.now()
+ if(enabled){
+  root=createRoot(host)
+  if(layout===1){const ref=React.createRef();root.render(React.createElement(TradingChart,{ref,height:700,initialOptions:options,createDatafeed:()=>feed(bars,state),events:{onDataReady:()=>{chart=ref.current}}}));await until(()=>chart);charts.push(chart)}
+  else root.render(React.createElement(TradingWorkspace,{height:layout===4?1160:780,initialOptions:{context:'performance',symbols:[symbol],initialSymbol:symbol,getPeriods:async()=>[period]},onReady:value=>{workspace=value},renderCell:props=>React.createElement(BenchCell,{...props,count,state,charts})}))
+ }else if(layout===1){let loaded;const ready=new Promise(resolve=>loaded=resolve);chart=new core.KLineChartPro({...options,container:host,datafeed:feed(bars,state),onDataReady:loaded});charts.push(chart);await ready}
+ else workspace=new core.ChartWorkspace({container:host,height:layout===4?1160:780,context:'performance',symbols:[symbol],initialSymbol:symbol,getPeriods:async()=>[period],mountCell:(container,cell)=>{let resolve;const ready=new Promise(yes=>resolve=yes);const chart=new core.KLineChartPro({...options,container,symbol:cell.symbol,period:cell.period,datafeed:feed(makeBars(count),state),onDataReady:()=>resolve(chart)});charts.push(chart);return {ready,dispose:()=>chart.dispose()}}})
+ if(layout!==1){await until(()=>workspace?.getCells().length===1);await workspace.setLayout(layout);await until(()=>charts.length===layout&&workspace.getCells().every(cell=>cell.chart))}
+ await Promise.all(charts.map(chart=>settled(chart.getChart(),count)));await until(()=>charts.every(chart=>{const engine=chart.getChart();return engine.getSize('candle_pane','main').height>0&&engine.getIndicators().every(i=>engine.getSize(i.paneId,'main').height>0)}));await frame()
+ for(const chart of charts){const engine=chart.getChart();if(engine.getSize('candle_pane','main').height<=0||engine.getIndicators().some(i=>engine.getSize(i.paneId,'main').height<=0))throw Error('Non-drawable benchmark pane '+JSON.stringify({layout,enabled,height:host.clientHeight,panes:engine.getIndicators().map(i=>({name:i.name,pane:i.paneId,height:engine.getSize(i.paneId,'main')?.height})),cells:workspace?.getCells().map(c=>({id:c.cellId,chart:!!c.chart}))}))}
+ const cold=performance.now()-started,initialized=state.created,activeSubscriptions=state.subscriptions
+ if(root)root.unmount();else if(workspace)workspace.dispose();else chart.dispose()
+ await frame()
+ return {cold,initialized,activeSubscriptions,...state,dom:host.childNodes.length}
+}
+window.reactLifecycle=async()=>{
+ const Context=React.createContext('missing'),state={created:0,disposed:0,subscriptions:0},seen=[]
+ const bars=makeBars(20),root=createRoot(host),ref=React.createRef(),init={context:'react-lifecycle',symbols:[symbol],initialSymbol:symbol,getPeriods:async()=>[period]}
+ const Cell=props=>{const context=React.useContext(Context),chart=React.useRef(null);seen.push(context);return React.createElement(TradingChart,{ref:chart,height:props.height,initialOptions:options,createDatafeed:()=>feed(bars,state),events:{onDataReady:()=>{if(!chart.current)throw Error('Missing ref before data ready');props.onReady({chart:chart.current,captureOptions:()=>({annotationRefs:['backend-id']})})}}})}
+ const borrowed={list:async()=>[],read:async()=>null,write:async()=>{throw Error('unused')},remove:async()=>{},dispose:()=>{throw Error('Borrowed store disposed')}}
+ const render=()=>root.render(React.createElement(React.StrictMode,null,React.createElement(Context.Provider,{value:'parent-context'},React.createElement(TradingWorkspace,{ref,height:780,store:borrowed,initialOptions:init,renderCell:props=>React.createElement(Cell,props)}))))
+ render();await until(()=>ref.current?.getCells()[0]?.chart?.getChart()?.getDataList().length===20)
+ await ref.current.setLayout(2);await until(()=>ref.current.getCells().every(c=>c.chart?.getChart()?.getDataList().length===20));await frame()
+ if(seen.some(value=>value!=='parent-context'))throw Error('Portal lost parent Context')
+ if(ref.current.capture().cells.some(c=>c.chart.annotationRefs[0]!=='backend-id'))throw Error('Capture references lost')
+ root.unmount();await frame();if(state.subscriptions||state.created!==state.disposed||host.childNodes.length)throw Error('Portal lifecycle leaked')
+ return {contextPreserved:true,capturePreserved:true,borrowedStoreRetained:true,...state}
+}
+window.trackReactResources=()=>{
+ const add=EventTarget.prototype.addEventListener,remove=EventTarget.prototype.removeEventListener,timeout=window.setTimeout,clearTimeout=window.clearTimeout,interval=window.setInterval,clearInterval=window.clearInterval,raf=window.requestAnimationFrame,cancelRaf=window.cancelAnimationFrame,Observer=window.ResizeObserver
+ const listeners=[],timers=new Set(),frames=new Set(),observers=new Set(),owned=()=>new Error().stack.includes('/src/'),capture=options=>typeof options==='boolean'?options:!!options?.capture
+ EventTarget.prototype.addEventListener=function(type,handler,options){if(handler&&owned()&&!listeners.some(x=>x.target.deref()===this&&x.type===type&&x.handler.deref()===handler&&x.capture===capture(options)))listeners.push({target:new WeakRef(this),handler:new WeakRef(handler),type,capture:capture(options)});return add.call(this,type,handler,options)}
+ EventTarget.prototype.removeEventListener=function(type,handler,options){const index=listeners.findIndex(x=>x.target.deref()===this&&x.type===type&&x.handler.deref()===handler&&x.capture===capture(options));if(index>=0)listeners.splice(index,1);return remove.call(this,type,handler,options)}
+ window.setTimeout=(callback,delay,...args)=>{const track=owned();let id;id=timeout.call(window,(...values)=>{timers.delete(id);callback(...values)},delay,...args);if(track)timers.add(id);return id}
+ window.clearTimeout=id=>{timers.delete(id);clearTimeout.call(window,id)}
+ window.setInterval=(callback,delay,...args)=>{const id=interval.call(window,callback,delay,...args);if(owned())timers.add(id);return id}
+ window.clearInterval=id=>{timers.delete(id);clearInterval.call(window,id)}
+ window.requestAnimationFrame=callback=>{const track=owned();let id;id=raf.call(window,time=>{frames.delete(id);callback(time)});if(track)frames.add(id);return id}
+ window.cancelAnimationFrame=id=>{frames.delete(id);cancelRaf.call(window,id)}
+ window.ResizeObserver=class extends Observer{constructor(callback){super(callback);if(owned())observers.add(this)}disconnect(){observers.delete(this);super.disconnect()}}
+ return ()=>({listeners:listeners.filter(x=>{const target=x.target.deref();return target&&(target===window||target===document||target.isConnected)}).length,timers:timers.size,frames:frames.size,observers:observers.size,dom:host.childNodes.length})
+}
+window.reactReady=true
+</script></body></html>

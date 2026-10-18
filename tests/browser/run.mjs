@@ -27,13 +27,13 @@ try {
   const response=await fetch(`${base}/tests/browser/lifecycle.html`)
   if(!response.ok)throw Error(`Vite is not ready: ${response.status}`)
   const tasks=process.argv.includes('--performance')
-    ? [['performance-single',[]],['performance-comparison',['--compare']],['performance-workspace',['--workspace']],['performance-analysis',['--analysis']]].map(([name,args])=>({name,script:'performance',args}))
-    : (process.argv.includes('--audit-analysis')?['analysis-transactions']:['history-state','history-reload-audit','cross-upgrades','runtime-drawings','store-contract','workspace-store','lifecycle','widgets','upgrade-contracts','workspace','drawing-history','comparison','upgrade-audit','analysis','analysis-locale','workspace-embed','analysis-transactions']).map(script=>({name:script,script,args:[]}))
+    ? [['performance-react',['--react']],['performance-single',[]],['performance-comparison',['--compare']],['performance-workspace',['--workspace']],['performance-analysis',['--analysis']]].map(([name,args])=>({name,script:args.includes('--react')?'react':'performance',args:args.includes('--react')?['--performance']:args}))
+    : (process.argv.includes('--react-only')?['react']:process.argv.includes('--audit-analysis')?['analysis-transactions']:['history-state','history-reload-audit','cross-upgrades','runtime-drawings','store-contract','workspace-store','lifecycle','widgets','upgrade-contracts','workspace','drawing-history','comparison','upgrade-audit','analysis','analysis-locale','workspace-embed','analysis-transactions','react']).map(script=>({name:script,script,args:[]}))
   for(const {name,script,args} of tasks) {
     const directory=path.join(evidence,name);mkdirSync(directory,{recursive:true})
     const started=Date.now(), chunks=[]
     const exitCode=await new Promise((resolve,reject)=>{
-      child=spawn(process.execPath,[path.join(root,`tests/browser/${script}.mjs`),path.join(directory,'evidence.json'),...args],{cwd:root,env:{...process.env,TC_BROWSER_BASE:base,TC_BROWSER_EVIDENCE:directory,TC_BROWSER_TRACE_DIR:script==='performance'?'':directory},stdio:['ignore','pipe','pipe']})
+      child=spawn(process.execPath,[path.join(root,`tests/browser/${script}.mjs`),path.join(directory,'evidence.json'),...args],{cwd:root,env:{...process.env,TC_BROWSER_BASE:base,TC_BROWSER_EVIDENCE:directory,TC_BROWSER_TRACE_DIR:name.startsWith('performance')?'':directory},stdio:['ignore','pipe','pipe']})
       for(const stream of [child.stdout,child.stderr])stream.on('data',data=>{chunks.push(data.toString());process.stdout.write(data)})
       child.once('error',reject);child.once('exit',(code,signal)=>resolve(code??(signal?1:0)))
     })

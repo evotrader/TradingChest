@@ -4,3 +4,8 @@
 /docs/.vitepress/cache.worktrees
 
 /test-results
+
+/examples/*.tgz
+/examples/*/node_modules/
+/examples/*/dist/
+/examples/*/.next/

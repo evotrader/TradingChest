@@ -15,9 +15,13 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const run = (command, args, cwd = dir) => execFileSync(command, args, {cwd, stdio:'pipe', encoding:'utf8', env:{...process.env,npm_config_cache:process.env.npm_config_cache ?? path.join(tmpdir(),'trading-chest-pack-cache')}})
 try {
   const packed = JSON.parse(run(npm, ['pack','--json','--pack-destination',dir], root))[0]
+  assert.ok(!packed.files.some(file=>file.path.split('/').some(part=>part.startsWith('.'))),'Package included local build metadata')
   writeFileSync(path.join(dir,'package.json'), JSON.stringify({private:true,type:'module'}))
   run(npm, ['install','--ignore-scripts','--no-audit','--no-fund',path.join(dir,packed.filename),'jsdom@30.0.1','klinecharts@10.1.0','@types/react@18.3.31'])
   assert.equal(existsSync(path.join(dir,'node_modules/react')), false, 'chart-only install pulled React')
+  assert.equal(existsSync(path.join(dir,'node_modules/react-dom')), false, 'chart-only install pulled ReactDOM')
+  writeFileSync(path.join(dir,'testing.mjs'),`import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {validateHistoryResult,HistoryError} from 'trading-chest/testing';assert.equal(globalThis.window,undefined);assert.equal(typeof createRequire(import.meta.url)('trading-chest/testing').validateHistoryQuery,'function');const result={bars:[],hasMoreBefore:false};assert.equal(validateHistoryResult(result,{kind:'before',before:1,countBack:1}),result);assert.throws(()=>validateHistoryResult({bars:[],hasMoreBefore:true},{kind:'before',before:1,countBack:1}),HistoryError);console.log('DOM-free ESM/CJS production validators PASS');`)
+  console.log(run(process.execPath,['testing.mjs']))
   // Chart entrypoints are browser modules, including the CJS browser bundle.
   const browserFixture = (name, source) => {
     const entry = path.join(dir, name);
@@ -72,13 +76,26 @@ void chart.retryData();void chart.getIndicatorCatalog();void chart.getIndicators
 chart.addIndicator({name:'MA',placement:'main',calcParams:[3,7]}).then((handle:IndicatorHandle)=>{chart.updateIndicator(handle.id,{calcParams:[4,8],visible:true});chart.removeIndicator(handle.id)});
 let schema:IndicatorParameterSchema|undefined;let event:AnalysisEvent|undefined;let point:AnalysisLabelPoint|undefined;void schema;void event;void point;
 `)
+  writeFileSync(path.join(dir,'consumer.ts'),readFileSync(path.join(dir,'consumer.ts'),'utf8')+`
+import type {TradingChartProps,TradingWorkspaceProps} from 'trading-chest/react';
+import {validateHistoryResult} from 'trading-chest/testing';void validateHistoryResult;
+const workspaceReady:NonNullable<TradingWorkspaceProps['onReady']>=value=>{const original:ChartWorkspace=value;void original};void workspaceReady;
+const reactProps:TradingChartProps={height:400,initialOptions:{symbol:{ticker:'x'},period:{multiplier:1,timespan:'day',text:'1d'}},createDatafeed:()=>feed};void reactProps;
+// @ts-expect-error An owned store must provide disposal.
+const invalidOwned:TradingWorkspaceProps={height:400,initialOptions:{context:'x',symbols:[],initialSymbol:{ticker:'x'},getPeriods:async()=>[]},renderCell:()=>null,createStore:()=>store};void invalidOwned;
+`)
   run(process.execPath,[createRequire(import.meta.url).resolve('typescript/bin/tsc'),'consumer.ts','--noEmit','--module','NodeNext','--moduleResolution','NodeNext','--target','es2022'])
   writeFileSync(path.join(dir,'react.mjs'), `
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {LiveSharpeChart} from 'trading-chest/react';
+import {LiveSharpeChart,TradingChart,TradingWorkspace} from 'trading-chest/react';
+const props={height:400,initialOptions:{symbol:{ticker:'SSR'},period:{multiplier:1,timespan:'day',text:'1d'}},createDatafeed:()=>{throw Error('SSR invoked datafeed factory')}};
+assert.ok(renderToStaticMarkup(React.createElement(TradingChart,props)).includes('trading-chart'));
+assert.ok(renderToStaticMarkup(React.createElement(TradingWorkspace,{height:400,initialOptions:{context:'SSR',symbols:[],initialSymbol:{ticker:'SSR'},getPeriods:()=>{throw Error('SSR read periods')}},renderCell:()=>{throw Error('SSR rendered cell')},createStore:()=>{throw Error('SSR opened store')}})).includes('trading-workspace'));
+const cjs=createRequire(import.meta.url)('trading-chest/react');assert.ok(renderToStaticMarkup(React.createElement(cjs.TradingChart,props)).includes('trading-chart'));
+assert.match((await import('node:fs')).readFileSync(createRequire(import.meta.url).resolve('trading-chest/react'),'utf8'),/^['"]use client['"]/);
 const html = renderToStaticMarkup(React.createElement(LiveSharpeChart,{series:[{timestamp:'2026-01-01',ratio:0}]}));
 assert.ok(html.includes('<svg'));
 console.log('React '+React.version+' packed-entry PASS');

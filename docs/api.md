@@ -307,3 +307,76 @@ readLegacyWorkspace(scope:string,options:{symbols:SymbolInfo[];
 错误类 `WorkspaceStoreError.code` 为 WORKSPACE_NOT_FOUND、WORKSPACE_STORE_UNAVAILABLE、WORKSPACE_INVALID_DOCUMENT 或 WORKSPACE_CONFLICT。冲突不自动覆盖，刷新后重新选择或另存。取消／超时可能已有写入，界面显示结果待确认并读取同 scope/ID 核对；核对前禁用新存储变更。每实例仅一个存储变更，图表交互保持可用。
 
 省略 store 时禁用管理并说明原因；IndexedDB 失败不回落其他存储。保存为显式手动操作，切换前应保存未保存改动。导入只读旧工作台键及 loadLayoutV3 支持的单图 v1/v2/v3 键，不自动加载或修改旧键。内容仍为 WorkspaceDocument v1 与单图 v3，外层持有名称／ID／revision，行情与运行时分析不入文档。销毁顺序为 workspace.dispose()，随后自有 store.dispose()；借用者不关闭共享 store。单图 saveLayoutV3/listLayoutsV3 保留原职责。
+
+## React 组件接口（0.9.0）
+
+```typescript
+import {TradingChart, TradingWorkspace} from 'trading-chest/react'
+import type {
+  TradingChartProps, TradingChartInitialOptions, TradingChartEvents,
+  TradingWorkspaceProps, TradingWorkspaceInitialOptions,
+  ReactWorkspaceCellProps, ReactWorkspaceCellReady, OwnedWorkspaceStore
+} from 'trading-chest/react'
+```
+
+新增组件仅在 `react` 子入口导出。根入口继续保留原 LiveSharpeChart／DrawdownAreaChart 和类型，根／UMD 不新增 TradingChart／TradingWorkspace。React 与 ReactDOM 是可选 peer；React 消费者安装配对版本，纯 chart／testing 无需安装。
+
+| TradingChart prop | 契约 |
+| --- | --- |
+| initialOptions | ChartProOptions 剔除 container、datafeed、`on*` 通知、theme／locale／timezone／styles；单次挂载快照，变化用 key 重建 |
+| createDatafeed(signal) | 必填；每次真实挂载创建独立 Datafeed 或 Promise；初始化取消传 signal |
+| height | 必填；number 像素或 `'100%'`，后者要求父容器确定高度 |
+| theme／locale／timezone／styles | 可更新，使用原 setter；styles 合并，省略保持 |
+| events | 按原 ChartProOptions 通知 `on*` 键取类型，通知读取最新回调 |
+| onReady(chart) | ref 安装后报告实例创建；不代表数据已应用 |
+| className／style／aria-label | 外层容器属性；height prop 决定实际高度 |
+| ref | 原 ChartPro 或 null，卸载清空 |
+
+运行时标的／周期用 ref 原方法。初始化加载／错误有重试，重试新建 feed；初始化失败通知 `events.onError`。feed 交接前由包装器释放，成功交接后仅由图表释放；每次 StrictMode 创建／清理都独立。`events.onDataReady` 仍由核心在真实历史应用后通知。
+
+| TradingWorkspace prop | 契约 |
+| --- | --- |
+| initialOptions | ChartWorkspaceOptions 剔除 container／mountCell／store／height／locale／theme／`on*`；单次挂载快照 |
+| renderCell(props) | 返回 ReactNode，经 portal 保留宿主 Context；不是独立 React root |
+| height／locale／theme | height 必填，number 或 `'100%'`；均沿原 resize／setter 更新 |
+| store | 借用 WorkspaceStore，组件不得关闭 |
+| createStore(signal) | 与 store 互斥；返回自有 OwnedWorkspaceStore 或 Promise；必须具有 dispose() |
+| onReady(workspace) | ref 安装后报告原 ChartWorkspace 实例，不代表全部子图已就绪 |
+| onActiveCell／onLayoutChange／onError | 与原 ChartWorkspaceOptions 同类型，读取最新回调 |
+| className／style／aria-label | 容器属性 |
+| ref | 原 ChartWorkspace 或 null，卸载清空 |
+
+```typescript
+interface ReactWorkspaceCellReady {
+  chart: ChartPro
+  captureOptions?: () => {localDrawingIds?:string[]; annotationRefs?:string[]}
+}
+interface ReactWorkspaceCellProps {
+  cell: WorkspaceCell
+  height: number
+  signal: AbortSignal
+  onReady(value: ReactWorkspaceCellReady): void
+  onError(error: Error): void
+}
+type OwnedWorkspaceStore = WorkspaceStore & {dispose():void}
+```
+
+子图在真实数据应用后交接 onReady，重复确认映射原 subscribeReady。captureOptions 保留真实绘图 ID／后端标注引用。取消／移除／失败暂存释放本绑定；旧 ready 不复活 cell。自有 store 在工作台和子图清理后关闭，迟到结果也关闭；借用 store 由外部所有者最后关闭。未提供存储仍显示禁用，不启用回退。原暂存成功再替换、失败保旧图和写入未知结果核对保持。
+
+React 入口有 `use client`，ESM／CJS 可在无 DOM 的 Node 导入和 renderToString，服务端只输出稳定初始容器；Canvas 在客户端 effect 创建。该支持不扩展到根／chart／UMD。Next 函数工厂在 Client Component 中声明。完整用法见[框架接入](./frameworks)。
+
+## testing 历史校验入口（0.9.0）
+
+```typescript
+import {HistoryError, validateHistoryQuery, validateHistoryResult} from 'trading-chest/testing'
+import type {
+  HistoryQuery, HistoryResult, HistorySnapshot, HistoryMetadata,
+  DatafeedRequestContext, Datafeed, SymbolInfo, Period
+} from 'trading-chest/testing'
+
+validateHistoryQuery(query: HistoryQuery): void
+validateHistoryResult(result: HistoryResult, query: HistoryQuery): HistoryResult
+// HistoryError extends Error, with readonly code: string.
+```
+
+ESM／CJS 和声明直接使用生产历史校验实现，不载入 DOM／Solid／React。validateHistoryResult 成功返回传入对象，不复制或冻结；它检查时标、OHLCV、请求边界及响应结构，不能证明市场来源、口径或 hasMoreBefore 声明真实。loader 的副本交接职责保持。使用独立预期证明适配器行为，见[数据契约模板](./data-access#独立校验与契约测试模板)。

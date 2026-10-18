@@ -20,7 +20,9 @@ if(process.argv.includes('--build')){
  await command('npm',['install','--ignore-scripts','--no-audit','--no-fund'],directory)
  await command('npm',['exec','vite','--','build'],directory)
  cpSync(path.join(directory,'dist'),path.join(website,'demos/analysis-sdk'),{recursive:true})
- writeFileSync(path.join(website,'demos/index.html'),`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>TradingChest 演示</title><h1>TradingChest 独立演示</h1><p>全部使用隔离合成输入，不连接生产服务。</p><ul>${[['analysis-sdk/','JS 分析图层'],['analysis-sdk/data-workspace.html','JS 数据与工作台'],['react-vite/','React 单图与工作台'],['vue-vite/','Vue 图表']].map(([href,label])=>`<li><a href="${base}demos/${href}">${label}</a></li>`).join('')}</ul><p>Next App Router 需要 Node 服务：<a href="https://github.com/evotrader/TradingChest/tree/main/examples/next-app">源码和运行说明</a>。</p><a href="${base}">中文文档</a> · <a href="${base}en-US/">English</a></html>`)
+ const nextDirectory=await example(workspace,'next-app')
+ await command('tar',['-czf',path.join(website,'demos/next-app-source.tar.gz'),'--exclude=node_modules','--exclude=.next','-C',workspace.directory,path.basename(nextDirectory),path.basename(workspace.tarball)],workspace.directory)
+ writeFileSync(path.join(website,'demos/index.html'),`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>TradingChest 演示</title><h1>TradingChest 独立演示</h1><p>全部使用隔离合成输入，不连接生产服务。</p><ul>${[['analysis-sdk/','JS 分析图层'],['analysis-sdk/data-workspace.html','JS 数据与工作台'],['react-vite/','React 单图与工作台'],['vue-vite/','Vue 图表']].map(([href,label])=>`<li><a href="${base}demos/${href}">${label}</a></li>`).join('')}</ul><p>Next App Router 需要 Node 服务：<a download="next-app-source.tar.gz" href="${base}demos/next-app-source.tar.gz">下载 Next.js 源码包</a>。解包后进入 next-app，npm ci、npm run build、npm start；旁边的同版 tarball 已配好，README 包含运行说明。</p><a href="${base}">中文文档</a> · <a href="${base}en-US/">English</a></html>`)
  console.log('Complete Pages artifact:',website)
 }
 if(process.argv.includes('--test')){
@@ -41,7 +43,7 @@ if(process.argv.includes('--test')){
  try{
   await page.goto(origin+base);await page.getByRole('link',{name:'接入指南',exact:true}).click();await page.getByRole('link',{name:'React / Next / Vue',exact:true}).click();await page.getByRole('heading',{name:/^React \/ Next.js \/ Vue 接入/}).waitFor()
   await page.goto(origin+base+'en-US/frameworks.html');await page.getByRole('link',{name:'API',exact:true}).click();await page.getByRole('heading',{name:/^API/}).waitFor()
-  await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'JS 分析图层',exact:true}).click();await page.waitForFunction(()=>window.analysisDemo?.ready)
+  await page.goto(origin+base+'demos/');const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('link',{name:'下载 Next.js 源码包',exact:true}).click()]);assert.equal(download.suggestedFilename(),'next-app-source.tar.gz');assert.equal(await download.failure(),null);await page.getByRole('link',{name:'JS 分析图层',exact:true}).click();await page.waitForFunction(()=>window.analysisDemo?.ready)
   await page.getByRole('button',{name:'添加两个指标实例',exact:true}).click();await page.getByRole('status').filter({hasText:'已添加两个独立实例'}).waitFor()
   await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'JS 数据与工作台',exact:true}).click();await page.waitForFunction(()=>window.dataWorkspaceDemo?.ready)
   await page.getByRole('button',{name:'读取完整合成会话（range）',exact:true}).click();await page.getByRole('status').filter({hasText:'range 返回完整区间 240 根'}).waitFor()

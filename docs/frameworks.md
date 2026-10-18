@@ -171,3 +171,6 @@ onUnmounted(() => { controller.abort(); chart?.dispose() })
 | [datafeed-contract](https://github.com/evotrader/TradingChest/tree/main/examples/datafeed-contract) | 无 React 的 Node 适配与契约测试模板 |
 
 维护者先执行 `npm ci`、`npm run build`，再执行 `npm run docs:site`，将文档和消费 tarball 的静态演示合并到 `website/`。`npm run docs:build` 只构建文档。完整产物固定挂载在 `/TradingChest/`，不需要生产后端。`npm run test:site` 用相同目录验证子路径；本地构建通过不表示 Pages 已配置或已公开上线。`.github/workflows/deploy-docs.yml` 使用官方 Pages artifact／deploy 工作流，公开发布按维护者授权执行。
+
+
+完整静态站产物的[演示索引](/demos/)提供 Next.js 源码下载包，内含同版 TradingChest tarball 与独立锁；解包进入 next-app 后运行 npm ci、npm run build、npm start。Next.js 仍需 Node 服务。

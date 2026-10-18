@@ -171,3 +171,6 @@ The [demo index](/demos/) links static demos in the same deployment artifact. Ke
 | [datafeed-contract](https://github.com/evotrader/TradingChest/tree/main/examples/datafeed-contract) | React-free Node adapter and contract-test template |
 
 Maintainers run `npm ci`, `npm run build`, then `npm run docs:site` to merge docs and tarball-consuming static demos into `website/`. `npm run docs:build` builds docs only. Mount the complete artifact at `/TradingChest/`; no production backend is required. `npm run test:site` checks the same directory under that prefix. A local build does not mean Pages is configured or publicly deployed. `.github/workflows/deploy-docs.yml` uses the official Pages artifact/deploy workflow; public publishing requires maintainer authorization.
+
+
+The complete static artifact provides a downloadable Next.js source archive in the [demo index](/demos/), including the matching TradingChest tarball and independent lock. Extract it, enter next-app, and run npm ci, npm run build, and npm start. Next.js still requires a Node server.

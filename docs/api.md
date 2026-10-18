@@ -149,6 +149,8 @@ new KLineChartPro(
 
 临时分析层独占的副图不接受持久绘图。工具落笔时清除未确认预览并提示，不打开文字输入、不调用后端写接口；`commitDrawing`（含队列与撤销／重做执行）和 `restoreDrawings` 在改动前检查目标，批量恢复全批预检。主图和普通指标副图支持完整绘图历史与保存恢复。旧对象可显式删除；若底层引擎注入或旧对象仍位于临时副图，`captureLayout` 明确报错并保留对象，须手动删除后重试，不自动移动或删除后端标注。
 
+新目标准入校验不阻止旧快照的拒绝回滚／未知结果保留。结果未知时先记录该逻辑 ID 的 uncertain，再恢复画面；即使窗格已移除导致渲染失败，也禁止重复提交，须通过权威读取核对后解除。
+
 `commitDrawing(change)` 接收 `kind`、稳定 `logicalId`、目标 `after` 和 `source`。同一图表串行处理，库为本地绘图确认，后端归属必须由 `ChartProOptions.commitDrawing` 返回 `DrawingCommitResult`：`confirmed` 携带真实快照及后端 ID，`rejected` 表示明确失败，`uncertain` 表示尚不能确定并可携带核对后的快照。不要将超时直接当作未提交或自动重发创建。
 
 `getDrawings()` 返回确认快照（含 pane）；`getDrawingHistoryState()` 返回等待数量、可撤销／重做及待确认对象。`undoDrawing()`／`redoDrawing()` 仍走同一确认回调；删除后撤销必须使用重新创建返回的新后端 ID。`restoreDrawings(owner, snapshots)` 是外部权威读取恢复，不发送 CRUD，也不将恢复动作写入历史；`resetDrawingHistory()` 使旧历史失效。

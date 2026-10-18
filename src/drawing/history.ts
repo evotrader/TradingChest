@@ -72,7 +72,10 @@ export class DrawingHistory {
     }
     if(result.status==='uncertain'){
       const state=result.snapshot===undefined?before:result.snapshot
-      this.apply(id,state);this.dropHistory(id);this.uncertain.set(id,(before??after)!.owner);this.error=result.message;this.emit();return {result,before,after:state}
+      // Record an unknown write before rendering: a missing pane must never authorize a retry.
+      this.dropHistory(id);this.uncertain.set(id,(before??after)!.owner);this.error=result.message
+      try{this.apply(id,state)}finally{this.emit()}
+      return {result,before,after:state}
     }
     const actual=this.apply(id,result.snapshot)
     this.error=undefined;this.emit();return {result:{status:'confirmed',snapshot:actual},before,after:actual}

@@ -351,7 +351,6 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
   const applyDrawing=(id:string,value:DrawingSnapshot|null):DrawingSnapshot|null=>{
     if(!widget)throw Error(i18n('chart_not_ready',locale()))
-    if(value)validateDrawingTarget(value)
     if(value?.overlay.paneId&&!widget.getPaneOptions(value.overlay.paneId))throw Error(i18n('drawing_pane_missing',locale()))
     const selected=selectedOverlay()?.id===id
     applyingDrawing=true

@@ -12,7 +12,7 @@ const run=async(name,work,fixture='analysis')=>{
   await page.goto((process.env.TC_BROWSER_BASE??'http://127.0.0.1:4173')+`/tests/browser/${fixture}.html`)
   await page.waitForFunction(()=>window.ready)
   if(fixture==='analysis'){
-   await page.evaluate(()=>{window.commits=[];window.prompts=[];window.selections=[];window.prompt=(...args)=>{prompts.push(args);return 'Text'};setup(undefined,{drawingOwner:()=>window.backendOwner?'backend':'local',onDrawingSelect:id=>selections.push(id),commitDrawing:async change=>{commits.push(change);return {status:'confirmed',snapshot:change.after?{...change.after,backendId:'isolated-id'}:null}}})})
+   await page.evaluate(()=>{window.commits=[];window.prompts=[];window.selections=[];window.prompt=(...args)=>{prompts.push(args);return 'Text'};setup(undefined,{drawingOwner:()=>window.backendOwner?'backend':'local',onDrawingSelect:id=>selections.push(id),commitDrawing:async change=>{commits.push(change);if(window.commitMode==='throw')throw Error('Isolated response lost');if(window.commitMode==='uncertain')return {status:'uncertain',message:'Isolated response lost'};if(window.commitMode==='rejected')return {status:'rejected',message:'HTTP 409 isolated refusal'};return {status:'confirmed',snapshot:change.after?{...change.after,backendId:'isolated-id'}:null}}})})
    await page.waitForFunction(()=>test.state.ready===1)
    await page.evaluate(()=>{test.addLayers();test.pane=test.chart.getChart().getIndicators({name:'TC_ANALYSIS'}).find(i=>i.extendData.type==='histogram').paneId})
   }else await page.evaluate(()=>setup())
@@ -57,6 +57,26 @@ try{
    return {error,afterRejected,deleted,undoError,commits,remaining:pro.getDrawings()}
   })
   assert.match(value.error,/临时分析副图/);assert.match(value.undoError,/临时分析副图/);assert.deepEqual(value.afterRejected,{drawings:0,pending:0,commits:0});assert.equal(value.deleted.status,'confirmed');assert.equal(value.commits.length,1);assert.equal(value.commits[0].kind,'delete');assert.equal(value.commits[0].before.backendId,'legacy-api-id');assert.deepEqual(value.remaining,[])
+  return value
+ })
+ for(const mode of ['rejected','uncertain','throw'])await run(`legacy-delete-${mode}-retains-canonical-outcome`,async()=>{
+  const value=await page.evaluate(async mode=>{
+   window.commitMode=mode
+   const pro=test.chart,c=pro.getChart(),binding=runtimeBindings.get(c)
+   binding.paneIds.delete(test.pane)
+   try{pro.restoreDrawings('backend',[{logicalId:'legacy',owner:'backend',backendId:'legacy-api-id',overlay:{id:'legacy',name:'horizontalStraightLine',paneId:test.pane,points:[{timestamp:test.bars[5].timestamp,value:2}]}}])}finally{binding.paneIds.add(test.pane)}
+   const before=pro.getDrawings(),first=await pro.commitDrawing({kind:'delete',logicalId:'legacy',after:null,source:'keyboard'}),afterFirst={drawings:pro.getDrawings(),state:pro.getDrawingHistoryState(),calls:commits.length}
+   let second,refreshed
+   if(mode!=='rejected'){
+    second=await pro.commitDrawing({kind:'delete',logicalId:'legacy',after:null,source:'keyboard'})
+    // An authoritative read reporting absence resolves the unknown deletion without CRUD.
+    pro.restoreDrawings('backend',[]);refreshed={drawings:pro.getDrawings(),state:pro.getDrawingHistoryState()}
+   }
+   return {before,first,afterFirst,second,refreshed,calls:commits.length}
+  },mode)
+  assert.equal(value.first.status,mode==='rejected'?'rejected':'uncertain');assert.deepEqual(value.afterFirst.drawings,value.before);assert.equal(value.afterFirst.calls,1);assert.equal(value.calls,1)
+  if(mode==='rejected'){assert.match(value.first.message,/HTTP 409/);assert.match(value.afterFirst.state.error,/HTTP 409/);assert.deepEqual(value.afterFirst.state.uncertainLogicalIds,[])}
+  else{assert.deepEqual(value.afterFirst.state.uncertainLogicalIds,['legacy']);assert.equal(value.second.status,'rejected');assert.deepEqual(value.refreshed.drawings,[]);assert.deepEqual(value.refreshed.state.uncertainLogicalIds,[])}
   return value
  })
  await run('mixed-restore-rejects-whole-batch-without-changing-existing-annotations',async()=>{

@@ -11,6 +11,16 @@ function setup(commit?:(change:DrawingChange)=>Promise<DrawingCommitResult>,vali
   return {history,visible,apply,states}
 }
 describe('confirmed drawing history',()=>{
+  it('retains unknown write ownership when restoring its canonical drawing fails',async()=>{
+    let failRender=false
+    const commit=vi.fn(async():Promise<DrawingCommitResult>=>({status:'uncertain',message:'Response lost'}))
+    const history=new DrawingHistory({context,commit,apply:(_id,value)=>{if(failRender)throw Error('Pane removed');return value}})
+    history.reconcile('backend',[snapshot(10,'backend','server-1')]);failRender=true
+    await expect(history.submit('delete','drawing-1',null,'keyboard')).rejects.toThrow('Pane removed')
+    expect(history.getState()).toMatchObject({pending:0,canUndo:false,uncertainLogicalIds:['drawing-1'],error:'Response lost'})
+    await expect(history.submit('delete','drawing-1',null,'keyboard')).rejects.toThrow('Pane removed');expect(commit).toHaveBeenCalledTimes(1)
+    failRender=false;history.reconcile('backend',[]);expect(history.getState().uncertainLogicalIds).toEqual([])
+  })
   it('rechecks queued intents and undo targets before host writes without making the result uncertain',async()=>{
     let blocked=false
     const commit=vi.fn(async(change:DrawingChange):Promise<DrawingCommitResult>=>({status:'confirmed',snapshot:change.after}))

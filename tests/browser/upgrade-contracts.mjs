@@ -76,18 +76,21 @@ try {
  await open()
  const layout=await page.evaluate(async()=>{
   const old={version:1,timestamp:1,theme:'dark',locale:'zh-CN',timezone:'UTC',mainIndicators:['MA'],subIndicators:[],styles:{yAxis:{type:'log',reverse:true},candle:{tooltip:{defaultValue:'缺失',text:{size:14},custom:[{title:'价格',value:'{close}'}]}},indicator:{tooltip:{defaultValue:'未知'}}},overlayData:[]}
-  const migrated=layoutApi.migrateLayoutToV3(old)
+  const migrated=layoutApi.migrateLayoutToV4(old)
   if(migrated.status!=='ok')throw Error(JSON.stringify(migrated))
   await layoutApi.restoreLayout(test.chart,migrated.value)
   const chart=test.chart.getChart(),axis=chart.getYAxes({paneId:'candle_pane'})[0]
   const main=chart.getIndicators({name:'MA'})[0]
   const ids=[]
-  for(const [name,extendData] of [['textAnnotation','现有文字'],['segment',undefined]])ids.push(chart.createOverlay({name,points:[{timestamp:test.bars[3].timestamp,value:14},{timestamp:test.bars[5].timestamp,value:16}],extendData}))
+  for(const [name,extendData] of [['textAnnotation','现有文字'],['segment',null]]){
+   const id='migration-'+name,points=[{timestamp:test.bars[3].timestamp,value:14},{timestamp:test.bars[5].timestamp,value:16}]
+   await test.chart.commitDrawing({kind:'create',logicalId:id,after:{logicalId:id,owner:'local',anchors:points.map(p=>({kind:'market',...p})),overlay:{id,name,paneId:'candle_pane',groupId:'drawing_tools',points,extendData,styles:null,lock:false,visible:true}},source:'programmatic'});ids.push(id)
+  }
   const snapshot=layoutApi.captureLayout(test.chart,{localDrawingIds:ids})
-  if(!layoutApi.isChartLayoutV3(snapshot))throw Error('Invalid actual captured layout '+JSON.stringify(snapshot))
-  const saved=layoutApi.saveLayoutV3('acceptance',snapshot),loaded=layoutApi.loadLayoutV3('acceptance')
+  if(!layoutApi.isChartLayoutV4(snapshot))throw Error('Invalid actual captured layout '+JSON.stringify(snapshot))
+  const saved=layoutApi.saveLayoutV4('acceptance',snapshot),loaded=layoutApi.loadLayoutV4('acceptance')
   if(saved.status!=='ok'||loaded.status!=='ok')throw Error('layout round trip failed')
-  for(const id of ids)chart.removeOverlay({id})
+  test.chart.restoreDrawings('local',[])
   await layoutApi.restoreLayout(test.chart,loaded.value)
   return {axis:axis.name,reverse:axis.reverse,mainPane:main.paneId,text:chart.getOverlays({name:'textAnnotation'})[0].extendData,line:chart.getOverlays({name:'segment'}).length,
     candleDefault:chart.getStyles().candle.tooltip.legend.defaultValue,custom:chart.getStyles().candle.tooltip.legend.template,indicatorDefault:chart.getStyles().indicator.tooltip.legend.defaultValue}

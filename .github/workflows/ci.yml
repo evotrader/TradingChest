@@ -22,7 +22,7 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm test
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit firefox
         if: matrix.node-version == 22
       - name: Allow Chromium sandbox user namespaces
         if: matrix.node-version == 22

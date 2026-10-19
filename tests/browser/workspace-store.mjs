@@ -35,8 +35,9 @@ try{
  })
  for(const version of ['workspace',1,2,3])await run(`explicit-legacy-${version}-preserves-original`,async()=>{
   const key=await page.evaluate(async version=>{const scope='ui-isolated';let value,key
-   if(version==='workspace'){value=workspace.capture();key='trading-chest-workspace-v1-'+scope}
-   else if(version===3){value=workspace.capture().cells[0].chart;key='trading-chest-layout-v3-'+scope}
+   const oldChart=chart=>{const {drawings,drawingPresentation,sharedDrawingRefs,...base}=chart;return {...base,version:3,overlayData:drawings.map(d=>d.overlay)}}
+   if(version==='workspace'){const {sharedDrawings,...doc}=workspace.capture();value={...doc,version:1,cells:doc.cells.map(c=>({...c,chart:oldChart(c.chart)}))};key='trading-chest-workspace-v1-'+scope}
+   else if(version===3){value=oldChart(workspace.capture().cells[0].chart);key='trading-chest-layout-v3-'+scope}
    else{const old={version:1,timestamp:1,theme:'dark',locale:'zh-CN',timezone:'UTC',mainIndicators:['MA'],subIndicators:['VOL'],styles:{},overlayData:[]};value=version===1?old:(await import('/src/persistence/v2.ts')).migrateLayoutV1(old);key=(version===1?'trading-chest-layout-':'trading-chest-layout-v2-')+scope}
    window.legacyOriginal=JSON.stringify(value);localStorage.setItem(key,legacyOriginal);return key
   },version);await name.fill('导入 '+version);await button('导入旧布局').click();await expect(choice.locator('option')).toHaveCount(2);await choice.selectOption({label:await choice.locator('option').nth(1).textContent()});await expect(page.locator('.tc-workspace-notice')).toContainText('已恢复');assert.equal(await page.evaluate(key=>localStorage.getItem(key)===legacyOriginal,key),true);await page.evaluate(key=>localStorage.removeItem(key),key)

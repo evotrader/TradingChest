@@ -1,0 +1,40 @@
+import {DrawingSession,DrawingSessionRegistry,createIndexedDBDrawingPreferencesStore,createIndexedDBDrawingDocumentStore} from '/src/chart.ts'
+
+/** Weak instrumentation must not keep detached Solid nodes alive by itself. */
+export function installDrawingCleanup(){
+ const add=EventTarget.prototype.addEventListener,remove=EventTarget.prototype.removeEventListener,timeout=window.setTimeout,clearTimeout=window.clearTimeout,interval=window.setInterval,clearInterval=window.clearInterval,raf=window.requestAnimationFrame,cancelRaf=window.cancelAnimationFrame,Observer=window.ResizeObserver,open=IDBFactory.prototype.open,close=IDBDatabase.prototype.close,subscribe=DrawingSession.prototype.subscribe
+ const listeners:any[]=[],timers=new Set(),frames=new Set(),observers=new Set(),connections=new Set<IDBDatabase>();let subscribers=0,resources:any,cycle=0
+ const owned=()=>new Error().stack?.split('\n').slice(1).find(line=>!line.includes('/tests/browser/'))?.includes('/src/')??false
+ const capture=(options:any)=>typeof options==='boolean'?options:!!options?.capture
+ EventTarget.prototype.addEventListener=function(type:any,handler:any,options:any){if(handler&&owned()&&!listeners.some(x=>x.target.deref()===this&&x.type===type&&x.handler.deref()===handler&&x.capture===capture(options)))listeners.push({target:new WeakRef(this),type,handler:new WeakRef(handler),capture:capture(options),source:new Error().stack?.split('\n').find(line=>line.includes('/src/'))});return add.call(this,type,handler,options)}
+ EventTarget.prototype.removeEventListener=function(type:any,handler:any,options:any){const index=listeners.findIndex(x=>x.target.deref()===this&&x.type===type&&x.handler.deref()===handler&&x.capture===capture(options));if(index>=0)listeners.splice(index,1);return remove.call(this,type,handler,options)}
+ window.setTimeout=((callback:any,delay:any,...args:any[])=>{const track=owned();let id:number;id=timeout.call(window,(...values:any[])=>{timers.delete(id);callback(...values)},delay,...args);if(track)timers.add(id);return id}) as any
+ window.clearTimeout=(id:any)=>{timers.delete(id);clearTimeout.call(window,id)}
+ window.setInterval=((callback:any,delay:any,...args:any[])=>{const id=interval.call(window,callback,delay,...args);if(owned())timers.add(id);return id}) as any
+ window.clearInterval=(id:any)=>{timers.delete(id);clearInterval.call(window,id)}
+ window.requestAnimationFrame=callback=>{const track=owned();let id:number;id=raf.call(window,time=>{frames.delete(id);callback(time)});if(track)frames.add(id);return id}
+ window.cancelAnimationFrame=id=>{frames.delete(id);cancelRaf.call(window,id)}
+ window.ResizeObserver=class extends Observer{constructor(callback:ResizeObserverCallback){super(callback);if(owned())observers.add(this)}disconnect(){observers.delete(this);super.disconnect()}}
+ IDBFactory.prototype.open=function(...args:any[]){const request=(open as any).apply(this,args);if(String(args[0]).startsWith('tc-drawing-cleanup-'))request.addEventListener('success',()=>connections.add(request.result));return request}
+ IDBDatabase.prototype.close=function(){connections.delete(this);return close.call(this)}
+ DrawingSession.prototype.subscribe=function(listener:any){subscribers++;const off=subscribe.call(this,listener);let active=true;return ()=>{if(active){active=false;subscribers--}off()}}
+ const bench=(window as any).drawingBench,identity={namespace:'isolated-cleanup',symbol:{ticker:'SYNTHETIC.X',market:'test',exchange:'X',priceCurrency:'USD'},priceBasisKey:'isolated-unadjusted'}
+ return {
+  async start(){
+   const databaseName='tc-drawing-cleanup-'+crypto.randomUUID(),preferences=createIndexedDBDrawingPreferencesStore({databaseName}),documents=createIndexedDBDrawingDocumentStore({databaseName}),registry=new DrawingSessionRegistry({scope:'host',store:documents}),resolution={identity,documentId:'fixed'}
+   resources={databaseName,preferences,documents,registry,resolution}
+   await bench.mount({count:10000,layout:2,n:10,resources:{drawingHostSessions:registry,resolveDrawingShareKey:()=>resolution,drawingPreferencesStore:preferences,drawingPreferencesScope:'isolated-cleanup'}})
+   await registry.bind(resolution);const deadline=performance.now()+10000;while(!bench.charts.every((c:any)=>c.getDrawingState().sharing?.host)){if(performance.now()>deadline)throw Error('共享借用绑定未完成');await new Promise(r=>timeout(r,1))}
+   await Promise.all(bench.charts.map((c:any)=>c.executeDrawingCommand({type:'preferences-retry'})))
+   return {cycle:++cycle,subscribers,connections:connections.size}
+  },
+  async releaseFirst(){
+   bench.charts[0].dispose();bench.charts.shift();await resources.preferences.read('borrowed-remains',new AbortController().signal);await resources.registry.bind(resources.resolution)
+   if(connections.size!==2||subscribers!==1)throw Error('第一个借用者释放影响了所有者资源 '+JSON.stringify({connections:connections.size,subscribers}))
+   return {connections:connections.size,subscribers}
+  },
+  async finish(){const cleanup=await bench.dispose();resources.registry.dispose();resources.preferences.dispose();resources.documents.dispose();await new Promise<void>((resolve,reject)=>{const request=indexedDB.deleteDatabase(resources.databaseName);request.onsuccess=()=>resolve();request.onerror=()=>reject(request.error);request.onblocked=()=>reject(Error('清理存储仍有连接'))});resources=undefined;return cleanup},
+  report(hasGC:boolean){for(let i=listeners.length-1;i>=0;i--)if(!listeners[i].target.deref())listeners.splice(i,1);const active=listeners.filter(x=>{const target=x.target.deref();return target&&(hasGC||target===window||target===document||target.isConnected)});return {listeners:active.length,timers:timers.size,frames:frames.size,observers:observers.size,subscribers,connections:connections.size,editors:document.querySelectorAll('.tc-drawing-context,.tc-drawing-workbench,.tc-drawing-handle,[role=dialog]').length,details:active.map(x=>({type:x.type,target:x.target.deref()?.constructor.name,source:x.source}))}},
+  restore(){EventTarget.prototype.addEventListener=add;EventTarget.prototype.removeEventListener=remove;window.setTimeout=timeout;window.clearTimeout=clearTimeout;window.setInterval=interval;window.clearInterval=clearInterval;window.requestAnimationFrame=raf;window.cancelAnimationFrame=cancelRaf;window.ResizeObserver=Observer;IDBFactory.prototype.open=open;IDBDatabase.prototype.close=close;DrawingSession.prototype.subscribe=subscribe}
+ }
+}

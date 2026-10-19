@@ -21,7 +21,7 @@ const run=async(name,work,fixture='analysis')=>{
  finally{await page.evaluate(()=>{if(window.workspace){workspace.dispose();ownedStore.dispose()}else test.chart.dispose()}).catch(()=>{})}
 }
 const draw=async(index,pane)=>{
- await page.locator('.klinecharts-pro-drawing-bar .item').nth(index).locator('span').first().click()
+ await page.getByRole('button',{name:'全部绘图工具',exact:true}).click();await page.getByRole('textbox',{name:'搜索绘图工具',exact:true}).fill(index===7?'textAnnotation':'horizontalStraightLine');await page.locator('.tc-drawing-tool-picker button').first().click()
  const point=await page.evaluate(pane=>{const c=window.test?.chart??workspace.getCells()[0].chart,rect=c.getChart().getDom(pane??test.pane,'main').getBoundingClientRect();return {x:rect.x+rect.width*.6,y:rect.y+rect.height*.5}},pane)
  await page.mouse.move(point.x,point.y);await page.mouse.click(point.x,point.y)
  await page.waitForTimeout(150)
@@ -53,7 +53,7 @@ try{
    const binding=runtimeBindings.get(c);binding.paneIds.delete(test.pane)
    try{pro.restoreDrawings('backend',[{logicalId:'legacy',owner:'backend',backendId:'legacy-api-id',overlay:{...overlay,id:'legacy'}}])}finally{binding.paneIds.add(test.pane)}
    const deleted=await pro.commitDrawing({kind:'delete',logicalId:'legacy',after:null,source:'keyboard'})
-   let undoError;try{await pro.undoDrawing()}catch(reason){undoError=reason.message}
+   let undoError;try{const result=await pro.undoDrawing();if(result?.status==='rejected')undoError=result.message}catch(reason){undoError=reason.message}
    return {error,afterRejected,deleted,undoError,commits,remaining:pro.getDrawings()}
   })
   assert.match(value.error,/临时分析副图/);assert.match(value.undoError,/临时分析副图/);assert.deepEqual(value.afterRejected,{drawings:0,pending:0,commits:0});assert.equal(value.deleted.status,'confirmed');assert.equal(value.commits.length,1);assert.equal(value.commits[0].kind,'delete');assert.equal(value.commits[0].before.backendId,'legacy-api-id');assert.deepEqual(value.remaining,[])
@@ -90,10 +90,10 @@ try{
  })
  await run('low-level-runtime-overlay-capture-fails-explicitly-without-deletion',async()=>{
   const value=await page.evaluate(async()=>{
-   const {captureLayout}=await import('/src/persistence/v3.ts'),c=test.chart.getChart();c.createOverlay({id:'injected',name:'horizontalStraightLine',paneId:test.pane,points:[{timestamp:test.bars[5].timestamp,value:2}]})
+   const {captureLayout}=await import('/src/persistence/v4.ts'),c=test.chart.getChart();c.createOverlay({id:'injected',name:'horizontalStraightLine',paneId:test.pane,points:[{timestamp:test.bars[5].timestamp,value:2}]})
    let error;try{captureLayout(test.chart,{localDrawingIds:['injected']})}catch(reason){error=reason.message}
    const retained=c.getOverlays({id:'injected'}).map(o=>({id:o.id,paneId:o.paneId})),withoutLocal=captureLayout(test.chart)
-   return {error,retained,withoutLocal:withoutLocal.overlayData,commits}
+   return {error,retained,withoutLocal:withoutLocal.drawings,commits}
   })
   assert.match(value.error,/临时分析副图/);assert.match(value.error,/删除/);assert.equal(value.retained.length,1);assert.deepEqual(value.withoutLocal,[]);assert.deepEqual(value.commits,[]);return value
  })
@@ -109,7 +109,7 @@ try{
    const restored=workspace.getCells()[0].chart.getDrawings(),record=await nativeStore.read('ui-isolated',saved.id,new AbortController().signal)
    return {original,undone,redone,restored,stored:record.document.cells[0].chart,barOwners:state.barOwners}
   })
-  assert.equal(value.undone,0);assert.deepEqual(value.redone,value.original);assert.equal(value.restored.length,1);assert.equal(value.restored[0].overlay.paneId,value.original[0].overlay.paneId);assert.equal(value.stored.overlayData.length,1);assert.ok(value.stored.panes.every(p=>p.id!==pane));return value
+  assert.equal(value.undone,0);assert.deepEqual(value.redone,value.original);assert.equal(value.restored.length,1);assert.equal(value.restored[0].overlay.paneId,value.original[0].overlay.paneId);assert.equal(value.stored.drawings.length,1);assert.ok(value.stored.panes.every(p=>p.id!==pane));return value
  },'workspace-store')
 }finally{await browser.close();writeFileSync(process.argv[2]??`${directory}/evidence.json`,JSON.stringify({results,errors},null,2)+'\n')}
 console.log(JSON.stringify({results,errors},null,2));if(results.some(result=>!result.passed)||errors.length)process.exitCode=1

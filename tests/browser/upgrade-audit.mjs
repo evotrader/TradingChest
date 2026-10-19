@@ -11,10 +11,10 @@ try{
   await page.waitForFunction(()=>window.ready);await page.evaluate(()=>setupWorkspace());
   evidence.rejectedLayouts=await page.evaluate(async()=>{
     const original=workspace.getCells()[0].chart,engine=original.getChart();
-    original.restoreDrawings('local',[{logicalId:'audit-unsaved',owner:'local',overlay:{id:'audit-unsaved',name:'horizontalStraightLine',points:[{timestamp:engine.getDataList()[100].timestamp,value:10}],lock:false,visible:true}}]);
+    original.restoreDrawings('local',[{logicalId:'audit-unsaved',owner:'local',overlay:{id:'audit-unsaved',name:'horizontalStraightLine',groupId:'drawing_tools',points:[{timestamp:engine.getDataList()[100].timestamp,value:10}],lock:false,visible:true}}]);
     const results=[];
     for(const kind of ['unsupported','duplicate-id']){
-      const doc=workspace.capture();doc.layout=1;doc.cells=doc.cells.slice(0,1);doc.activeCellId='primary';doc.cells[0].chart.overlayData=[];
+      const doc=workspace.capture();doc.layout=1;doc.cells=doc.cells.slice(0,1);doc.activeCellId='primary';doc.cells[0].chart.drawings=[];
       if(kind==='unsupported')doc.cells[0].chart.indicators.find(i=>i.placement==='main').name='AUDIT_UNSUPPORTED_INDICATOR';
       else doc.cells[0].chart.indicators.push({...doc.cells[0].chart.indicators[0]});
       const raw=JSON.stringify(doc);let message;
@@ -55,7 +55,7 @@ try{
         const chart=new KLineChartPro({container,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:[],onDataReady:()=>resolve(chart),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>historyResult(query),subscribe:()=>{if(!active){active=true;subscriptions++}},unsubscribe:()=>{if(active){active=false;subscriptions--}}}});
         mounted++;return {ready,dispose:()=>{disposed++;chart.dispose()}};
       }});
-    const doc={version:1,layout:1,activeCellId:'primary',sync:{symbol:false,period:false,crosshair:false,viewport:false},columnRatio:50,rowRatio:50,cells:[{cellId:'primary',context:'audit',symbol:{ticker:'A.X'},period,chart:{...template,overlayData:[],context:{ticker:'A.X',period:{multiplier:1,timespan:'minute'}}}}]};
+    const doc={version:2,sharedDrawings:[],layout:1,activeCellId:'primary',sync:{symbol:false,period:false,crosshair:false,viewport:false},columnRatio:50,rowRatio:50,cells:[{cellId:'primary',context:'audit',symbol:{ticker:'A.X'},period,chart:{...template,drawings:[],context:{ticker:'A.X',period:{multiplier:1,timespan:'minute'}}}}]};
     const restoring=current.restore(doc);await new Promise(resolve=>setTimeout(resolve,20));
     const beforeRelease={reads,mounted};releaseInitial();await restoring;
     const restored=current.getCells()[0].chart;await new Promise(resolve=>setTimeout(resolve,80));

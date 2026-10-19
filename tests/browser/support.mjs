@@ -1,10 +1,12 @@
-import {chromium} from '@playwright/test'
+import {chromium,webkit,firefox} from '@playwright/test'
 import {mkdirSync} from 'node:fs'
 import path from 'node:path'
 
 /** Every script resolves Playwright from this package and retains browser traces. */
 export async function launchBrowser(options={}) {
-  const browser = await chromium.launch({executablePath:process.env.CHROMIUM_PATH,chromiumSandbox:true})
+  const engine=process.env.TC_BROWSER_ENGINE??'chromium',type={chromium,webkit,firefox}[engine]
+  if(!type)throw Error('Unknown browser engine: '+engine)
+  const browser = await type.launch(engine==='chromium'?{executablePath:process.env.CHROMIUM_PATH,chromiumSandbox:true}:{})
   const newPage = browser.newPage.bind(browser), close = browser.close.bind(browser), contexts = []
   const traceDir = options.traceDir ?? process.env.TC_BROWSER_TRACE_DIR
   if (traceDir) {

@@ -1,0 +1,48 @@
+<!doctype html><html><meta charset="utf-8"><body style="margin:0"><p>绘图压力测试：隔离合成行情，不是真实业务数据。</p><div id="charts" style="width:1200px;display:grid;gap:8px"></div><script type="module">
+import {KLineChartPro} from '/src/chart.ts'
+import {makeBars} from './syntheticBars.ts'
+const originalAdd=EventTarget.prototype.addEventListener,originalRemove=EventTarget.prototype.removeEventListener,originalFrame=window.requestAnimationFrame.bind(window)
+const wrappers=new WeakMap();let current,armed=false,cpuDepth=0,uiArm
+const measured=fn=>{const start=performance.now(),outer=cpuDepth++===0;try{return fn()}finally{cpuDepth--;if(outer&&current)current.cpu+=performance.now()-start}}
+EventTarget.prototype.addEventListener=function(type,listener,options){
+ if(!listener||!['pointermove','mousemove','touchmove'].includes(type))return originalAdd.call(this,type,listener,options)
+ let records=wrappers.get(listener);if(!records)wrappers.set(listener,records=[])
+ const capture=typeof options==='boolean'?options:!!options?.capture;let record=records.find(r=>r.target.deref()===this&&r.type===type&&r.capture===capture)
+ if(!record){const wrap=function(event){return measured(()=>typeof listener==='function'?listener.call(this,event):listener.handleEvent(event))};record={target:new WeakRef(this),type,capture,wrap};records.push(record)}
+ return originalAdd.call(this,type,record.wrap,options)
+}
+EventTarget.prototype.removeEventListener=function(type,listener,options){const capture=typeof options==='boolean'?options:!!options?.capture,record=listener&&wrappers.get(listener)?.find(r=>r.target.deref()===this&&r.type===type&&r.capture===capture);return originalRemove.call(this,type,record?.wrap??listener,options)}
+window.requestAnimationFrame=callback=>{const owned=/klinecharts|\/src\//.test(new Error().stack);return originalFrame(time=>{if(owned&&current){current.renderCallbacks++;measured(()=>callback(time))}else callback(time)})}
+originalAdd.call(window,'pointermove',event=>{
+ if(!armed||!event.isTrusted)return
+ if(current&&!current.done)throw Error('上次移动尚未完成渲染')
+ const sample={cpu:0,latency:0,renderCallbacks:0,received:performance.now(),done:false};current=sample
+ originalFrame(()=>originalFrame(()=>{sample.latency=performance.now()-sample.received;sample.done=true;window.drawingBench.moves.push(sample)}))
+},true)
+for(const type of ['input','click'])originalAdd.call(window,type,()=>{if(uiArm!==type)return;uiArm=undefined;const start=performance.now();originalFrame(()=>originalFrame(()=>window.drawingBench.tree.push(performance.now()-start)))},true)
+const frame=()=>new Promise(resolve=>originalFrame(()=>originalFrame(resolve)))
+const host=document.querySelector('#charts'),period={multiplier:1,timespan:'minute',text:'1m'};let charts=[],bars=[],subscriptions=0,readyPromises=[]
+const id=index=>'bench-'+String(index).padStart(4,'0')
+function objects(pro,n){
+ const chart=pro.getChart(),visible=chart.getVisibleRange(),first=Math.max(0,Math.ceil(visible.realFrom)+3),last=Math.min(bars.length-1,Math.floor(visible.realTo)-3),span=Math.max(8,last-first-10),axis=chart.getYAxes({paneId:'candle_pane'})[0],height=chart.getSize('candle_pane','main').height,base=axis.convertFromPixel(height*.5),step=Math.abs(axis.convertFromPixel(height*.75)-axis.convertFromPixel(height*.25))/40
+ return Array.from({length:n},(_,i)=>{
+  const fraction=i/n,name=fraction<.5?'segment':fraction<.7?(i%2?'rect':'textAnnotation'):fraction<.9?'brush':i%2?'fibonacciLine':'priceChannelLine',start=first+(i*7%Math.floor(span)),value=base+(i%21-10)*step
+  const count=name==='brush'?64:name==='textAnnotation'?1:name==='priceChannelLine'?3:2
+  const anchors=Array.from({length:count},(_,j)=>{const index=Math.min(bars.length-1,start+(name==='brush'?j%8:Math.min(j*3,7)));return {kind:'market',timestamp:bars[index].timestamp,value:value+(name==='brush'?Math.sin(j/4)*step*2:j*step*.5)}})
+  return {logicalId:id(i),owner:'local',anchors,presentation:{name:'压测 '+String(i).padStart(4,'0')},overlay:{id:id(i),name,paneId:'candle_pane',groupId:'drawing_tools',points:anchors.map(a=>({timestamp:a.timestamp,value:a.value})),styles:null,extendData:name==='textAnnotation'?'压测文字\n64点笔迹':null,visible:true,lock:false}}
+ })
+}
+window.drawingBench={moves:[],tree:[],get charts(){return charts},arm(){current=undefined;this.moves=[];armed=true},stop(){armed=false;current=undefined},armTree(type){uiArm=type},async mount({count,layout,n,resources={}}){
+ this.stop();if(charts.length)throw Error('前一轮图表未释放');bars=makeBars(count);readyPromises=[];const start=performance.now();host.style.gridTemplateColumns=layout===1?'1fr':'1fr 1fr'
+ for(let i=0;i<layout;i++){const container=document.createElement('div');container.style.height=layout===4?'580px':'760px';container.style.minWidth='0';host.append(container);let resolve;const ready=new Promise(r=>resolve=r);readyPromises.push(ready)
+  const chart=new KLineChartPro({container,...resources,symbol:{ticker:'SYNTHETIC.X',pricePrecision:4,market:'test',exchange:'X',priceCurrency:'USD'},period,mainIndicators:['MA'],subIndicators:['VOL','MACD'],onDataReady:()=>resolve(),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,q)=>({bars:q.kind==='before'?bars.filter(b=>b.timestamp<q.before):bars.filter(b=>b.timestamp>=q.from&&b.timestamp<q.to),basis:'isolated-unadjusted',hasMoreBefore:false}),subscribe:()=>subscriptions++,unsubscribe:()=>subscriptions--}});charts.push(chart)
+ }
+ await Promise.all(readyPromises)
+ const deadline=performance.now()+10000;while(!charts.every(p=>['MA','VOL','MACD'].every(name=>p.getChart().getIndicators({name})[0]?.result.length===count))){if(performance.now()>deadline)throw Error('真实指标计算未完成');await new Promise(r=>setTimeout(r,1))}
+ for(const pro of charts){pro.restoreDrawings('local',objects(pro,n));if(pro.getChart().getOverlays().length!==n)throw Error('压测对象未完整进入真实引擎')}
+ await frame();await charts[0].executeDrawingCommand({type:'select',ids:[id(0)]});await frame()
+ const drawn=charts.map(p=>{const c=p.getChart(),size=c.getSize('candle_pane','main');return {count:c.getOverlays().length,visible:c.getOverlays().filter(o=>o.visible).length,inBounds:c.getOverlays().filter(o=>{const p=c.convertToPixel(o.points[0],{paneId:'candle_pane'});return p.x>=0&&p.x<=size.width&&p.y>=0&&p.y<=size.height}).length,pane:size}})
+ return {cold:performance.now()-start,drawn}
+ },async dispose(){this.stop();for(const chart of charts)chart.dispose();charts=[];host.replaceChildren();await frame();return {subscriptions,dom:host.querySelectorAll('*').length}},frame}
+window.ready=true
+</script></body></html>

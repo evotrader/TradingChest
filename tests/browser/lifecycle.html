@@ -1,8 +1,8 @@
 <!doctype html><html><body><div id="chart" style="width:800px;height:500px"></div>
 <script type="module">
-import { KLineChartPro, captureLayout, restoreLayout, migrateLayoutToV3, saveLayoutV3, loadLayoutV3, isChartLayoutV3 } from '/src/index.ts'
+import { KLineChartPro, captureLayout, restoreLayout, migrateLayoutToV4, saveLayoutV4, loadLayoutV4, isChartLayoutV4 } from '/src/index.ts'
 import {getSupportedOverlays} from 'klinecharts'
-window.layoutApi={captureLayout,restoreLayout,migrateLayoutToV3,saveLayoutV3,loadLayoutV3,isChartLayoutV3,getSupportedOverlays}
+window.layoutApi={captureLayout,restoreLayout,migrateLayoutToV4,saveLayoutV4,loadLayoutV4,isChartLayoutV4,getSupportedOverlays}
 import { getTradeVisHitTargets } from '/src/indicator/trade/tradeVisualization.ts'
 window.tradeTargets = chart => getTradeVisHitTargets(chart._instanceId)
 const bars = Array.from({length: 20}, (_, i) => ({timestamp: 1700000000000 + i*60000, open: 10+i, high: 12+i, low: 9+i, close: 11+i, volume: 20}))

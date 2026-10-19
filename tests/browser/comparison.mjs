@@ -15,7 +15,7 @@ try{
   const base=one.getComparisons().baseTimestamp,index=bars.findIndex(b=>b.timestamp===base);
   const wait=async()=>{for(let i=0;i<100;i++){if(engine.getIndicators({name:'COMPARE'}).every(i=>i.result.length===engine.getDataList().length&&i.result[engine.getDataList().findIndex(b=>b.timestamp===one.getComparisons().baseTimestamp)]?.pct===0))return;await new Promise(r=>setTimeout(r,10))}throw Error('Comparison calculation did not settle')};await wait();
   const lines=engine.getIndicators({name:'COMPARE'}),axes=engine.getYAxes({paneId:'candle_pane'}),axisIds=[...new Set(lines.map(i=>i.yAxisId))],samePixel=lines.map(i=>engine.convertToPixel({dataIndex:index,value:i.result[index].pct},{paneId:'candle_pane',yAxisId:i.yAxisId}).y);
-  const {captureLayout}=await import('/src/persistence/v3.ts');const layout=captureLayout(one),comparisonExcludedFromPersistence=layout.indicators.every(i=>i.name!=='COMPARE')&&layout.axes.every(a=>!axisIds.includes(a.id));
+  const {captureLayout}=await import('/src/persistence/v4.ts');const layout=captureLayout(one),comparisonExcludedFromPersistence=layout.indicators.every(i=>i.name!=='COMPARE')&&layout.axes.every(a=>!axisIds.includes(a.id));
   const gapIndex=bars.findIndex(x=>x.timestamp===bars[20].timestamp),gap=engine.getIndicators({id:first.indicatorId})[0].result[gapIndex].pct;
   const selected=lines.map(i=>({id:i.id,name:i.name,base:i.result[index].pct,pct:i.result[index+5].pct}));
   const originalBase=base;engine.scrollToDataIndex(80,0);engine.setBarSpace(4);const afterPan=one.getComparisons().baseTimestamp;

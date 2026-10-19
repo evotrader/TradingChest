@@ -21,6 +21,7 @@ import xabcd from './xabcd'
 import priceRange from './priceRange'
 import dateRange from './dateRange'
 import dateAndPriceRange from './dateAndPriceRange'
+import {parallelStraightLine,priceChannelLine} from './valueChannel'
 import pitchfork from './pitchfork'
 import schiffPitchfork from './schiffPitchfork'
 import regressionTrend from './regressionTrend'
@@ -43,7 +44,7 @@ const overlays = [
   fibonacciSpeedResistanceFan, fibonacciExtension, gannBox,
   threeWaves, fiveWaves, eightWaves, anyWaves, abcd, xabcd,
   priceRange, dateRange, dateAndPriceRange,
-  pitchfork, schiffPitchfork, regressionTrend, regressionChannel,
+  parallelStraightLine, priceChannelLine, pitchfork, schiffPitchfork, regressionTrend, regressionChannel,
   textAnnotation, callout, brush, longPosition, shortPosition, note,
   positionRange,
   tradeMarker,

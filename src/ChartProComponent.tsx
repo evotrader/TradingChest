@@ -485,6 +485,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
   const nudgeDrawingHandle=(handle:DrawingHandle,dx:number,dy:number)=>{if(!temporaryPan()&&!handle.locked)void drawingController.nudgePoint(handle.id,handle.index,dx,dy)}
   let nativeDrawingDrag:{id:string;before:DrawingSnapshot;objects:DrawingSnapshot[];x:number;y:number;pointIndex:number|null;clone:boolean;dx:number;dy:number;invalid?:string}|undefined
+  const projectedDrawingObjects=new Map<string,Overlay>()
   const applyDrawing=(id:string,value:DrawingSnapshot|null):DrawingSnapshot|null=>{
     if(!widget)throw Error(i18n('chart_not_ready',locale()))
     if(value?.overlay.paneId&&!widget.getPaneOptions(value.overlay.paneId))throw Error(i18n('drawing_pane_missing',locale()))
@@ -494,21 +495,35 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     drawingPreviews.delete(id)
     applyingDrawing=true
     try{
-      if(!value){widget.removeOverlay({id});ownedDrawingIds.delete(id);completedDrawingIds.delete(id);if(selected)setSelectedOverlay(null);return null}
+      const current=widget.getOverlays({id})[0],owned=!current||projectedDrawingObjects.get(id)===current||nativeDrawingPreviews.has(current)
+      if(value&&!owned)throw Error('绘图 ID 已被宿主对象占用，原绘图已保留，请处理冲突后重试')
+      const remove=()=>{if(owned)widget!.removeOverlay({id});projectedDrawingObjects.delete(id);ownedDrawingIds.delete(id);completedDrawingIds.delete(id)}
+      if(!value){remove();if(selected)setSelectedOverlay(null);return null}
       const overlay=value.overlay
       let points:Overlay['points']
-      try{points=projectDrawingPoints(value);points.forEach((point,index)=>{if(value.anchors?.[index]?.kind!=='viewport')drawingToPixel(point,value)})}catch(error){widget.removeOverlay({id});throw error}
-      widget.removeOverlay({id});ownedDrawingIds.delete(id);completedDrawingIds.delete(id)
+      try{points=projectDrawingPoints(value);points.forEach((point,index)=>{if(value.anchors?.[index]?.kind!=='viewport')drawingToPixel(point,value)})}catch(error){remove();throw error}
+      remove()
       const state=drawingController?.getViewState()
       const created=widget.createOverlay({...overlay,id,points,zLevel:value.presentation?.order??0,fixedZLevel:true,visible:overlay.visible&&!state?.hidden&&intervalVisible(value.presentation?.intervals,period()),lock:overlay.lock||state?.preventDragging||temporaryPan(),styles:overlay.styles??undefined,extendData:engineDrawingData(overlay.extendData,value.parameters)??undefined,...drawingHandlers()})
       const actual=widget.getOverlays({id})[0]
       if(created!==id||!actual||(overlay.paneId&&actual.paneId!==overlay.paneId))throw Error(i18n('drawing_render_failure',locale()))
+      projectedDrawingObjects.set(id,actual)
       if(temporaryPan())temporaryPanLocks.set(id,{overlay:actual,lock:overlay.lock||!!state?.preventDragging})
       actual.needDefaultPointFigure=false;actual.needDefaultYAxisFigure=false;actual.needDefaultXAxisFigure=false
       for(const figure of ['createPointFigures','createYAxisFigures','createXAxisFigures'] as const){
         const draw=actual[figure];if(!draw)continue
         actual[figure]=args=>{
-          const document=drawingPreviews.get(id)??value,projected=projectDrawingPoints(document),size=drawingSize(document),coordinates=projected.map((point,index)=>{const anchor=document.anchors?.[index];return anchor?.kind==='viewport'?{x:anchor.x*size.width,y:anchor.y*size.height}:drawingToPixel(point,document)})
+          const document=drawingPreviews.get(id)??value
+          let projected:Overlay['points'],coordinates:Array<{x:number;y:number}>
+          try{
+            projected=projectDrawingPoints(document)
+            const size=drawingSize(document)
+            coordinates=projected.map((point,index)=>{const anchor=document.anchors?.[index];return anchor?.kind==='viewport'?{x:anchor.x*size.width,y:anchor.y*size.height}:drawingToPixel(point,document)})
+          }catch(error){
+            // The engine can render between replacing its bars and the loader's commit.
+            // Keep canonical anchors intact; the confirmed projection pass records the error.
+            return figure==='createPointFigures'?[{type:'rectText',ignoreEvent:true,attrs:{x:8,y:20,text:error instanceof Error?error.message:String(error),baseline:'top'},styles:{color:'#ef5350'}}]:[]
+          }
           const axis=widget?.getYAxes({paneId:document.overlay.paneId??'candle_pane'}).find(axis=>!document.yAxisId||axis.id===document.yAxisId)
           return draw({...args,coordinates,yAxis:axis??args.yAxis,overlay:Object.assign(Object.create(args.overlay),{points:projected})})
         }
@@ -933,11 +948,21 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       const old=drawingCoordinator.checkpointBinding();let applied=false
       return {apply:()=>{if(disposed||epoch!==sharingEpoch)throw Error('共享上下文已改变，不能采用旧引用');applied=true;drawingCoordinator.bind(workspace,host);drawingCoordinator.acceptReferences(references);if(references.some(r=>!host.history.getDrawing(r.logicalId)))drawingCoordinator.reason='部分共享引用已缺失，请刷新原文档；不会用旧内容复活'},rollback:()=>{if(applied&&!disposed&&epoch===sharingEpoch)drawingCoordinator.rollbackBinding(old)}}
     }})
+    let drawingAlignment=''
     if (widget) loader = new EngineDataLoader(widget, props.datafeed, {
-      committed:state=>{const old=analysis.getContext()?.token;analysis.sync(state);if(old!==analysis.getContext()?.token)untrack(()=>void bindSharedDrawings())},
+      committed:state=>{
+        const old=analysis.getContext()?.token;analysis.sync(state)
+        untrack(()=>{
+          if(old!==analysis.getContext()?.token)void bindSharedDrawings()
+          if(!state.confirmed){drawingAlignment='';return}
+          const bars=widget!.getDataList(),alignment=JSON.stringify([state.epoch,state.basis,state.revision,state.replay,state.cutoff,bars.length,bars[0]?.timestamp,bars.at(-1)?.timestamp])
+          // Reproject on confirmed alignment changes, never on same-bar OHLC quotes.
+          if(alignment!==drawingAlignment){drawingAlignment=alignment;drawingHistory.reproject();drawingCoordinator.project()}
+        })
+      },
       state: state=>{setDataState(state);setLoadError(state.error?`${state.errorCode??state.operation??'data'}: ${state.error}`:'');comparisons.mainChanged();props.onDataState?.(state)},
       loading: active => {setLoading(active);setLoadingVisible(active)},
-      ready: identity => {setLoadError('');drawingHistory.reproject();void bindSharedDrawings();if(!resuming())props.onDataReady?.(identity)},
+      ready: identity => {setLoadError('');void bindSharedDrawings();if(!resuming())props.onDataReady?.(identity)},
       error: error => {setLoadError(error.message);props.onError?.(error)},
       price: bar => props.onPriceUpdate?.(bar.close,bar.timestamp)
     })

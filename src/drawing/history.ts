@@ -1,3 +1,4 @@
+import {createOpaqueId} from '../ids'
 import i18n from '../i18n'
 import type {DrawingChange,DrawingCommitResult,DrawingHistoryState,DrawingOwner,DrawingSnapshot,DrawingSource,DrawingCommandResult,DrawingItemResult} from './types'
 
@@ -59,7 +60,7 @@ export class DrawingHistory {
   }
   /** Transfer effects remain runtime history, never part of a serialized document. */
   recordOperation(operation:Operation):void {
-    const id=crypto.randomUUID();this.operations.set(id,operation);this.past.push({changes:[],operation:id});this.future=[];this.emit()
+    const id=createOpaqueId();this.operations.set(id,operation);this.past.push({changes:[],operation:id});this.future=[];this.emit()
   }
   transferGuard(active=false):ReturnType<DrawingHistory['beginRestore']>{
     if(this.disposed||this.restoreToken||this.uncertain.size||this.pending>(active?1:0))throw Error('绘图正在提交或已关闭，不能转移')

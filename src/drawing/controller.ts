@@ -1,3 +1,4 @@
+import {createOpaqueId} from '../ids'
 import {copyDrawingCatalog,validateDrawingParameters,type DrawingToolDescriptor} from './catalog'
 import type {DrawingHistory} from './history'
 import type {DrawingCoordinator} from './coordinator'
@@ -200,7 +201,7 @@ export class DrawingController {
           else{
             if(!command.name?.trim()&&command.action!=='overwrite')throw Error('请输入模板名称')
             if(template&&template.toolId!==tool.toolId)throw Error('不能用不同工具覆盖此模板')
-            const next:DrawingTemplate={...preset,id:template?.id??crypto.randomUUID(),name:command.name?.trim()??template!.name,toolId:tool.toolId}
+            const next:DrawingTemplate={...preset,id:template?.id??createOpaqueId(),name:command.name?.trim()??template!.name,toolId:tool.toolId}
             preferences.update({templates:[...value.templates.filter(t=>t.id!==next.id),next]})
           }
         }
@@ -214,7 +215,7 @@ export class DrawingController {
         const source=command.type==='paste'?this.clipboard:this.targets(command.ids)
         if(!source.length)throw Error('没有可粘贴的绘图，请先复制对象')
         const values=source.map(snapshot=>{
-          const id=`drawing-${crypto.randomUUID()}`,after=copy(snapshot)
+          const id=`drawing-${createOpaqueId()}`,after=copy(snapshot)
           after.logicalId=id;delete after.backendId;after.overlay.id=id;after.overlay.lock=false
           after.presentation={...after.presentation,groupId:undefined,groupName:undefined,scope:this.options.coordinator?.getScope()??'chart'}
           if(command.type==='paste'&&command.paneId)after.overlay.paneId=command.paneId
@@ -230,7 +231,7 @@ export class DrawingController {
         const objects=this.targets(command.ids,true,!!unlock||presentation)
         if(command.type==='move'&&new Set(objects.map(o=>o.overlay.paneId??'candle_pane')).size>1)throw Error('不能整体移动不同窗格中的绘图')
         if(command.type==='group'&&(new Set(objects.map(o=>o.overlay.paneId??'candle_pane')).size>1||new Set(objects.map(o=>o.presentation?.scope??'chart')).size>1))throw Error('只能对同一会话和窗格中的绘图分组')
-        const groupId=command.type==='group'?`group-${crypto.randomUUID()}`:undefined
+        const groupId=command.type==='group'?`group-${createOpaqueId()}`:undefined
         const all=this.history().getDrawings().sort((a,b)=>(a.presentation?.order??0)-(b.presentation?.order??0))
         const reordered=all.map(o=>o.logicalId)
         if(command.type==='reorder'){
@@ -248,7 +249,7 @@ export class DrawingController {
             if(!this.options.translatePoint)throw Error('控制点坐标尚未就绪');after=this.options.translatePoint(before,command.index,command.dx,command.dy)
           }else if(command.type==='move'){
             if(!this.options.translate)throw Error('绘图坐标尚未就绪');after=this.options.translate(before,command.dx,command.dy)
-            if(command.clone){const id=`drawing-${crypto.randomUUID()}`;after.logicalId=id;after.overlay.id=id;delete after.backendId;delete after.migration;after.presentation={...after.presentation,groupId:undefined,groupName:undefined};after.owner=this.options.owner(after);return {after}}
+            if(command.clone){const id=`drawing-${createOpaqueId()}`;after.logicalId=id;after.overlay.id=id;delete after.backendId;delete after.migration;after.presentation={...after.presentation,groupId:undefined,groupName:undefined};after.owner=this.options.owner(after);return {after}}
           }
           else if(command.type==='update'){
             const {overlay,text,...patch}=command.patch

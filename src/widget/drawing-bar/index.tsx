@@ -24,7 +24,7 @@ const DrawingBar:Component<DrawingBarProps>=props=>{
   const filtered=(category:string)=>catalog().filter(t=>t.category===category&&`${t.labels['zh-CN']} ${t.labels['en-US']} ${t.toolId}`.toLowerCase().includes(search().toLowerCase()))
   const choose=(tool:DrawingToolDescriptor)=>{props.onDrawingItemClick({name:tool.overlayName,groupId:'drawing_tools',mode:mode() as any});setOpen(false)}
   return <div class="klinecharts-pro-drawing-bar tc-drawing-bar">
-    <button title={props.locale==='en-US'?'All drawing tools':'全部绘图工具'} aria-label={props.locale==='en-US'?'All drawing tools':'全部绘图工具'} aria-expanded={open()} onClick={()=>setOpen(!open())}>＋</button>
+    <button title={props.locale==='en-US'?'All drawing tools':'全部绘图工具'} aria-label={props.locale==='en-US'?'All drawing tools':'全部绘图工具'} aria-expanded={open()} onClick={()=>setOpen(!open())}>+</button>
     <For each={categories()}>{category=>{
       const tool=()=>catalog().find(t=>t.category===category&&t.toolId===props.state?.toolId)??catalog().find(t=>t.category===category)!
       return <button title={`${label(tool())}${shortcut(tool())?` (${shortcut(tool())})`:''}`} aria-label={label(tool())} aria-pressed={props.state?.toolId===tool().toolId} onClick={()=>choose(tool())}><Icon name={tool().icon}/></button>

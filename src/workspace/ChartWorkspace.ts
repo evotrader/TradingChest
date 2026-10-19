@@ -1,3 +1,4 @@
+import {createOpaqueId} from '../ids'
 import {DrawingSessionRegistry} from '../drawing/session'
 import type { Chart, Crosshair } from 'klinecharts'
 import type { ChartPro, Period, SymbolInfo } from '../types'
@@ -294,7 +295,7 @@ export class ChartWorkspace {
     catch(error){if(!(error instanceof WorkspaceStoreError)||!['WORKSPACE_CONFLICT','WORKSPACE_INVALID_DOCUMENT','WORKSPACE_NOT_FOUND'].includes(error.code)){this.unknownWrite={kind:'write',input:this.copy(input),select};this.message(this.notice,'workspace_result_unknown')}throw error}
     finally{this.updateStoreControls()}
   }
-  async saveAs(name:string):Promise<WorkspaceSummary> {if(this.initialization)await this.initialization;return this.writeInput({kind:'create',id:crypto.randomUUID(),name:this.name(name),document:this.capture()})}
+  async saveAs(name:string):Promise<WorkspaceSummary> {if(this.initialization)await this.initialization;return this.writeInput({kind:'create',id:createOpaqueId(),name:this.name(name),document:this.capture()})}
   async save():Promise<WorkspaceSummary> {if(!this.selected)throw this.failure('workspace_choose_saved');const selected=this.copy(this.selected);return this.writeInput({kind:'update',id:selected.id,expectedRevision:selected.revision,name:selected.name,document:this.capture()})}
   async load(id:string):Promise<void> {
     if(!id)throw this.failure('workspace_choose_saved')
@@ -334,7 +335,7 @@ export class ChartWorkspace {
   async importLegacy(name:string):Promise<WorkspaceSummary> {
     const primary=this.cells[0]?.cell??{symbol:this.options.initialSymbol,period:this.options.initialPeriod??{multiplier:1,timespan:'day',text:'1d'}}
     const document=readLegacyWorkspace(this.options.context,{symbols:this.options.symbols,fallback:primary});if(!document)throw this.failure('workspace_no_legacy')
-    return this.writeInput({kind:'create',id:crypto.randomUUID(),name:this.name(name),document},false)
+    return this.writeInput({kind:'create',id:createOpaqueId(),name:this.name(name),document},false)
   }
   private confirmDelete():void {
     const selected=this.selected;if(!selected)return

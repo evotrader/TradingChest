@@ -1,3 +1,4 @@
+import {createOpaqueId} from '../ids'
 import {configureIndicatorTooltip} from '../indicator/instances'
 import {runtimeBindings} from '../analysis/bindings'
 import i18n from '../i18n'
@@ -150,7 +151,7 @@ export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3,trans
     else chart.overrideYAxis({...config,id})
     if(axis.id)axisIds.set(axis.id,id)
   }
-  ;(transaction?.restore??chartPro.restoreDrawings.bind(chartPro))('local',layout.overlayData.map(overlay=>({logicalId:overlay.id??`local-${crypto.randomUUID()}`,owner:'local',overlay:{...overlay,id:overlay.id??'',styles:overlay.styles,extendData:overlay.extendData} as import('../types').OverlaySnapshot})))
+  ;(transaction?.restore??chartPro.restoreDrawings.bind(chartPro))('local',layout.overlayData.map(overlay=>({logicalId:overlay.id??`local-${createOpaqueId()}`,owner:'local',overlay:{...overlay,id:overlay.id??'',styles:overlay.styles,extendData:overlay.extendData} as import('../types').OverlaySnapshot})))
   ;(transaction?.restore??chartPro.restoreDrawings.bind(chartPro))('backend',backendDrawings.map(({drawing,names})=>{
     return {...drawing,overlay:{...drawing.overlay,paneId:resolveDrawingPane(chart,drawing.overlay.paneId,names)}}
   }))

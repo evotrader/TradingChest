@@ -1,3 +1,4 @@
+import {createOpaqueId} from '../ids'
 import type {ChartPro} from '../types'
 import type {KLineData} from 'klinecharts'
 import type {DrawingSnapshot,DrawingPresentation} from '../drawing/types'
@@ -61,7 +62,7 @@ export function migrateLayoutToV4(value:unknown,options:{bars?:KLineData[];perio
   try{
     const {overlayData,...base}=copy(legacy.value),period=options.period??{...base.context?.period,multiplier:base.context?.period?.multiplier??1,timespan:base.context?.period?.timespan??'day',text:''}
     const drawings=overlayData.map(overlay=>{
-      const id=overlay.id??`drawing-${crypto.randomUUID()}`
+      const id=overlay.id??`drawing-${createOpaqueId()}`
       return {logicalId:id,owner:'local' as const,overlay:{...overlay,id,styles:overlay.styles??null,extendData:overlay.extendData??null},anchors:anchorsFromPoints(overlay.points,options.bars??[],period)}
     })
     const migrated={...base,version:4 as const,drawings,drawingPresentation:{}}

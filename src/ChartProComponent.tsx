@@ -1,3 +1,4 @@
+import {createOpaqueId} from './ids'
 /**
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -302,7 +303,6 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   const [analysisViews,setAnalysisViews]=createSignal<AnalysisView[]>([])
   const analysis=new AnalysisManager({chart:()=>widget,locale,changed:setAnalysisViews,onAnalysisLayerChange:props.onAnalysisLayerChange,onAnalysisEventClick:props.onAnalysisEventClick,onAnalysisPointSelect:props.onAnalysisPointSelect})
-  let analysisResizeObserver:ResizeObserver|undefined
   const analysisClick=(event:MouseEvent)=>analysis.click(event)
 
   // 回放状态
@@ -730,7 +730,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if (disposed) return
     cancelDrawing()
     if(overlay.id&&widget?.getOverlays({id:overlay.id}).length){setSnapHint('绘图 ID 已被占用，不能覆盖现有对象');return}
-    const id = widget?.createOverlay({...overlay,id:overlay.id??'drawing_'+crypto.randomUUID(),...drawingHandlers()})
+    const id = widget?.createOverlay({...overlay,id:overlay.id??'drawing_'+createOpaqueId(),...drawingHandlers()})
     if (typeof id === 'string') {
       ownedDrawingIds.add(id)
       const drawing = widget?.getOverlays({id})[0]
@@ -825,10 +825,6 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     dispose: () => { throw new Error('[TradingChest] dispose must be called on KLineChartPro instance') },
   })
 
-  const documentResize = () => {
-    widget?.resize()
-  }
-
   // Backspace/Delete 删除选中的绘图
   const handleKeyDown = (e: KeyboardEvent) => {
     const target = e.target as HTMLElement
@@ -853,7 +849,6 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
 
   onMount(() => {
-    window.addEventListener('resize', documentResize)
     // 绑定到 container 而非 window，避免图表外的按键误触发
     widgetRef!.addEventListener('keydown', handleKeyDown)
     widgetRef!.addEventListener('keydown',drawingModifierKey,true)
@@ -867,7 +862,6 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     window.addEventListener('blur',drawingInputBlur)
     widgetRef!.addEventListener('click',analysisClick,true)
     widgetRef!.tabIndex=0
-    if(typeof ResizeObserver!=='undefined'){analysisResizeObserver=new ResizeObserver(()=>widget?.resize());analysisResizeObserver.observe(widgetRef!)}
     widget = init(widgetRef!, {
       locale:locale(), timezone:timezone().key, styles:theme(),
       hotkey: {enabled:false},
@@ -988,7 +982,6 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if(drawingPresentationFrame!==undefined)cancelAnimationFrame(drawingPresentationFrame)
     ++indicatorGeneration
     if(comparisonResizeFrame!==undefined)cancelAnimationFrame(comparisonResizeFrame)
-    analysisResizeObserver?.disconnect()
     analysis.dispose()
     widgetRef!.removeEventListener('click',analysisClick,true)
     ++factoryGeneration;comparisons.dispose()
@@ -996,7 +989,6 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     for(const action of ['onZoom','onScroll','onVisibleRangeChange','onPaneDrag'] as const)widget?.unsubscribeAction(action,refreshDrawingHandles)
     ++sharingEpoch;drawingCoordinator.dispose();drawingPreferences.dispose();drawingController.dispose();drawingHistory.dispose()
     loader?.dispose()
-    window.removeEventListener('resize', documentResize)
     widgetRef!.removeEventListener('keydown', handleKeyDown)
     widgetRef!.removeEventListener('keydown',drawingModifierKey,true)
     widgetRef!.parentElement!.removeEventListener('pointerdown',temporaryPanPointerStart,true)

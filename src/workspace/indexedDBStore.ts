@@ -1,3 +1,4 @@
+import {createOpaqueId} from '../ids'
 import {
   assertWorkspaceId,assertWorkspaceRevision,assertWorkspaceScope,copyStoredWorkspace,
   prepareWorkspaceWrite,workspaceSummary,WorkspaceStoreError,
@@ -125,8 +126,8 @@ export function createIndexedDBWorkspaceStore(options:{databaseName?:string}={})
     })
   }
   function revision():string {
-    if(!globalThis.crypto?.randomUUID)throw unavailable('A UUID generator is unavailable for workspace revisions')
-    return globalThis.crypto.randomUUID()
+    if(!globalThis.crypto?.getRandomValues)throw unavailable('A random ID generator is unavailable for workspace revisions')
+    return createOpaqueId()
   }
   function current(scope:string,id:string,value:unknown):StoredWorkspace {
     if(value===undefined)throw new WorkspaceStoreError('WORKSPACE_NOT_FOUND','The selected workspace no longer exists')

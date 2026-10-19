@@ -1,3 +1,4 @@
+import {createOpaqueId} from '../ids'
 import {drawingShareKey,isSharedDrawingDocument,type SharedDrawingDocument} from './document'
 import {createDrawingDatabase} from './indexedDB'
 export type DrawingStoreErrorCode='DRAWING_CONFLICT'|'DRAWING_INVALID_DOCUMENT'|'DRAWING_STORE_UNAVAILABLE'
@@ -28,7 +29,7 @@ export function createIndexedDBDrawingDocumentStore(options:{databaseName?:strin
           try{
             const old=read.result===undefined?null:copyStoredDrawing(scope,captured.documentId,read.result)
             if((old?.revision??null)!==captured.expectedRevision)throw new DrawingStoreError('DRAWING_CONFLICT','共享绘图已被另一实例修改，请刷新或另存；本地草稿已保留')
-            const next:StoredDrawingDocument={documentId:captured.documentId,revision:crypto.randomUUID(),document:captured.document},write=store.put({scope,id:captured.documentId,...next})
+            const next:StoredDrawingDocument={documentId:captured.documentId,revision:createOpaqueId(),document:captured.document},write=store.put({scope,id:captured.documentId,...next})
             write.onerror=()=>fail(write.error);write.onsuccess=()=>done(structuredClone(next))
           }catch(error){fail(error)}
         }

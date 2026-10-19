@@ -5,10 +5,12 @@ import {anchorsFromPoints,validateAnchor} from '../drawing/anchors'
 import {validateDrawingParameters} from '../drawing/catalog'
 import {drawingBindings} from '../drawing/bindings'
 import {getIdentityEpoch} from '../core/identityEpoch'
+import {drawingShareKey} from '../drawing/document'
 import {jsonSafe} from './v2'
 import {isChartLayoutV3,migrateLayoutToV3,loadLayoutV3,captureLayout as captureEngineLayout,restoreLayout as restoreEngineLayout,type ChartLayoutV3,type LayoutResult} from './v3'
 
 export interface ChartLayoutV4 extends Omit<ChartLayoutV3,'version'|'overlayData'> {
+  sharedDrawingRefs?:import('../drawing/session').DrawingSharedReference[]
   version:4
   drawings:DrawingSnapshot[]
   drawingPresentation:Record<string,DrawingPresentation>
@@ -25,11 +27,16 @@ export function isDrawingPresentation(value:unknown):value is DrawingPresentatio
   const period=(v:any)=>v&&typeof v.timespan==='string'&&v.timespan.length>0&&Number.isInteger(v.multiplier)&&v.multiplier>0
   return f.kind==='all'||(['current','higher','lower'].includes(f.kind)&&'period' in f&&period(f.period))||f.kind==='list'&&Array.isArray(f.periods)&&f.periods.every(period)
 }
+const isSharedReference=(r:any):boolean=>{
+  if(!r||typeof r.namespace!=='string'||!r.namespace||typeof r.documentId!=='string'||!r.documentId||typeof r.logicalId!=='string'||!r.logicalId||r.identity?.namespace!==r.namespace)return false
+  try{drawingShareKey(r.identity);return true}catch{return false}
+}
 export function isDrawingSnapshot(value:unknown):value is DrawingSnapshot {
   if(!value||typeof value!=='object'||!jsonSafe(value))return false
   const d=value as DrawingSnapshot,o=d.overlay
   if(typeof d.logicalId!=='string'||!d.logicalId||!['local','backend'].includes(d.owner)||d.backendId!==undefined&&typeof d.backendId!=='string'||!o||o.id!==d.logicalId||typeof o.name!=='string'||!o.name||typeof o.groupId!=='string'||typeof o.lock!=='boolean'||typeof o.visible!=='boolean'||!Array.isArray(o.points)||o.paneId!==undefined&&typeof o.paneId!=='string')return false
   if(o.points.some(p=>!p||typeof p.value!=='number'||!Number.isFinite(p.value)||!['timestamp','dataIndex'].some(k=>typeof (p as any)[k]==='number'&&Number.isFinite((p as any)[k]))))return false
+  if(d.migration&&(d.migration.direction!==undefined&&d.migration.direction!=='from-host'||!['prepared','uncertain'].includes(d.migration.status)||!isSharedReference(d.migration.target)||d.migration.target.logicalId!==d.logicalId||d.owner!=='local'))return false
   if(d.yAxisId!==undefined&&typeof d.yAxisId!=='string'||d.presentation!==undefined&&!isDrawingPresentation(d.presentation))return false
   if(d.anchors!==undefined){if(!Array.isArray(d.anchors)||d.anchors.length!==o.points.length)return false;try{d.anchors.forEach(validateAnchor)}catch{return false}}
   return d.parameters===undefined||!!d.parameters&&typeof d.parameters==='object'&&!Array.isArray(d.parameters)&&Object.values(d.parameters).every(v=>typeof v==='string'||typeof v==='boolean'||typeof v==='number'&&Number.isFinite(v)||Array.isArray(v)&&v.every(n=>typeof n==='number'&&Number.isFinite(n)))
@@ -38,9 +45,10 @@ export function isChartLayoutV4(value:unknown):value is ChartLayoutV4 {
   if(!value||typeof value!=='object'||!jsonSafe(value))return false
   const v=value as ChartLayoutV4
   if(v.version!==4||!Array.isArray(v.drawings)||!v.drawingPresentation||typeof v.drawingPresentation!=='object'||Array.isArray(v.drawingPresentation))return false
-  const {drawings,drawingPresentation,...base}=v
+  if(v.sharedDrawingRefs!==undefined&&(!Array.isArray(v.sharedDrawingRefs)||v.sharedDrawingRefs.some(r=>!isSharedReference(r))||new Set(v.sharedDrawingRefs.map(r=>r.logicalId)).size!==v.sharedDrawingRefs.length))return false
+  const {drawings,drawingPresentation,sharedDrawingRefs,...base}=v
   if(!isChartLayoutV3({...base,version:3,overlayData:[]}))return false
-  if(drawings.some(d=>!isDrawingSnapshot(d)||d.owner!=='local'||!d.anchors||d.overlay.paneId&&!v.panes.some(p=>p.id===d.overlay.paneId)||d.yAxisId&&!v.axes.some(a=>a.id===d.yAxisId&&a.paneId===d.overlay.paneId)))return false
+  if(drawings.some(d=>!isDrawingSnapshot(d)||d.owner!=='local'||d.presentation?.scope!==undefined&&d.presentation.scope!=='chart'||!d.anchors||d.overlay.paneId&&!v.panes.some(p=>p.id===d.overlay.paneId)||d.yAxisId&&!v.axes.some(a=>a.id===d.yAxisId&&a.paneId===d.overlay.paneId)))return false
   if(new Set(drawings.map(d=>d.logicalId)).size!==drawings.length||Object.values(drawingPresentation).some(p=>!isDrawingPresentation(p)))return false
   const groups=new Map<string,string>()
   for(const d of drawings)if(d.presentation?.groupId){const pane=d.overlay.paneId??'candle_pane',previous=groups.get(d.presentation.groupId);if(previous&&previous!==pane)return false;groups.set(d.presentation.groupId,pane)}
@@ -65,10 +73,12 @@ export function captureLayout(pro:ChartPro,options:Parameters<typeof captureEngi
   const state=pro.getDrawingHistoryState()
   if(state.pending||state.uncertainLogicalIds.length)throw Error('绘图提交尚未确认，请刷新核对后保存')
   const chart=pro.getChart();if(!chart)throw Error('图表尚未就绪')
-  const {overlayData,...base}=captureEngineLayout(pro,{...options,localDrawingIds:[]})
+  const {overlayData,...base}=captureEngineLayout(pro,{...options,localDrawingIds:options.localDrawingIds??[]})
   const objects=pro.getDrawings(),drawings=objects.filter(d=>d.owner==='local'&&(d.presentation?.scope??'chart')==='chart'&&(!options.localDrawingIds||options.localDrawingIds.includes(d.logicalId))).map(d=>({...d,anchors:d.anchors??anchorsFromPoints(d.overlay.points,chart.getDataList(),pro.getPeriod())}))
+  if(options.localDrawingIds?.some(id=>!objects.some(value=>value.logicalId===id)&&chart.getOverlays({id}).length))throw Error('指定本地覆盖物尚未进入确认文档，请先通过 commitDrawing 或 restoreDrawings 接管后保存')
   const drawingPresentation=Object.fromEntries(objects.filter(d=>d.owner==='backend'&&d.presentation).map(d=>[d.logicalId,d.presentation!]))
-  const layout=copy({...base,version:4 as const,drawings,drawingPresentation})
+  const sharedDrawingRefs=drawingBindings.get(chart)?.captureSharedReferences?.()??[]
+  const layout=copy({...base,version:4 as const,drawings,drawingPresentation,...(sharedDrawingRefs.length?{sharedDrawingRefs}:{})})
   if(!isChartLayoutV4(layout))throw Error('绘图布局无效，未写入存储')
   return layout
 }
@@ -84,13 +94,15 @@ export async function restoreLayout(pro:ChartPro,layout:ChartLayoutV4):Promise<v
   }
   const backendIds=new Set(pro.getDrawings().filter(d=>d.owner==='backend').map(d=>d.logicalId))
   if(layout.drawings.some(d=>backendIds.has(d.logicalId)))throw Error('导入绘图 ID 与后端标注冲突，当前图表已保留')
-  const {drawings,drawingPresentation,...base}=layout
+  const {drawings,drawingPresentation,sharedDrawingRefs,...base}=layout
   const chart=pro.getChart();if(!chart)throw Error('图表尚未就绪')
   const binding=drawingBindings.get(chart),history=binding?.history
   if(!history||!binding)throw Error('绘图恢复事务尚未绑定到当前图表')
   binding.validateRestore('local',drawings)
+  const applyReferences=layout.sharedDrawingRefs?.length?await binding.prepareSharedReferences?.(layout.sharedDrawingRefs):undefined
+  if(layout.sharedDrawingRefs?.length&&!applyReferences)throw Error('宿主共享存储未启用，引用与当前画面已保留')
   const checkpoint=history.checkpoint(),original=captureLayout(pro),epoch=getIdentityEpoch(chart)
-  const identity=()=>JSON.stringify([pro.getSymbol(),pro.getPeriod()]),savedIdentity=identity(),lease=history.beginRestore()
+  const identity=()=>JSON.stringify([pro.getSymbol(),pro.getPeriod()]),savedIdentity=identity(),lease=history.beginRestore('layout')
   const current=()=>lease.isCurrent()&&pro.getChart()===chart&&getIdentityEpoch(chart)===epoch&&identity()===savedIdentity
   const assertCurrent=()=>{if(!current())throw new DOMException('布局恢复期间图表身份已改变，旧文档不会写入新上下文','AbortError')}
   const transaction={assertCurrent,reset:()=>{assertCurrent();history.reset(false,lease.token)},restore:(owner:import('../drawing/types').DrawingOwner,values:DrawingSnapshot[])=>{assertCurrent();binding.validateRestore(owner,values);history.reconcile(owner,values,lease.token)}}
@@ -98,10 +110,12 @@ export async function restoreLayout(pro:ChartPro,layout:ChartLayoutV4):Promise<v
     await restoreEngineLayout(pro,{...base,version:3,overlayData:[]},transaction)
     assertCurrent()
     transaction.restore('local',copy(drawings))
+    applyReferences?.apply()
     transaction.restore('backend',pro.getDrawings().filter(d=>d.owner==='backend').map(d=>({...d,presentation:drawingPresentation[d.logicalId]??d.presentation})))
   }catch(error){
     if(!current())throw error
-    const {drawings:oldDrawings,drawingPresentation:oldPresentation,...oldBase}=original
+    applyReferences?.rollback()
+    const {drawings:oldDrawings,drawingPresentation:oldPresentation,sharedDrawingRefs:oldReferences,...oldBase}=original
     try{await restoreEngineLayout(pro,{...oldBase,version:3,overlayData:[]},transaction);assertCurrent();history.rollback(checkpoint,lease.token)}catch(rollbackError){
       if(current())history.rollback(checkpoint,lease.token)
       throw new AggregateError([error,rollbackError],'布局恢复失败，原绘图文档已保留；图表配置恢复失败，请重试')

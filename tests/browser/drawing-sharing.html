@@ -1,0 +1,14 @@
+<!doctype html><html lang="zh-CN"><meta charset="UTF-8"><body><p>共享绘图隔离引擎验收，合成行情；原生 IndexedDB，不代表业务后端。</p><div id="workspace" style="height:700px;width:1300px"></div><script type="module">
+import {KLineChartPro,ChartWorkspace,DrawingSessionRegistry,createIndexedDBDrawingDocumentStore,drawingShareKey} from '/src/chart.ts'
+import {makeBars} from './syntheticBars.ts'
+const bars=makeBars(2000),symbol={ticker:'TEST.X',market:'test',exchange:'X',priceCurrency:'USD',pricePrecision:2},period={multiplier:1,timespan:'minute',text:'1m'}
+const identity={namespace:'isolated-shared',symbol:{ticker:symbol.ticker,market:symbol.market,exchange:symbol.exchange,priceCurrency:symbol.priceCurrency},priceBasisKey:'raw'}
+window.deniedDrawings=new Set()
+window.store=createIndexedDBDrawingDocumentStore({databaseName:new URL(location.href).searchParams.get('database')??'tc-sharing-engine-test'})
+window.hostSessions=new DrawingSessionRegistry({scope:'host',store})
+window.workspace=new ChartWorkspace({container:document.querySelector('#workspace'),context:'test',symbols:[symbol],initialSymbol:symbol,initialPeriod:period,getPeriods:async()=>[period,{multiplier:1,timespan:'day',text:'1D'}],resolveDrawingShareKey:context=>({identity,documentId:drawingShareKey(identity)}),mountCell:(container,cell)=>{
+ const pro=new KLineChartPro({container,symbol:cell.symbol,period:cell.period,drawingHostSessions:hostSessions,isDrawingEditable:overlay=>!deniedDrawings.has(overlay.id),resolveDrawingShareKey:()=>({identity,documentId:drawingShareKey(identity)}),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async()=>({bars,basis:'raw',hasMoreBefore:false}),subscribe:()=>{},unsubscribe:()=>{}}})
+ return {ready:new Promise(resolve=>{const timer=setInterval(()=>{if(pro.getAnalysisContext()){clearInterval(timer);resolve(pro)}},10)}),dispose:()=>pro.dispose()}
+}})
+window.ready=true
+</script></body></html>

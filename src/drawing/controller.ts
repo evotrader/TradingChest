@@ -1,10 +1,12 @@
 import {copyDrawingCatalog,validateDrawingParameters,type DrawingToolDescriptor} from './catalog'
 import type {DrawingHistory} from './history'
+import type {DrawingCoordinator} from './coordinator'
 import type {DrawingPreferencesManager,DrawingStylePreset,DrawingTemplate} from './preferences'
 import type {DrawingCommand,DrawingCommandResult,DrawingSnapshot,DrawingState,DrawingPresentation} from './types'
 
 interface Options {
   history:DrawingHistory
+  coordinator?:DrawingCoordinator
   preferences?:DrawingPreferencesManager
   catalog?:DrawingToolDescriptor[]
   editable:(snapshot:DrawingSnapshot)=>boolean
@@ -38,15 +40,18 @@ export class DrawingController {
   private disposed=false
   private tail:Promise<unknown>=Promise.resolve()
   constructor(private options:Options){this.catalog=copyDrawingCatalog(options.catalog)}
+  private executionIds:string[]|undefined
+  private history(write=false):DrawingHistory{return this.options.coordinator?.history(this.executionIds??this.selectedIds,write)??this.options.history}
+  private drawings():DrawingSnapshot[]{return this.options.coordinator?.getDrawings()??this.options.history.getDrawings()}
   getState():DrawingState {
-    const objects=this.options.history.getDrawings(),groups=new Map<string,{id:string;name:string;paneId:string}>()
+    const objects=this.drawings(),groups=new Map<string,{id:string;name:string;paneId:string}>()
     for(const object of objects)if(object.presentation?.groupId)groups.set(object.presentation.groupId,{id:object.presentation.groupId,name:object.presentation.groupName??object.presentation.groupId,paneId:object.overlay.paneId??'candle_pane'})
-    return {toolId:this.toolId,step:this.step,continuous:this.continuous,selectedIds:[...this.selectedIds],scope:'chart',objects,groups:[...groups.values()],hidden:this.hidden,preventDragging:this.preventDragging,history:this.options.history.getState(),preferences:this.options.preferences?.getState(),lastResult:this.lastResult?copy(this.lastResult):undefined}
+    return {origin:this.options.coordinator?.getOrigin()??'user',toolId:this.toolId,step:this.step,continuous:this.continuous,selectedIds:[...this.selectedIds],scope:this.options.coordinator?.getScope()??'chart',historyScope:this.selectedIds.length?(objects.find(d=>d.logicalId===this.selectedIds[0])?.presentation?.scope??'chart'):this.options.coordinator?.getScope()??'chart',sharing:this.options.coordinator?.getSharing(),objects,groups:[...groups.values()],hidden:this.hidden,preventDragging:this.preventDragging,history:this.options.coordinator?.state(this.selectedIds)??this.options.history.getState(),preferences:this.options.preferences?.getState(),lastResult:this.lastResult?copy(this.lastResult):undefined}
   }
   getViewState():{hidden:boolean;preventDragging:boolean}{return {hidden:this.hidden,preventDragging:this.preventDragging}}
   refresh():void {
     if(this.disposed)return
-    const ids=new Set(this.options.history.getDrawingIds())
+    const ids=new Set(this.drawings().map(d=>d.logicalId))
     const selected=this.selectedIds.filter(id=>ids.has(id))
     if(selected.length!==this.selectedIds.length){this.selectedIds=selected;this.options.selected?.([...selected])}
     this.options.changed?.(this.getState())
@@ -60,19 +65,20 @@ export class DrawingController {
     else this.toolId=null
     this.refresh()
   }
-  private targets(ids:string[],write=false,allowLocked=false):DrawingSnapshot[]{
+  private targets(ids:string[],write=false,allowLocked=false,allowMigration=false):DrawingSnapshot[]{
     if(new Set(ids).size!==ids.length)throw Error('绘图选择包含重复对象')
     return ids.map(id=>{
-      const object=this.options.history.getDrawing(id)
+      const object=this.options.coordinator?.getDrawing(id)??this.options.history.getDrawing(id)
       if(!object)throw Error(`绘图 ${id} 不存在，请刷新对象列表`)
       if(!this.options.editable(object))throw Error(`绘图 ${id} 由宿主管理，不能编辑`)
+      if(write&&object.migration&&!allowMigration)throw Error('绘图转移结果待核对，请先刷新共享文档并完成原目标转移')
       if(write&&object.overlay.lock&&!allowLocked)throw Error(`绘图 ${object.presentation?.name??id} 已锁定，请先解锁`)
-      if(write&&this.options.history.getState().uncertainLogicalIds.includes(id))throw Error(`绘图 ${id} 的提交结果待确认，请刷新`)
+      if(write&&this.history().getState().uncertainLogicalIds.includes(id))throw Error(`绘图 ${id} 的提交结果待确认，请刷新`)
       return object
     })
   }
   private async batch(build:()=>Array<{before?:DrawingSnapshot;after:DrawingSnapshot|null}>):Promise<DrawingCommandResult>{
-    return this.options.history.submitBatch(()=>{
+    return this.history(true).submitBatch(()=>{
       const values=build()
       for(const value of values)if(value.after)this.options.validate(value.after)
       return values.map(v=>({kind:v.before?v.after?'update' as const:'delete' as const:'create' as const,logicalId:(v.before??v.after)!.logicalId,after:v.after}))
@@ -85,8 +91,20 @@ export class DrawingController {
   private async run(command:DrawingCommand):Promise<DrawingCommandResult>{
     if(this.disposed)return {status:'rejected',items:[],message:'绘图工作台已释放'}
     let result=complete()
+    this.executionIds='ids' in command?command.ids:undefined
     try{
-      if(command.type==='tool'){
+      if(command.type==='scope'){
+        if(!this.options.coordinator&&command.scope!=='chart')throw Error('宿主未启用共享绘图')
+        this.options.coordinator?.setScope(command.scope);this.selectedIds=[];this.options.selected?.([])
+      }else if(command.type==='transfer'){
+        if(!this.options.coordinator)throw Error('共享绘图尚未启用')
+        this.targets(command.ids,true,false,true);await this.options.coordinator.transfer(command.ids,command.scope)
+      }else if(command.type==='recover-transfer'){
+        if(!this.options.coordinator)throw Error('共享恢复尚未启用');await this.options.coordinator.recover(command.id,command.scope)
+      }else if(command.type==='shared'){
+        const session=this.options.coordinator?.getSession(command.scope);if(!session)throw Error('共享绘图尚未启用')
+        if(command.action==='save-as')await this.options.coordinator!.saveAs();else if(command.action==='save')await session.save();else await session.refresh({discardLocal:command.action==='discard-refresh'})
+      }else if(command.type==='tool'){
         this.options.cancel();this.toolId=command.toolId;this.continuous=command.continuous??this.options.preferences?.getState().value.ui.continuous??false;this.step=0
         if(command.toolId){const tool=this.catalog.find(t=>t.toolId===command.toolId);if(!tool)throw Error('工具不在本图绘图目录中');this.options.create(tool)}
         if(command.toolId&&this.options.preferences){const value=this.options.preferences.getState().value;this.options.preferences.update({recent:[command.toolId,...value.recent.filter(id=>id!==command.toolId)].slice(0,12)})}
@@ -135,17 +153,18 @@ export class DrawingController {
           }
         }
       }else if(command.type==='undo'||command.type==='redo'){
-        await this.options.history[command.type]();result=this.options.history.getLastResult()
+        const history=this.history(true);await history[command.type]();result=history.getLastResult()
       }else if(command.type==='copy'){
         this.clipboard=copy(this.targets(command.ids))
       }else if(command.type==='paste'||command.type==='duplicate'){
+        if(command.type==='paste')this.executionIds=[]
         result=await this.batch(()=>{
         const source=command.type==='paste'?this.clipboard:this.targets(command.ids)
         if(!source.length)throw Error('没有可粘贴的绘图，请先复制对象')
         const values=source.map(snapshot=>{
           const id=`drawing-${crypto.randomUUID()}`,after=copy(snapshot)
           after.logicalId=id;delete after.backendId;after.overlay.id=id;after.overlay.lock=false
-          after.presentation={...after.presentation,groupId:undefined,groupName:undefined,scope:'chart'}
+          after.presentation={...after.presentation,groupId:undefined,groupName:undefined,scope:this.options.coordinator?.getScope()??'chart'}
           if(command.type==='paste'&&command.paneId)after.overlay.paneId=command.paneId
           after.owner=this.options.owner(after);return {after}
         })
@@ -159,7 +178,7 @@ export class DrawingController {
         const objects=this.targets(command.ids,true,!!unlock||presentation)
         if(command.type==='group'&&(new Set(objects.map(o=>o.overlay.paneId??'candle_pane')).size>1||new Set(objects.map(o=>o.presentation?.scope??'chart')).size>1))throw Error('只能对同一会话和窗格中的绘图分组')
         const groupId=command.type==='group'?`group-${crypto.randomUUID()}`:undefined
-        const all=this.options.history.getDrawings().sort((a,b)=>(a.presentation?.order??0)-(b.presentation?.order??0))
+        const all=this.history().getDrawings().sort((a,b)=>(a.presentation?.order??0)-(b.presentation?.order??0))
         const reordered=all.map(o=>o.logicalId)
         if(command.type==='reorder'){
           const chosen=new Set(command.ids),selected=reordered.filter(id=>chosen.has(id)),rest=reordered.filter(id=>!chosen.has(id))
@@ -194,7 +213,7 @@ export class DrawingController {
             if(command.type==='group'){if(!command.name.trim())throw Error('请输入组名');patch={groupId,groupName:command.name.trim()}}
             if(command.type==='ungroup')patch={groupId:undefined,groupName:undefined}
             if(command.type==='reorder')patch={order:reordered.indexOf(before.logicalId)}
-            if(patch.scope&&patch.scope!=='chart')throw Error('共享作用域需要已确认的共享会话')
+            if(patch.scope&&patch.scope!==(before.presentation?.scope??'chart'))throw Error('共享作用域需要已确认的共享会话')
             after.presentation={...after.presentation,...patch}
           }
           return {before,after}
@@ -202,7 +221,7 @@ export class DrawingController {
         })
       }
     }catch(error){result={status:'rejected',items:[],message:error instanceof Error?error.message:String(error)}}
-    this.lastResult=result;this.refresh();return copy(result)
+    this.executionIds=undefined;this.lastResult=result;this.refresh();return copy(result)
   }
   dispose():void{this.disposed=true;this.clipboard=[];this.selectedIds=[]}
 }

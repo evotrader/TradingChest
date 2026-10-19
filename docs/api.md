@@ -122,7 +122,7 @@ new KLineChartPro(
 
 重载完成还要求引擎应用数据和订阅准备成功；订阅挂接后抛错时 Promise 拒绝，保留原 bars／basis／scope 并撤销部分订阅。准备期间同步到达的普通 bar，以及回放退出时比较 provider 的 bar／snapshot，复制到本次订阅的临时队列，成功后消费，失败／切换／销毁时释放。公开 `applySnapshot` 在组合检查点内保留最新输入，成功提交后再处理。
 
-当前布局只通过 `captureLayout`、`saveLayoutV3`、`loadLayoutV3`、`restoreLayout`、`deleteLayoutV3`、`listLayoutsV3` 写读 v3。读取结果为 `ok`／`missing`／`error`；错误携带 code 和 message。旧 v1／v2 只在内存迁移，原键保留；新版损坏不会回落旧记录。恢复前先准备同身份、同周期的数据。后端标注只保存引用，本地绘图须显式提供 IDs，订单、成交、持仓及报警状态不写入布局。
+当前布局只通过 `captureLayout`、`saveLayoutV4`、`loadLayoutV4`、`restoreLayout`、`deleteLayoutV4`、`listLayoutsV4` 写读 v4。读取结果为 `ok`／`missing`／`error`；错误携带 code 和 message。旧 v1／v2／v3 只在内存迁移，原键保留；新版损坏不会回落旧记录。恢复前先准备同身份、同周期的数据。后端标注只保存引用，本地绘图须显式提供 IDs，订单、成交、持仓及报警状态不写入布局。
 
 设置面板和快捷键使用 `getYAxes`／`overrideYAxis` 修改真实价格轴，名称为 `normal`／`percentage`／`logarithm`；价格轴类型不再写入 `styles.yAxis.type`。
 
@@ -141,7 +141,7 @@ new KLineChartPro(
 
 库提供布局、活动窗格、尺寸比例、四项同步、保存／加载／删除控件。同步默认关闭，十字线只匹配真实时标；视窗按目标可绘制宽度和实际时间交集计算，并校验引擎应用结果。原价格不在不同品种间同步。
 
-`primary` 保留宿主原 context，新增窗格为 `${context}:secondary-N`。`WorkspaceDocument.version=1` 存储稳定窗格 ID、每窗格 v3 布局、活动窗格、同步项和尺寸比例。宿主显式传入异步 store 才启用存储；加载先验证目录、读取各图并恢复成功，之后替换当前工作台。失败保留当前工作台及保存原件。系统绘图不进入捕获；后端标注仅保存引用，由宿主重新读取。
+`primary` 保留宿主原 context，新增窗格为 `${context}:secondary-N`。`WorkspaceDocument.version=2` 存储稳定窗格 ID、每窗格 v4 布局、活动窗格、同步项和尺寸比例。宿主显式传入异步 store 才启用存储；加载先验证目录、读取各图并恢复成功，之后替换当前工作台。失败保留当前工作台及保存原件。系统绘图不进入捕获；后端标注仅保存引用，由宿主重新读取。
 
 公共 `ChartPro.getShortcutManager()` 和 `getReplayEngine()` 返回对应对象的公开结构接口，避免不同声明入口的私有字段造成类型身份冲突；运行时返回同一对象，全部公开方法仍可调用。
 
@@ -306,7 +306,7 @@ readLegacyWorkspace(scope:string,options:{symbols:SymbolInfo[];
 
 错误类 `WorkspaceStoreError.code` 为 WORKSPACE_NOT_FOUND、WORKSPACE_STORE_UNAVAILABLE、WORKSPACE_INVALID_DOCUMENT 或 WORKSPACE_CONFLICT。冲突不自动覆盖，刷新后重新选择或另存。取消／超时可能已有写入，界面显示结果待确认并读取同 scope/ID 核对；核对前禁用新存储变更。每实例仅一个存储变更，图表交互保持可用。
 
-省略 store 时禁用管理并说明原因；IndexedDB 失败不回落其他存储。保存为显式手动操作，切换前应保存未保存改动。导入只读旧工作台键及 loadLayoutV3 支持的单图 v1/v2/v3 键，不自动加载或修改旧键。内容仍为 WorkspaceDocument v1 与单图 v3，外层持有名称／ID／revision，行情与运行时分析不入文档。销毁顺序为 workspace.dispose()，随后自有 store.dispose()；借用者不关闭共享 store。单图 saveLayoutV3/listLayoutsV3 保留原职责。
+省略 store 时禁用管理并说明原因；IndexedDB 失败不回落其他存储。保存为显式手动操作，切换前应保存未保存改动。导入只读旧工作台键及 loadLayoutV3 支持的单图 v1/v2/v3 键，不自动加载或修改旧键。内容为 WorkspaceDocument v2 与单图 v4，外层持有名称／ID／revision，行情与运行时分析不入文档。销毁顺序为 workspace.dispose()，随后自有 store.dispose()；借用者不关闭共享 store。单图 saveLayoutV4/listLayoutsV4 保留原职责。
 
 ## React 组件接口（0.9.0）
 
@@ -380,3 +380,8 @@ validateHistoryResult(result: HistoryResult, query: HistoryQuery): HistoryResult
 ```
 
 ESM／CJS 和声明直接使用生产历史校验实现，不载入 DOM／Solid／React。validateHistoryResult 成功返回传入对象，不复制或冻结；它检查时标、OHLCV、请求边界及响应结构，不能证明市场来源、口径或 hasMoreBefore 声明真实。loader 的副本交接职责保持。使用独立预期证明适配器行为，见[数据契约模板](./data-access#独立校验与契约测试模板)。
+
+
+## 绘图文档与共享（0.10）
+
+参见[绘图文档与共享会话](./drawings.md)，包括统一命令、v4／v2、模板／偏好、会话借用、CAS 与未知迁移恢复。

@@ -1,3 +1,4 @@
+import {DrawingSessionRegistry} from '../drawing/session'
 import type { Chart, Crosshair } from 'klinecharts'
 import type { ChartPro, Period, SymbolInfo } from '../types'
 import {captureLayout,restoreLayout} from '../persistence/v4'
@@ -29,7 +30,7 @@ export class ChartWorkspace {
   private cells:Runtime[]=[]
   private pending=new Set<Runtime>()
   private staged=new Set<Runtime>()
-  private retainedSharedDrawings:WorkspaceDocument['sharedDrawings']=[]
+  private sharedSessions=new DrawingSessionRegistry({scope:'workspace'})
   private layout:WorkspaceLayout=1
   private active='primary'
   private sync=emptySync()
@@ -126,7 +127,7 @@ export class ChartWorkspace {
     for(const c of this.cells)c.pro?.getChart()?.resize()
     this.layoutSelect.value=String(this.layout)
   }
-  private async createCell(cell:WorkspaceCell,parent:HTMLElement,strict=false,staged=false,signal?:AbortSignal):Promise<Runtime>{
+  private async createCell(cell:WorkspaceCell,parent:HTMLElement,strict=false,staged=false,signal?:AbortSignal,sharedSessions=this.sharedSessions):Promise<Runtime>{
     const element=document.createElement('section');element.dataset.cellId=cell.cellId;element.tabIndex=0;element.className='tc-workspace-cell'
     if(strict||staged)element.dataset.cellId=`${cell.cellId}-pending`
     if(staged)element.style.display='none'
@@ -160,7 +161,7 @@ export class ChartWorkspace {
       runtime.binding=this.options.mountCell(body,runtime.cell,runtime.controller.signal)
       const accept=(pro:ChartPro)=>{if(runtime.controller.signal.aborted||runtime.pro===pro)return;runtime.unsubscribe?.();runtime.pro=pro;this.message(runtime.status,null);pro.getChart()?.resize();this.bindActions(runtime);pro.getShortcutManager()?.setEnabled(runtime.cell.cellId===this.active)}
       runtime.unsubscribeReady=runtime.binding.subscribeReady?.(accept)
-      const ready=runtime.binding.ready.then(accept)
+      const ready=runtime.binding.ready.then(async pro=>{accept(pro);if(pro.bindDrawingWorkspace)await pro.bindDrawingWorkspace(sharedSessions,this.options.resolveDrawingShareKey)})
       if(strict){const timer=setTimeout(()=>runtime.controller.abort(new DOMException(this.t('workspace_timeout'),'TimeoutError')),30000);try{await this.abortable(ready,runtime.controller.signal)}finally{clearTimeout(timer)}}
       else void ready.catch(e=>{this.reason(runtime.status,e)})
     }catch(e){if(strict){this.disposeCell(runtime);throw e}this.reason(runtime.status,e)}finally{signal?.removeEventListener('abort',cancel)}
@@ -231,7 +232,7 @@ export class ChartWorkspace {
   capture():WorkspaceDocument {
     if(this.busy||this.cells.length!==this.layout||this.cells.some(c=>c.transitioning))throw this.failure('workspace_not_ready')
     const cells=this.cells.map(c=>{if(!c.pro)throw this.failure('workspace_cell_not_ready',{id:c.cell.cellId});if(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)throw this.failure('workspace_drawing_save');const options=c.binding?.captureOptions?.()??{};return {...c.cell,chart:captureLayout(c.pro,{...options,localDrawingIds:[...(options.localDrawingIds??[]),...c.restoredIds,...c.pro.getDrawings().filter(d=>d.owner==='local').map(d=>d.logicalId)],context:{ticker:c.cell.symbol.ticker,period:{multiplier:c.cell.period.multiplier,timespan:c.cell.period.timespan}}})}})
-    const doc:WorkspaceDocument={version:2,sharedDrawings:this.copy(this.retainedSharedDrawings),layout:this.layout,activeCellId:this.active,sync:{...this.sync},columnRatio:this.columnRatio,rowRatio:this.rowRatio,cells}
+    const doc:WorkspaceDocument={version:2,sharedDrawings:this.sharedSessions.capture(),layout:this.layout,activeCellId:this.active,sync:{...this.sync},columnRatio:this.columnRatio,rowRatio:this.rowRatio,cells}
     if(!isWorkspaceDocument(doc))throw this.failure('workspace_invalid_save')
     return doc
   }
@@ -349,24 +350,25 @@ export class ChartWorkspace {
     if(this.cells.some(c=>c.pro&&(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)))throw this.failure('workspace_drawing_load')
     try{doc=migrateWorkspaceDocument(doc)}catch{throw this.failure('workspace_invalid_document')}
     for(const cell of doc.cells){if(!this.options.symbols.some(s=>s.ticker===cell.symbol.ticker))throw this.failure('workspace_symbol_missing',{ticker:cell.symbol.ticker});const context=cell.cellId==='primary'?this.options.context:`${this.options.context}:${cell.cellId}`;if(cell.context!==context)throw this.failure('workspace_context_mismatch')}
+    const stagedSessions=new DrawingSessionRegistry({scope:'workspace',documents:doc.sharedDrawings})
     this.busy=true;for(const c of this.cells){c.body.inert=true;c.pro?.getShortcutManager()?.setEnabled(false)}++this.alignment;const staged:Runtime[]=[];const stage=document.createElement('div');stage.style.cssText='position:absolute;visibility:hidden;pointer-events:none;width:'+this.grid.clientWidth+'px';this.root.append(stage)
     try{
-      for(const cell of doc.cells){if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');const c=await this.createCell(cell,stage,true,false,signal);staged.push(c);if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');if(!c.pro)throw this.failure('workspace_restored_not_ready');await this.abortable(restoreLayout(c.pro,cell.chart),signal??c.controller.signal);c.restoredIds=cell.chart.drawings.map(d=>d.logicalId)}
+      for(const cell of doc.cells){if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');const c=await this.createCell(cell,stage,true,false,signal,stagedSessions);staged.push(c);if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');if(!c.pro)throw this.failure('workspace_restored_not_ready');await this.abortable(restoreLayout(c.pro,cell.chart),signal??c.controller.signal);c.restoredIds=cell.chart.drawings.map(d=>d.logicalId)}
       if(this.disposed||!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
       this.assertDrawingIdle(this.cells)
       for(const c of this.cells)this.disposeCell(c)
       this.cells=staged;for(const c of staged){this.staged.delete(c);this.grid.append(c.element);this.publishLabels(c)}
-      this.retainedSharedDrawings=this.copy(doc.sharedDrawings)
+      this.sharedSessions.dispose();this.sharedSessions=stagedSessions
       this.layout=doc.layout;this.sync={...doc.sync};this.columnRatio=doc.columnRatio;this.rowRatio=doc.rowRatio
       for(const control of this.controls)control.checked=this.sync[control.dataset.sync as keyof WorkspaceSync]
       for(const [key,value] of [['columnRatio',this.columnRatio],['rowRatio',this.rowRatio]] as const)(this.root.querySelector(`[data-ratio="${key}"]`) as HTMLInputElement).value=String(value)
       this.geometry();this.setActive(doc.activeCellId);this.options.onLayoutChange?.(doc.layout);this.message(this.notice,'workspace_restored')
       for(const c of staged){const viewport=doc.cells.find(saved=>saved.cellId===c.cell.cellId)?.chart.viewport;if(viewport&&c.pro?.getChart()&&!syncViewport(c.pro.getChart()!,{from:viewport.fromTimestamp,to:viewport.toTimestamp}))this.message(c.status,'workspace_restored_viewport_limited')}
-    }catch(e){for(const c of staged)this.disposeCell(c);throw e}finally{stage.remove();this.busy=false;for(const c of this.cells){c.body.inert=false;c.pro?.getShortcutManager()?.setEnabled(c.cell.cellId===this.active)}}
+    }catch(e){for(const c of staged)this.disposeCell(c);stagedSessions.dispose();throw e}finally{stage.remove();this.busy=false;for(const c of this.cells){c.body.inert=false;c.pro?.getShortcutManager()?.setEnabled(c.cell.cellId===this.active)}}
   }
   private assertDrawingIdle(cells:Runtime[]){if(cells.some(c=>c.pro&&(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)))throw this.failure('workspace_drawing_switch')}
   getCells(){return this.cells.map(c=>({...c.cell,chart:c.pro}))}
   private publishLabels(c:Runtime){c.element.style.display='flex';c.element.dataset.cellId=c.cell.cellId;this.aria(c.symbolSelect,'workspace_symbol',{id:c.cell.cellId});this.aria(c.periodSelect,'workspace_period',{id:c.cell.cellId})}
   private resetSelectors(c:Runtime){c.symbolSelect.value=c.cell.symbol.ticker;c.periodSelect.value=[...c.periodSelect.options].find(o=>equalPeriod(JSON.parse(o.value),c.cell.period))?.value??''}
-  dispose(){this.disposed=true;this.io?.controller.abort();this.deleteDialog?.remove();++this.operation;this.observer?.disconnect();for(const c of [...this.cells,...this.pending,...this.staged])this.disposeCell(c);this.cells=[];this.root.remove()}
+  dispose(){this.disposed=true;this.io?.controller.abort();this.deleteDialog?.remove();++this.operation;this.observer?.disconnect();for(const c of [...this.cells,...this.pending,...this.staged])this.disposeCell(c);this.cells=[];this.sharedSessions.dispose();this.root.remove()}
 }

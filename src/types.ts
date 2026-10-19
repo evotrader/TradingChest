@@ -125,6 +125,10 @@ export interface OverlayLifecycleEvent {
 }
 
 export interface ChartProOptions extends AnalysisOptions {
+  resolveDrawingShareKey?:import('./drawing/session').DrawingShareResolver
+  drawingWorkspaceSessions?:import('./drawing/session').DrawingSessionRegistry
+  createDrawingDocumentId?:(identity:import('./drawing/document').DrawingShareIdentity)=>Promise<string>
+  drawingHostSessions?:import('./drawing/session').DrawingSessionRegistry
   drawingCatalog?:import('./drawing/catalog').DrawingToolDescriptor[]
   drawingPreferences?:import('./drawing/preferences').DrawingPreferences
   drawingPreferencesStore?:import('./drawing/preferences').DrawingPreferencesStore
@@ -174,6 +178,7 @@ export interface ChartProOptions extends AnalysisOptions {
 }
 
 export interface ChartPro {
+  bindDrawingWorkspace(registry:import('./drawing/session').DrawingSessionRegistry|undefined,resolve?:import('./drawing/session').DrawingShareResolver):Promise<void>
   getDrawingTools():import('./drawing/catalog').DrawingToolDescriptor[]
   getDrawingState():import('./drawing/types').DrawingState
   executeDrawingCommand(command:import('./drawing/types').DrawingCommand):Promise<import('./drawing/types').DrawingCommandResult>

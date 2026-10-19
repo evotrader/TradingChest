@@ -9,6 +9,7 @@ export interface DrawingSnapshot {
   backendId?:string
   anchors?:DrawingAnchor[]
   yAxisId?:string
+  migration?:{target:import('./session').DrawingSharedReference;status:'prepared'|'uncertain';direction?:'from-host'}
   parameters?:Record<string,number|string|boolean|number[]>
   presentation?:DrawingPresentation
 }
@@ -45,6 +46,10 @@ export type DrawingCommand=
   | {type:'tool';toolId:string|null;continuous?:boolean}
   | {type:'select';ids:string[];additive?:boolean}
   | {type:'cancel'}
+  | {type:'scope';scope:DrawingScope}
+  | {type:'transfer';ids:string[];scope:DrawingScope}
+  | {type:'recover-transfer';id:string;scope:DrawingScope}
+  | {type:'shared';action:'save-as'|'save'|'refresh'|'discard-refresh';scope:'workspace'|'host'}
   | {type:'update';ids:string[];patch:Partial<Pick<DrawingSnapshot,'anchors'|'parameters'|'yAxisId'|'presentation'>> & {overlay?:Partial<OverlaySnapshot>;text?:string}}
   | {type:'delete'|'duplicate'|'copy';ids:string[]}
   | {type:'paste';paneId?:string}
@@ -59,11 +64,14 @@ export type DrawingCommand=
   | {type:'undo'}
   | {type:'redo'}
 export interface DrawingState {
+  origin?:'user'|'history'|'projection'
   toolId:string|null
   step:number
   continuous:boolean
   selectedIds:string[]
   scope:DrawingScope
+  historyScope?:DrawingScope
+  sharing?:{canSaveAs?:boolean;workspace?:import('./session').DrawingSessionState;host?:import('./session').DrawingSessionState;reason?:string}
   objects:DrawingSnapshot[]
   groups:DrawingGroup[]
   hidden:boolean

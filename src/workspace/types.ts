@@ -33,6 +33,7 @@ export interface ChartWorkspaceOptions {
   initialPeriod?:Period
   getPeriods:(symbol:SymbolInfo,signal:AbortSignal)=>Promise<Period[]>
   mountCell:(container:HTMLElement,cell:WorkspaceCell,signal:AbortSignal)=>WorkspaceBinding
+  resolveDrawingShareKey?:import('../drawing/session').DrawingShareResolver
   store?:import('./store').WorkspaceStore
   onActiveCell?:(cell:WorkspaceCell)=>void
   /** Presentation notification; chart state and active-cell authority stay unchanged. */

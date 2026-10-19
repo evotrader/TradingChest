@@ -51,6 +51,10 @@ export default class KLineChartPro implements ChartPro {
         <ChartProComponent
           ref={(chart: ChartComponentApi) => { this._chartApi = chart }}
           indicatorCatalog={options.indicatorCatalog}
+          resolveDrawingShareKey={options.resolveDrawingShareKey}
+          drawingWorkspaceSessions={options.drawingWorkspaceSessions}
+          drawingHostSessions={options.drawingHostSessions}
+          createDrawingDocumentId={options.createDrawingDocumentId}
           drawingCatalog={options.drawingCatalog}
           drawingPreferences={options.drawingPreferences}
           drawingPreferencesStore={options.drawingPreferencesStore}
@@ -501,6 +505,7 @@ export default class KLineChartPro implements ChartPro {
   getDrawingState(){return this._api().getDrawingState()}
   executeDrawingCommand(command:Parameters<ChartPro['executeDrawingCommand']>[0]){return this._api().executeDrawingCommand(command)}
   getDrawings(){return this._api().getDrawings()}
+  bindDrawingWorkspace(registry:import('./drawing/session').DrawingSessionRegistry|undefined,resolve?:import('./drawing/session').DrawingShareResolver){return this._api().bindDrawingWorkspace(registry,resolve)}
   getDrawingHistoryState(){return this._api().getDrawingHistoryState()}
   restoreDrawings(owner:Parameters<ChartPro['restoreDrawings']>[0],drawings:Parameters<ChartPro['restoreDrawings']>[1]){this._api().restoreDrawings(owner,drawings)}
   resetDrawingHistory(){this._api().resetDrawingHistory()}

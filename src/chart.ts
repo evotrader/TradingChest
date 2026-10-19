@@ -117,3 +117,10 @@ export {readLegacyWorkspace} from './workspace/legacy'
 
 export {createIndexedDBDrawingPreferencesStore,defaultDrawingPreferences} from './drawing/preferences'
 export type {DrawingPreferences,DrawingPreferencesState,DrawingPreferencesStore,DrawingTemplate,DrawingStylePreset} from './drawing/preferences'
+
+export {DrawingSession,DrawingSessionRegistry} from './drawing/session'
+export type {DrawingShareResolver,DrawingShareResolution,DrawingSharedReference,DrawingSessionState} from './drawing/session'
+export type {DrawingShareIdentity,SharedDrawingDocument,DrawingTransferRecovery} from './drawing/document'
+export {drawingShareKey} from './drawing/document'
+export {DrawingStoreError,createIndexedDBDrawingDocumentStore} from './drawing/documentStore'
+export type {DrawingDocumentStore,DrawingDocumentWrite,StoredDrawingDocument,DrawingStoreErrorCode} from './drawing/documentStore'

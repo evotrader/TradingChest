@@ -4,6 +4,7 @@ import type {DrawingChange,DrawingCommitResult,DrawingHistoryState,DrawingOwner,
 interface Options {
   locale?:()=>string
   validate?:(snapshot:DrawingSnapshot)=>void
+  validateTransfer?:(values:DrawingSnapshot[])=>void
   commit?:(change:DrawingChange)=>Promise<DrawingCommitResult>
   apply:(id:string,snapshot:DrawingSnapshot|null)=>DrawingSnapshot|null
   context:()=>DrawingChange['context']
@@ -11,9 +12,10 @@ interface Options {
   onConfirmed?:(change:DrawingChange)=>void
 }
 type Entry={logicalId:string;before:DrawingSnapshot|null;after:DrawingSnapshot|null}
-type Transaction={changes:Entry[]}
+type Transaction={changes:Entry[];operation?:string}
 type BatchRequest={kind:DrawingChange['kind'];logicalId:string;after:DrawingSnapshot|null}
-export interface DrawingCheckpoint {drawings:DrawingSnapshot[];past:Transaction[];future:Transaction[]}
+type Operation={ids?:string[];undo:()=>Promise<void>;redo:()=>Promise<void>;available?:()=>boolean}
+export interface DrawingCheckpoint {documentGeneration?:number;operations?:Map<string,Operation>;drawings:DrawingSnapshot[];past:Transaction[];future:Transaction[]}
 const content=(value:DrawingSnapshot|null)=>{if(!value)return null;const {presentation,...rest}=value;return rest}
 const copy=<T>(value:T):T=>JSON.parse(JSON.stringify(value))
 const ordered=(value:any):any=>Array.isArray(value)?value.map(ordered):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,ordered(v)])):value
@@ -23,6 +25,8 @@ const abort=(locale='zh-CN')=>new DOMException(i18n('drawing_context_changed',lo
 /** History advances only after an explicit confirmation, never on a visual preview. */
 export class DrawingHistory {
   private options:Options
+  private operations=new Map<string,Operation>()
+  private executingOperation?:string
   private drawings=new Map<string,DrawingSnapshot>()
   private past:Transaction[]=[]
   private future:Transaction[]=[]
@@ -32,38 +36,73 @@ export class DrawingHistory {
   private pending=0
   private error:string|undefined
   private generation=0
+  private documentGeneration=0
   private disposed=false
   private restoreToken:symbol|undefined
+  private restoreReason:'layout'|'document'='document'
   private tail:Promise<unknown>=Promise.resolve()
   private text(key:string){return i18n(key,this.options.locale?.()??'zh-CN')}
   constructor(options:Options){this.options=options}
-  getState():DrawingHistoryState{return {pending:this.pending+(this.restoreToken?1:0),canUndo:this.past.length>0,canRedo:this.future.length>0,error:this.error,uncertainLogicalIds:[...this.uncertain.keys()],projectionErrors:Object.fromEntries(this.projectionErrors)}}
+  getState():DrawingHistoryState{this.pruneOperations();return {pending:this.pending+(this.restoreToken?1:0),canUndo:this.past.length>0,canRedo:this.future.length>0,error:this.error,uncertainLogicalIds:[...this.uncertain.keys()],projectionErrors:Object.fromEntries(this.projectionErrors)}}
   getDrawings():DrawingSnapshot[]{return [...this.drawings.values()].map(copy)}
   getDrawing(id:string):DrawingSnapshot|undefined{const value=this.drawings.get(id);return value?copy(value):undefined}
   getDrawingIds():string[]{return [...this.drawings.keys()]}
   reproject():void{for(const value of this.getDrawings())this.apply(value.logicalId,value);this.emit()}
   private emit(){if(!this.disposed)this.options.onChange?.(this.getState())}
+  isAvailable(generation?:number):boolean{return !this.disposed&&(generation===undefined||!!this.restoreToken||generation===this.documentGeneration)}
+  getDocumentGeneration():number{return this.documentGeneration}
+  private discardOperation(id:string):void{this.operations.delete(id);for(const stack of [this.past,this.future])for(let i=stack.length-1;i>=0;i--)if(stack[i].operation===id)stack.splice(i,1)}
+  private pruneOperations():void{for(const [id,operation] of this.operations)if(id!==this.executingOperation&&operation.available&&!operation.available())this.discardOperation(id)}
   private dropHistory(id:string){
-    for(const stack of [this.past,this.future]){for(const entry of stack)entry.changes=entry.changes.filter(e=>e.logicalId!==id||same(content(e.before),content(e.after)));for(let i=stack.length-1;i>=0;i--)if(!stack[i].changes.length)stack.splice(i,1)}
+    for(const [key,operation] of this.operations)if(key!==this.executingOperation&&operation.ids?.includes(id))this.discardOperation(key)
+    for(const stack of [this.past,this.future]){for(const entry of stack)entry.changes=entry.changes.filter(e=>e.logicalId!==id||same(content(e.before),content(e.after)));for(let i=stack.length-1;i>=0;i--)if(!stack[i].changes.length&&!stack[i].operation)stack.splice(i,1)}
+  }
+  /** Transfer effects remain runtime history, never part of a serialized document. */
+  recordOperation(operation:Operation):void {
+    const id=crypto.randomUUID();this.operations.set(id,operation);this.past.push({changes:[],operation:id});this.future=[];this.emit()
+  }
+  transferGuard(active=false):ReturnType<DrawingHistory['beginRestore']>{
+    if(this.disposed||this.restoreToken||this.uncertain.size||this.pending>(active?1:0))throw Error('绘图正在提交或已关闭，不能转移')
+    const token=Symbol('drawing-transfer');this.restoreToken=token;this.restoreReason='document';this.emit()
+    return {token,isCurrent:()=>!this.disposed&&this.restoreToken===token,release:()=>{if(this.restoreToken===token){this.restoreToken=undefined;this.emit()}}}
+  }
+  preflightTransfer(values:DrawingSnapshot[]):void{for(const value of values)this.options.validate?.(value);this.options.validateTransfer?.(values)}
+  setTransferIntent(id:string,migration:DrawingSnapshot['migration'],token:symbol):void {
+    this.assertRestore(token)
+    if(this.disposed||this.restoreToken!==token)throw Error('绘图转移已失效')
+    const current=this.drawings.get(id);if(!current||current.owner!=='local')throw Error('转移原对象不存在')
+    const value=copy(current);if(migration)value.migration=copy(migration);else delete value.migration
+    this.apply(id,value);this.emit()
+  }
+  transferRecord(id:string,value:DrawingSnapshot|null,token:symbol):void {
+    this.assertRestore(token)
+    if(this.disposed||this.restoreToken!==token)throw Error('绘图转移已失效')
+    if(value){if(value.owner!=='local')throw Error('后端标注不能转移归属');this.options.validate?.(value)}
+    for(const [key,operation] of this.operations)if(key!==this.executingOperation&&operation.ids?.includes(id))this.discardOperation(key)
+    // Leaving a document invalidates every old edit, including presentation edits.
+    for(const stack of [this.past,this.future])for(const entry of stack)entry.changes=entry.changes.filter(e=>e.logicalId!==id)
+    for(const stack of [this.past,this.future])for(let i=stack.length-1;i>=0;i--)if(!stack[i].changes.length&&!stack[i].operation)stack.splice(i,1)
+    this.apply(id,value);this.emit()
   }
   getLastResult():DrawingCommandResult{return copy(this.lastResult)}
   checkpoint():DrawingCheckpoint {
     if(this.pending||this.uncertain.size||this.restoreToken)throw Error('绘图提交尚未确认，不能替换文档')
-    return copy({drawings:this.getDrawings(),past:this.past,future:this.future})
+    return {...copy({drawings:this.getDrawings(),past:this.past,future:this.future}),operations:new Map(this.operations),documentGeneration:this.documentGeneration}
   }
-  beginRestore():{token:symbol;isCurrent:()=>boolean;release:()=>void} {
+  isLayoutRestoring():boolean{return !!this.restoreToken&&this.restoreReason==='layout'}
+  beginRestore(reason:'layout'|'document'='document'):{token:symbol;isCurrent:()=>boolean;release:()=>void} {
     if(this.pending||this.uncertain.size||this.restoreToken)throw Error('绘图提交或恢复尚未确认')
-    const token=Symbol('drawing-restore');this.restoreToken=token;this.emit()
+    const token=Symbol('drawing-restore');this.restoreToken=token;this.restoreReason=reason;this.emit()
     return {token,isCurrent:()=>!this.disposed&&this.restoreToken===token,release:()=>{if(this.restoreToken===token){this.restoreToken=undefined;this.emit()}}}
   }
   private assertRestore(token?:symbol):void{if(this.restoreToken&&this.restoreToken!==token)throw Error('绘图布局正在恢复，请完成后重试')}
   rollback(checkpoint:DrawingCheckpoint,token?:symbol):void {
     this.assertRestore(token)
     if(this.pending||this.uncertain.size)throw Error('绘图提交尚未确认，不能回滚文档')
-    const saved=copy(checkpoint),ids=new Set(saved.drawings.map(d=>d.logicalId))
+    const {operations,documentGeneration,...serialized}=checkpoint,saved=copy(serialized),ids=new Set(saved.drawings.map(d=>d.logicalId))
     for(const id of this.drawings.keys())if(!ids.has(id))this.apply(id,null)
     for(const drawing of saved.drawings)this.apply(drawing.logicalId,drawing)
-    this.past=saved.past;this.future=saved.future;this.emit()
+    this.past=saved.past;this.future=saved.future;this.operations=new Map(operations??[]);this.documentGeneration=documentGeneration??this.documentGeneration;this.emit()
   }
   private finish(items:DrawingItemResult[]):DrawingCommandResult {
     const confirmed=items.filter(i=>i.status==='confirmed').length
@@ -95,6 +134,7 @@ export class DrawingHistory {
     if(after)this.options.validate?.(after)
     const before=copy(this.drawings.get(id)??null)
     if(this.uncertain.has(id)){const result:DrawingCommitResult={status:'rejected',message:this.text('drawing_message_1')};this.apply(id,before);this.error=result.message;this.emit();return {result,before,after:before}}
+    if(before?.migration)throw Error('绘图转移结果待核对，请先完成原目标转移')
     const kind=before?(after?'update':'delete'):'create'
     if(!before&&!after)return {result:{status:'confirmed',snapshot:null},before,after:null}
     if(before&&after&&before.owner!==after.owner)throw Error(this.text('drawing_message_2'))
@@ -174,6 +214,13 @@ export class DrawingHistory {
     return this.enqueue(async generation=>{
       const from=direction==='undo'?this.past:this.future,to=direction==='undo'?this.future:this.past
       const transaction=from.at(-1);if(!transaction){this.finish([]);return}
+      if(transaction.operation){
+        const operation=this.operations.get(transaction.operation)
+        if(!operation)throw Error('绘图转移历史不可用')
+        this.executingOperation=transaction.operation
+        try{await operation[direction]()}finally{this.executingOperation=undefined}
+        from.splice(from.indexOf(transaction),1);to.push(transaction);this.finish([]);this.emit();return {status:'confirmed',snapshot:null}
+      }
       const entries=direction==='undo'?[...transaction.changes].reverse():[...transaction.changes]
       const completed:Transaction={changes:[]},items:DrawingItemResult[]=[]
       let last:DrawingCommitResult|undefined,stopped=false
@@ -220,7 +267,7 @@ export class DrawingHistory {
   reset(clearDrawings=false,token?:symbol):void {
     if(clearDrawings)this.restoreToken=undefined
     else this.assertRestore(token)
-    this.generation++;this.pending=0;this.tail=Promise.resolve();this.past=[];this.future=[];this.uncertain.clear();this.projectionErrors.clear();this.error=undefined
+    this.generation++;this.documentGeneration++;this.pending=0;this.tail=Promise.resolve();this.past=[];this.future=[];this.operations.clear();this.uncertain.clear();this.projectionErrors.clear();this.error=undefined
     if(clearDrawings){for(const id of this.drawings.keys())this.options.apply(id,null);this.drawings.clear()}
     this.emit()
   }

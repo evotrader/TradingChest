@@ -64,8 +64,14 @@ let context:DatafeedRequestContext|undefined;void context;
 const query:HistoryQuery={kind:'before',before:Date.now(),countBack:500};void query;
 const feed:Datafeed={searchSymbols:async()=>[],getHistoryKLineData:async(_symbol,_period,query,_context):Promise<HistoryResult>=>query.kind==='before'?{bars:[],hasMoreBefore:false}:{bars:[]},subscribe:()=>{},unsubscribe:()=>{}};void feed;
 const store:WorkspaceStore=createIndexedDBWorkspaceStore();declare const input:WorkspaceWrite;declare const signal:AbortSignal;const stored:Promise<StoredWorkspace>=store.write('opaque',input,signal);void stored;
+import {DrawingSessionRegistry,createIndexedDBDrawingDocumentStore} from 'trading-chest/chart';
+import {DrawingSessionRegistry as RootDrawingSessions} from 'trading-chest';
+const drawingStore=createIndexedDBDrawingDocumentStore();
+const rootDrawingSessions:DrawingSessionRegistry=new RootDrawingSessions({scope:'host',store:drawingStore});
+const drawingSessions=new DrawingSessionRegistry({scope:'workspace'});
+void rootDrawingSessions;
 declare const workspace:ChartWorkspace;void workspace.listSaved();void workspace.saveAs('name');void workspace.load('id');void workspace.renameSaved('id','name');void workspace.deleteSaved('id');void workspace.importLegacy('old');
-declare const chart:ChartPro;
+declare const chart:ChartPro;void chart.bindDrawingWorkspace(drawingSessions);
 declare const scope:AnalysisContext;
 const layer:AnalysisLayerSpec={id:'labels',label:'Labels',type:'label-series',data:[{id:'date',label:'2026-01-01',value:null}]};
 const rootLayer:RootLayer=layer;void rootLayer;
@@ -80,7 +86,7 @@ let schema:IndicatorParameterSchema|undefined;let event:AnalysisEvent|undefined;
 import type {TradingChartProps,TradingWorkspaceProps} from 'trading-chest/react';
 import {validateHistoryResult} from 'trading-chest/testing';void validateHistoryResult;
 const workspaceReady:NonNullable<TradingWorkspaceProps['onReady']>=value=>{const original:ChartWorkspace=value;void original};void workspaceReady;
-const reactProps:TradingChartProps={height:400,initialOptions:{symbol:{ticker:'x'},period:{multiplier:1,timespan:'day',text:'1d'}},createDatafeed:()=>feed};void reactProps;
+const reactProps:TradingChartProps={height:400,initialOptions:{drawingHostSessions:rootDrawingSessions,symbol:{ticker:'x'},period:{multiplier:1,timespan:'day',text:'1d'}},createDatafeed:()=>feed};void reactProps;
 // @ts-expect-error An owned store must provide disposal.
 const invalidOwned:TradingWorkspaceProps={height:400,initialOptions:{context:'x',symbols:[],initialSymbol:{ticker:'x'},getPeriods:async()=>[]},renderCell:()=>null,createStore:()=>store};void invalidOwned;
 `)

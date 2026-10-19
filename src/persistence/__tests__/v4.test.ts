@@ -17,6 +17,14 @@ describe('v4 drawing persistence',()=>{
     expect(isChartLayoutV4(result.value)).toBe(true);expect(result.value.annotationRefs).toEqual(['server-1'])
     expect(result.value.drawings[0].anchors).toEqual([{kind:'market',timestamp:100,value:1},{kind:'market',timestamp:200,value:2}]);expect(JSON.stringify(legacy)).toBe(original)
   })
+  it('validates host references separately from the legacy engine configuration',()=>{
+    const result=migrateLayoutToV4(legacy);if(result.status!=='ok')throw Error('migration failed')
+    const identity={namespace:'host',symbol:{market:'equity',exchange:'X',ticker:'A.X',priceCurrency:'USD'},priceBasisKey:'raw'}
+    const reference={namespace:'host',documentId:'fixed',logicalId:'shared',identity}
+    expect(isChartLayoutV4({...result.value,sharedDrawingRefs:[reference]})).toBe(true)
+    expect(isChartLayoutV4({...result.value,sharedDrawingRefs:[{...reference,identity:{...identity,symbol:{ticker:'A.X'}}}]})).toBe(false)
+    expect(isChartLayoutV4({...result.value,sharedDrawingRefs:[reference,reference]})).toBe(false)
+  })
   it('refuses unresolved legacy indexes and resolves them only with supplied actual history',()=>{
     const value={...legacy,overlayData:[{...legacy.overlayData[0],points:[{dataIndex:0,value:2}]}]}
     expect(migrateLayoutToV4(value)).toMatchObject({status:'error',code:'migration'})
@@ -34,6 +42,7 @@ describe('v4 drawing persistence',()=>{
     const result=migrateLayoutToV4(legacy);if(result.status!=='ok')throw Error('migration failed')
     const layout=result.value,drawing=layout.drawings[0]
     expect(isChartLayoutV4({...layout,drawings:[{...drawing,owner:'backend'}]})).toBe(false)
+    expect(isChartLayoutV4({...layout,drawings:[{...drawing,presentation:{scope:'host'}}]})).toBe(false)
     expect(isChartLayoutV4({...layout,drawings:[drawing,drawing]})).toBe(false)
     expect(isChartLayoutV4({...layout,drawings:[{...drawing,anchors:[{kind:'market',timestamp:NaN,value:2}]}]})).toBe(false)
   })
@@ -113,4 +122,14 @@ describe('v4 drawing persistence',()=>{
     release();await expect(pending).rejects.toThrow('Configuration failed')
     expect(history.getDrawings()).toEqual([original]);expect(history.getState()).toMatchObject({pending:0,canUndo:true});registration.mockRestore()
   })
+  it('rolls back a shared binding if adoption or a later operation fails',async()=>{
+    const {chart,history,pro}=runtime(),result=migrateLayoutToV4(legacy);if(result.status!=='ok')throw Error('migration failed')
+    const original={...result.value.drawings[0],logicalId:'original',overlay:{...result.value.drawings[0].overlay,id:'original'}};await history.submit('create','original',original,'programmatic')
+    let binding='original';const live=drawingBindings.get(chart)!
+    live.prepareSharedReferences=async()=>({apply:()=>{binding='new';throw Error('after adoption')},rollback:()=>{binding='original'}})
+    const identity={namespace:'host',symbol:{market:'equity',exchange:'X',ticker:'A.X',priceCurrency:'USD'},priceBasisKey:'raw'}
+    await expect(restoreLayout(pro,{...result.value,sharedDrawingRefs:[{namespace:'host',documentId:'new',logicalId:'shared',identity}]})).rejects.toThrow('after adoption')
+    expect(binding).toBe('original');expect(history.getDrawing('original')).toEqual(original);expect(history.getState().canUndo).toBe(true)
+  })
+
 })

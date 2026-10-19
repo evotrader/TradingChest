@@ -58,6 +58,15 @@ const DrawingWorkbench:Component<DrawingWorkbenchProps>=props=>{
     <Show when={notice()}><p role="alert">{notice()}</p></Show>
     <Show when={props.state.history.pending}><p role="status">{t('正在确认，请稍候','Confirming, please wait')}</p></Show>
     <Show when={props.state.history.uncertainLogicalIds.length}><p role="alert">{t('部分提交结果待确认，请刷新宿主标注；不会自动重发','Some submissions are uncertain. Refresh host annotations; writes are never replayed automatically.')}</p></Show>
+    <fieldset><legend>{t('绘图作用域','Drawing scope')}</legend>
+      <select aria-label={t('新绘图作用域','Scope for new drawings')} value={props.state.scope} onChange={e=>void send({type:'scope',scope:e.currentTarget.value as any})}>
+        <option value="chart">{t('本图','This chart')}</option><option value="workspace" disabled={!props.state.sharing?.workspace}>{t('当前工作台','This workspace')}</option><option value="host" disabled={!props.state.sharing?.host}>{t('宿主共享','Host shared')}</option>
+      </select>
+      <For each={['chart','workspace','host'] as const}>{scope=><button disabled={!selected().length||scope!=='chart'&&!props.state.sharing?.[scope]} onClick={()=>void send({type:'transfer',ids:selected(),scope})}>{t('移至','Move to')} {({chart:t('本图','This chart'),workspace:t('工作台','Workspace'),host:t('宿主共享','Host shared')})[scope]}</button>}</For>
+      <Show when={props.state.sharing?.reason}><p role="status">{props.state.sharing?.reason}</p></Show>
+      <For each={['workspace','host'] as const}>{scope=><Show when={props.state.sharing?.[scope]}>{state=><p role="status">{scope}: {state().status} {state().message}<Show when={scope==='host'}><button disabled={!props.state.sharing?.canSaveAs||['saving','loading','uncertain'].includes(state().status)} onClick={()=>void send({type:'shared',scope,action:'save-as'})}>{t('另存共享草稿','Save shared draft as')}</button><button disabled={['saving','loading','uncertain'].includes(state().status)} onClick={()=>void send({type:'shared',scope,action:'save'})}>{t('保存共享绘图','Save shared drawings')}</button><button onClick={()=>void send({type:'shared',scope,action:'refresh'})}>{t('刷新共享文档','Refresh shared document')}</button><button onClick={()=>{if(window.confirm(t('丢弃尚未保存的共享绘图草稿并读取远端文档？','Discard unsaved shared drafts and read the stored document?')))void send({type:'shared',scope,action:'discard-refresh'})}}>{t('丢弃草稿并刷新','Discard draft and refresh')}</button></Show></p>}</Show>}</For>
+    <For each={props.state.sharing?.host?.recoveries??[]}>{record=><p>{t('可恢复已移出的绘图','Recover moved drawings')}: {record.count} · {record.scope}<button onClick={()=>void send({type:'recover-transfer',id:record.id,scope:record.scope})}>{t('完成原目标恢复','Complete original recovery')}</button></p>}</For>
+    </fieldset>
     <Show when={tab()==='objects'}>
       <input aria-label={t('搜索绘图对象','Search drawing objects')} placeholder={t('搜索名称、工具或分组','Search name, tool, or group')} value={query()} onInput={event=>{setQuery(event.currentTarget.value);setLimit(100)}}/>
       <p>{t('已选择','Selected')} {selected().length} / {props.state.objects.length}</p>

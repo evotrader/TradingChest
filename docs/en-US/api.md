@@ -166,7 +166,7 @@ Target admission does not block rollback or retention of an existing snapshot af
 
 KLineChart remains pinned to 10.1.0. `getChart()` returns the v10 engine; use string actions, filtered getIndicators/getOverlays and independent axes. `reloadData({preserveViewport:true})` reads successfully before replacing bars; failures retain confirmed bars, viewport and drawings. `applySnapshot({symbol,period,bars,basis})` goes through the single loader, including history revision and basis prefetch. `onDataState` reports confirmed basis/timestamp/replay/restoring/error; onDataReady means data applied, not a new chart object.
 
-Layouts use captureLayout/saveLayoutV3/loadLayoutV3/restoreLayout/deleteLayoutV3/listLayoutsV3. Reads distinguish ok/missing/error. v1/v2 migrate in memory without deleting old keys; corrupt v3 does not silently fall back. Backend annotations are references, local drawings use explicit IDs; orders/trades/positions/alerts do not persist. Storage adapters belong to hosts.
+Layouts use captureLayout/saveLayoutV4/loadLayoutV3/restoreLayout/deleteLayoutV4/listLayoutsV4. Reads distinguish ok/missing/error. v1/v2 migrate in memory without deleting old keys; corrupt v3 does not silently fall back. Backend annotations are references, local drawings use explicit IDs; orders/trades/positions/alerts do not persist. Storage adapters belong to hosts.
 
 `ChartWorkspace` retains 1/2/4 cells, stable cell IDs, independent providers and abortable symbol/period catalogs. All sync starts disabled, matches exact timestamps and actual time intersections, and never syncs original prices across symbols. Restore stages all cells before replacement; failure retains the current workspace and saved document.
 
@@ -266,7 +266,7 @@ readLegacyWorkspace(scope:string,options:{symbols:SymbolInfo[];
 
 `WorkspaceStoreError.code` is WORKSPACE_NOT_FOUND, WORKSPACE_STORE_UNAVAILABLE, WORKSPACE_INVALID_DOCUMENT or WORKSPACE_CONFLICT. Conflicts never overwrite automatically; refresh/reselect or save as another record. Cancellation/timeouts can leave a committed write. The UI reads the same scope/ID to resolve unknown outcomes before allowing another storage mutation. Only one mutation runs per instance; charts remain interactive.
 
-Without a store, management is disabled with an explanation. IndexedDB failure has no fallback. Saving is explicitly manual; save edits before switching. Import reads old workspace and supported single-chart v1/v2/v3 keys without auto-loading or modifying them. Content stays WorkspaceDocument v1 and chart v3, with names/IDs/revisions outside it and no market/runtime analytical data. Dispose the workspace before its owned store; borrowers must not close a shared store. Single-chart saveLayoutV3/listLayoutsV3 retain their original responsibilities.
+Without a store, management is disabled with an explanation. IndexedDB failure has no fallback. Saving is explicitly manual; save edits before switching. Import reads old workspace and supported single-chart v1/v2/v3 keys without auto-loading or modifying them. Content stays WorkspaceDocument v2 and chart v4, with names/IDs/revisions outside it and no market/runtime analytical data. Dispose the workspace before its owned store; borrowers must not close a shared store. Single-chart saveLayoutV4/listLayoutsV4 retain their original responsibilities.
 
 ## React component APIs (0.9.0)
 
@@ -340,3 +340,8 @@ validateHistoryResult(result: HistoryResult, query: HistoryQuery): HistoryResult
 ```
 
 ESM/CJS and declarations reuse production history validation without DOM/Solid/React. On success, validateHistoryResult returns the same object, without copying/freezing. It checks timestamps, OHLCV, request bounds and response structure; it cannot establish truthful market provenance, basis or hasMoreBefore declarations. Loader copy/handoff ownership remains unchanged. Use independent expectations for adapter semantics; see the [contract template](./data-access#independent-validation-and-contract-template).
+
+
+## Drawing documents and sharing (0.10)
+
+See [drawing documents and shared sessions](./drawings.md) for commands, v4/v2, templates/preferences, borrowed sessions, CAS and recovery of unknown transfers.

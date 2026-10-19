@@ -46,6 +46,9 @@ import {isRuntimeAnalysisPane} from './analysis/bindings'
 import {MetricSeries} from './widget/metric-series/MetricSeries'
 import {ComparisonManager} from './compare/manager'
 import type {ComparisonState} from './compare/types'
+import {DrawingCoordinator} from './drawing/coordinator'
+import {drawingShareKey} from './drawing/document'
+import type {DrawingSessionRegistry,DrawingShareResolver} from './drawing/session'
 import {DrawingHistory} from './drawing/history'
 import {DrawingController} from './drawing/controller'
 import {DrawingPreferencesManager} from './drawing/preferences'
@@ -67,7 +70,7 @@ export interface ChartComponentApi extends ChartPro {
   createDrawing: (overlay: OverlayCreate) => void
 }
 
-export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'analysisLayerListVisible'|'onAnalysisLayerChange'|'onAnalysisEventClick'|'onAnalysisPointSelect'|'indicatorCatalog' | 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'|'comparisonSymbols'|'createComparisonDatafeed'|'onComparisonChange'|'onDrawingSelect'|'drawingOwner'|'isDrawingEditable'|'commitDrawing'|'onDrawingHistoryChange'|'drawingCatalog'|'onDrawingStateChange'|'drawingPreferences'|'drawingPreferencesStore'|'drawingPreferencesScope'>> {
+export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'analysisLayerListVisible'|'onAnalysisLayerChange'|'onAnalysisEventClick'|'onAnalysisPointSelect'|'indicatorCatalog' | 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'|'comparisonSymbols'|'createComparisonDatafeed'|'onComparisonChange'|'onDrawingSelect'|'drawingOwner'|'isDrawingEditable'|'commitDrawing'|'onDrawingHistoryChange'|'drawingCatalog'|'onDrawingStateChange'|'drawingPreferences'|'drawingPreferencesStore'|'drawingPreferencesScope'|'resolveDrawingShareKey'|'drawingWorkspaceSessions'|'drawingHostSessions'|'createDrawingDocumentId'>> {
   analysisLayerListVisible?:ChartProOptions['analysisLayerListVisible']
   onAnalysisLayerChange?:ChartProOptions['onAnalysisLayerChange']
   onAnalysisEventClick?:ChartProOptions['onAnalysisEventClick']
@@ -76,6 +79,10 @@ export interface ChartProComponentProps extends Required<Omit<ChartProOptions, '
   drawingPreferencesStore?:ChartProOptions['drawingPreferencesStore']
   drawingPreferencesScope?:ChartProOptions['drawingPreferencesScope']
   drawingCatalog?:ChartProOptions['drawingCatalog']
+  resolveDrawingShareKey?:ChartProOptions['resolveDrawingShareKey']
+  drawingWorkspaceSessions?:DrawingSessionRegistry
+  createDrawingDocumentId?:ChartProOptions['createDrawingDocumentId']
+  drawingHostSessions?:DrawingSessionRegistry
   onDrawingStateChange?:ChartProOptions['onDrawingStateChange']
   indicatorCatalog?:ChartProOptions['indicatorCatalog']
   comparisonSymbols?:ChartProOptions['comparisonSymbols']
@@ -196,14 +203,14 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const isText=(name:string)=>['textAnnotation','callout','note','anchoredText'].includes(name)
   const notifyOverlay = (source: OverlayLifecycleSource, overlay: Overlay, kind: 'create' | 'update' | 'delete') => {
     if(applyingDrawing)return
-    const value=snapshotOverlay(overlay),existing=drawingHistory.getDrawing(overlay.id)
+    const value=snapshotOverlay(overlay),existing=drawingCoordinator?.getDrawing(overlay.id)??drawingHistory.getDrawing(overlay.id)
     if(existing){value.lock=existing.overlay.lock;value.visible=existing.overlay.visible}
     try{
       let anchors=kind==='delete'?undefined:anchorsFromPoints(overlay.points,widget?.getDataList()??[],period(),'interaction')
       if(kind==='create'&&overlay.name==='anchoredText')anchors=[convertDrawingAnchor({logicalId:overlay.id,owner:'local',overlay:value,anchors},0,'viewport')]
       if(kind==='update'){
         void drawingController.execute({type:'update',ids:[overlay.id],patch:source==='property-bar'?{text:textOf(overlay.extendData)}:{anchors}})
-      }else void commitDrawing({kind,logicalId:overlay.id,after:kind==='delete'?null:{...existing,logicalId:overlay.id,owner:existing?.owner??props.drawingOwner?.(value)??'local',overlay:value,anchors,parameters:existing?.parameters??drawingParameters(overlay.extendData)},source}).then(result=>{if(kind==='create'&&result.status==='confirmed'){if(selectedOverlay()?.id===overlay.id)void drawingController.execute({type:'select',ids:[overlay.id]});drawingController.completed(drawingCatalog.find(t=>t.overlayName===overlay.name)?.toolId)}}).catch(reason=>setDrawingState({...drawingHistory.getState(),error:reason instanceof Error?reason.message:String(reason)}))
+      }else void commitDrawing({kind,logicalId:overlay.id,after:kind==='delete'?null:{...existing,logicalId:overlay.id,owner:existing?.owner??props.drawingOwner?.(value)??'local',overlay:value,anchors,parameters:existing?.parameters??drawingParameters(overlay.extendData)},source}).then(result=>{if(kind==='create'&&result.status==='confirmed'){if(selectedOverlay()?.id===overlay.id)void drawingController.execute({type:'select',ids:[overlay.id]});drawingController.completed(drawingCatalog.find(t=>t.overlayName===overlay.name)?.toolId)}}).catch(reason=>{if(kind==='create'){applyingDrawing=true;try{widget?.removeOverlay({id:overlay.id});ownedDrawingIds.delete(overlay.id);completedDrawingIds.delete(overlay.id)}finally{applyingDrawing=false}}setDrawingState({...drawingCoordinator.state(),error:reason instanceof Error?reason.message:String(reason)})})
     }catch(reason){setDrawingState({...drawingHistory.getState(),error:reason instanceof Error?reason.message:String(reason)})}
   }
   const promptTextOverlay = (overlay:Overlay,creating=true) => {
@@ -220,13 +227,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
   const markSelectedOverlay = (overlay: Overlay,select=true) => {
     if (overlay.id) {
-      if(select&&drawingHistory.getDrawing(overlay.id))void drawingController.execute({type:'select',ids:[overlay.id]})
+      if(select&&(drawingCoordinator?.getDrawing(overlay.id)??drawingHistory.getDrawing(overlay.id)))void drawingController.execute({type:'select',ids:[overlay.id]})
       const points = overlay.points ?? []
       let x = 0, y = 0
       if (points.length > 0 && widget) {
         const pixel = widget.convertToPixel(
           { timestamp: points[0].timestamp, value: points[0].value },
-          { paneId: overlay.paneId,yAxisId:drawingHistory.getDrawing(overlay.id)?.yAxisId }
+          { paneId: overlay.paneId,yAxisId:(drawingCoordinator?.getDrawing(overlay.id)??drawingHistory.getDrawing(overlay.id))?.yAxisId }
         ) as any
         x = (pixel?.x ?? 200) + 52
         y = (pixel?.y ?? 100) - 50
@@ -250,7 +257,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         fillColor: hasFill ? typeof fill==='string'?fill:'rgba(22, 119, 255, 0.15)' : undefined,
         lineWidth: line.size??1,
         lineStyle: line.style==='dashed'&&line.dashedValue?.[0]===1?'dotted':line.style??'solid',
-        locked: drawingHistory.getDrawing(overlay.id)?.overlay.lock??overlay.lock??false
+        locked:(drawingCoordinator?.getDrawing(overlay.id)??drawingHistory.getDrawing(overlay.id))?.overlay.lock??overlay.lock??false
       })
     }
   }
@@ -292,9 +299,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   let replayEngine: ReplayEngine | null = null
   let replayRevision=0,replayPrefix:KLineData[]=[]
 
+  const assertDrawingTransition=()=>{const state=drawingCoordinator?.state();if(state&&(state.pending&&!(drawingHistory.isLayoutRestoring()&&state.pending===1)||state.uncertainLogicalIds.length))throw Error('绘图提交或迁移尚未确认，请先核对原目标再切换')}
   const setChartPeriod = (nextPeriod: Period) => {
     if (replayEngine) return
-    ++indicatorGeneration
+    assertDrawingTransition();++indicatorGeneration
     setPeriod(nextPeriod)
     props.onPeriodChange?.(nextPeriod)
   }
@@ -370,6 +378,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const [drawingState,setDrawingState]=createSignal<DrawingHistoryState>({pending:0,canUndo:false,canRedo:false,uncertainLogicalIds:[]})
   const drawingCatalog=copyDrawingCatalog(props.drawingCatalog)
   let drawingController:DrawingController
+  let drawingCoordinator:DrawingCoordinator
   const [workbenchState,setWorkbenchState]=createSignal<import('./drawing/types').DrawingState>()
   const editable=(overlay:OverlayLifecycleEvent['overlay'])=>drawingCatalog.some(t=>t.overlayName===overlay.name)&&overlay.name!=='alertLine'&&!overlay.id?.startsWith('alert_')&&(props.isDrawingEditable?.(overlay)??true)
   const validateDrawingTarget=(value:DrawingSnapshot)=>{
@@ -400,7 +409,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     return {kind:'market',timestamp:bar.timestamp,value:point.value}
   }
   const validateRestore=(_owner:import('./drawing/types').DrawingOwner,values:DrawingSnapshot[])=>{
-    validateDrawingRestore(values,{editable,existing:widget?.getOverlays().map(snapshotOverlay)??[],ownedIds:new Set(drawingHistory.getDrawings().map(d=>d.logicalId))})
+    validateDrawingRestore(values,{editable,existing:widget?.getOverlays().map(snapshotOverlay)??[],ownedIds:new Set([...drawingHistory.getDrawingIds(),...[...sharedProjectionObjects].filter(([id,object])=>object===widget?.getOverlays({id})[0]).map(([id])=>id)])})
     for(const value of values)validateDrawingTarget(value)
   }
   const applyDrawing=(id:string,value:DrawingSnapshot|null):DrawingSnapshot|null=>{
@@ -430,17 +439,38 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
   const drawingHistory=new DrawingHistory({
     locale,
-    validate:validateDrawingTarget,
+    validate:validateDrawingTarget,validateTransfer:values=>validateRestore('local',values),
     context:()=>({symbol:symbol(),period:period()}),apply:applyDrawing,commit:change=>props.commitDrawing?props.commitDrawing(change):Promise.resolve({status:'rejected',message:i18n('drawing_message_3',locale())}),
     onChange:state=>{if(disposed)return;setDrawingState(state);props.onDrawingHistoryChange?.(state);if(drawingPresentationFrame===undefined)drawingPresentationFrame=requestAnimationFrame(()=>{drawingPresentationFrame=undefined;if(!disposed){drawingController?.refresh();widget?.resize()}})},
     onConfirmed:change=>{const event={overlay:(change.after??change.before)!.overlay,source:change.source};if(change.kind==='create')props.onOverlayCreate?.(event);else if(change.kind==='update')props.onOverlayUpdate?.(event);else props.onOverlayDelete?.(event)},
   })
+  const sharedProjectionObjects=new Map<string,Overlay>()
+  drawingCoordinator=new DrawingCoordinator(drawingHistory,{saveAs:props.createDrawingDocumentId&&props.drawingHostSessions?async(session,identity)=>{const id=await props.createDrawingDocumentId!(identity);if(!id)throw Error('宿主没有提供另存文档 ID');const target=await props.drawingHostSessions!.bind({identity,documentId:id});if(target.getState().revision!==null||target.history.getDrawingIds().length)throw Error('另存目标已存在，当前草稿已保留');return target}:undefined,owns:id=>sharedProjectionObjects.get(id)===widget?.getOverlays({id})[0]&&sharedProjectionObjects.has(id),project:(id,value)=>{if(!value&&sharedProjectionObjects.get(id)!==widget?.getOverlays({id})[0]){sharedProjectionObjects.delete(id);return;}applyDrawing(id,value);if(value){const actual=widget?.getOverlays({id})[0];if(actual)sharedProjectionObjects.set(id,actual)}else sharedProjectionObjects.delete(id)},validate:value=>{validateDrawingTarget(value);validateDrawingRestore([value],{editable,existing:widget?.getOverlays().map(snapshotOverlay)??[],ownedIds:new Set([...drawingHistory.getDrawingIds(),...[...sharedProjectionObjects].filter(([id,object])=>object===widget?.getOverlays({id})[0]).map(([id])=>id)])})},changed:()=>{if(disposed)return;const state=drawingCoordinator?.state(drawingController?.getState().selectedIds??[]);if(state){setDrawingState(state);props.onDrawingHistoryChange?.(state)}drawingController?.refresh()}})
+  let workspaceSessions=props.drawingWorkspaceSessions,shareResolver=props.resolveDrawingShareKey,sharingEpoch=0
+  let boundShareKey:string|undefined,boundWorkspace:DrawingSessionRegistry|undefined,boundHost:DrawingSessionRegistry|undefined
+  const bindSharedDrawings=async()=>{
+    const context=analysis.getContext()
+    if(!context||!shareResolver){++sharingEpoch;boundShareKey=undefined;drawingCoordinator.detach();return}
+    const resolution=shareResolver(context)
+    if('reason' in resolution){++sharingEpoch;boundShareKey=undefined;drawingCoordinator.detach(resolution.reason);drawingController?.refresh();return}
+    const key=JSON.stringify([drawingShareKey(resolution.identity),resolution.documentId])
+    if(boundShareKey===key&&boundWorkspace===workspaceSessions&&boundHost===props.drawingHostSessions)return
+    const epoch=++sharingEpoch;boundShareKey=key;boundWorkspace=workspaceSessions;boundHost=props.drawingHostSessions;drawingCoordinator.detach()
+    try{
+      const [workspace,host]=await Promise.all([workspaceSessions?.bind(resolution),props.drawingHostSessions?.bind(resolution)])
+      if(disposed||epoch!==sharingEpoch)return
+      drawingCoordinator.bind(workspace,host)
+    }catch(error){if(!disposed&&epoch===sharingEpoch){boundShareKey=undefined;drawingCoordinator.reason=error instanceof Error?error.message:String(error);drawingController?.refresh()}}
+  }
   const commitDrawing=(change:Pick<DrawingChange,'kind'|'logicalId'|'after'|'source'>)=>{
     if(!widget)return Promise.reject(Error(i18n('chart_not_ready',locale())))
     try{if(change.after)validateDrawingTarget(change.after)}catch(error){return Promise.reject(error)}
     const overlay=change.after?.overlay??drawingHistory.getDrawing(change.logicalId)?.overlay
     if(overlay&&!editable(overlay))return Promise.reject(Error(i18n('drawing_protected',locale())))
-    return drawingHistory.submit(change.kind,change.logicalId,change.after,change.source)
+    const history=drawingCoordinator.history(change.kind==='create'?[]:[change.logicalId],true)
+    const after=change.after&&history!==drawingHistory?{...change.after,presentation:{...change.after.presentation,scope:change.kind==='create'?drawingCoordinator.getScope():drawingCoordinator.getDrawing(change.logicalId)?.presentation?.scope??'chart'}}:change.after
+    if(after&&history!==drawingHistory)drawingCoordinator.validate(after)
+    return history.submit(change.kind,change.logicalId,after,change.source)
   }
   let activeDrawingId: string | null = null
   const cancelDrawing = () => {
@@ -514,12 +544,12 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
 
   const drawingPreferences=new DrawingPreferencesManager({catalog:drawingCatalog,initial:props.drawingPreferences,store:props.drawingPreferencesStore,scope:props.drawingPreferencesScope,changed:()=>drawingController?.refresh()})
-  drawingController=new DrawingController({history:drawingHistory,preferences:drawingPreferences,catalog:drawingCatalog,
-    editable:value=>editable(value.overlay),validate:validateDrawingTarget,
+  drawingController=new DrawingController({history:drawingHistory,coordinator:drawingCoordinator,preferences:drawingPreferences,catalog:drawingCatalog,
+    editable:value=>editable(value.overlay),validate:value=>drawingCoordinator.validate(value),
     create:tool=>{const preset=drawingPreferences.getState().value.defaults[tool.toolId];createDrawing({name:tool.overlayName,groupId:'drawing_tools',styles:preset?.styles,extendData:preset?.parameters?{drawingParameters:preset.parameters}:undefined})},cancel:cancelDrawing,
     owner:value=>props.drawingOwner?.(value.overlay)??'local',
     coordinates:(value,patch)=>{if(!widget)throw Error('图表尚未就绪');if(patch.anchors)return {...value,overlay:{...value.overlay,points:projectDrawingPoints(value)}};return {...value,anchors:anchorsFromPoints(value.overlay.points,widget.getDataList(),period(),'interaction')}},
-    project:()=>drawingHistory.reproject(),
+    project:()=>{drawingHistory.reproject();drawingCoordinator.project()},
     changed:state=>{setWorkbenchState(state);props.onDrawingStateChange?.(state)},
     selected:ids=>{props.onDrawingSelect?.(ids.length===1?ids[0]:null)}
   })
@@ -538,12 +568,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     getDrawingTools:()=>copyDrawingCatalog(drawingCatalog),
     getDrawingState:()=>drawingController.getState(),
     executeDrawingCommand:command=>drawingController.execute(command),
-    getDrawings:()=>drawingHistory.getDrawings(),
-    getDrawingHistoryState:()=>drawingHistory.getState(),
+    bindDrawingWorkspace:async(registry,resolve)=>{workspaceSessions=registry;if(resolve)shareResolver=resolve;await bindSharedDrawings()},
+    getDrawings:()=>drawingCoordinator.getDrawings(),
+    getDrawingHistoryState:()=>drawingCoordinator.state(drawingController.getState().selectedIds),
     restoreDrawings:(owner,values)=>{validateRestore(owner,values);drawingHistory.reconcile(owner,values)},
     resetDrawingHistory:()=>drawingHistory.reset(),
-    undoDrawing:()=>drawingHistory.undo(),
-    redoDrawing:()=>drawingHistory.redo(),
+    undoDrawing:()=>drawingCoordinator.history(drawingController.getState().selectedIds,true).undo(),
+    redoDrawing:()=>drawingCoordinator.history(drawingController.getState().selectedIds,true).redo(),
     retryData:()=>replayEngine?Promise.reject(new Error('回放中请先退出回放')):loader?.retry()??Promise.resolve(),
     reloadData: options => replayEngine ? Promise.reject(new Error('回放中请先退出回放，再重新加载行情')) : loader?.reload(options?.preserveViewport ?? true) ?? Promise.resolve(),
     applySnapshot: snapshot => loader?.applySnapshot(snapshot) ?? Promise.reject(new Error(i18n('chart_not_ready',locale()))),
@@ -555,7 +586,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     getLocale: () => locale(),
     setTimezone: (tz: string) => { setTimezone({ key: tz, text: translateTimezone(tz, locale()) }) },
     getTimezone: () => timezone().key,
-    setSymbol: (s: SymbolInfo) => { if (!replayEngine) {++indicatorGeneration;setSymbol(s)} },
+    setSymbol: (s: SymbolInfo) => { if (!replayEngine) {assertDrawingTransition();++indicatorGeneration;setSymbol(s)} },
     getSymbol: () => symbol(),
     setPeriod: setChartPeriod,
     getPeriod: () => period(),
@@ -670,12 +701,23 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       priceUnitContainer?.appendChild(priceUnitDom)
     }
 
-    if(widget)drawingBindings.set(widget,{history:drawingHistory,validateRestore})
+    if(widget)drawingBindings.set(widget,{history:drawingHistory,validateRestore,captureSharedReferences:()=>drawingCoordinator.references(),prepareSharedReferences:async references=>{
+      if(!props.drawingHostSessions||!shareResolver)throw Error('请先启用原共享存储适配器，引用已保留')
+      const context=analysis.getContext();if(!context)throw Error('请先加载行情再恢复共享引用')
+      const resolution=shareResolver(context);if('reason' in resolution)throw Error(resolution.reason)
+      const key=drawingShareKey(resolution.identity),ids=new Set(references.map(r=>r.documentId)),epoch=sharingEpoch
+      if(ids.size!==1||references.some(r=>drawingShareKey(r.identity)!==key||r.namespace!==resolution.identity.namespace))throw Error('共享引用的标的、口径或文档不兼容')
+      const workspace=await workspaceSessions?.bind(resolution)
+      const host=await props.drawingHostSessions.bind({identity:resolution.identity,documentId:references[0].documentId})
+      if(disposed||epoch!==sharingEpoch)throw Error('共享上下文已改变，请重试恢复')
+      const old=drawingCoordinator.checkpointBinding();let applied=false
+      return {apply:()=>{if(disposed||epoch!==sharingEpoch)throw Error('共享上下文已改变，不能采用旧引用');applied=true;drawingCoordinator.bind(workspace,host);drawingCoordinator.acceptReferences(references);if(references.some(r=>!host.history.getDrawing(r.logicalId)))drawingCoordinator.reason='部分共享引用已缺失，请刷新原文档；不会用旧内容复活'},rollback:()=>{if(applied&&!disposed&&epoch===sharingEpoch)drawingCoordinator.rollbackBinding(old)}}
+    }})
     if (widget) loader = new EngineDataLoader(widget, props.datafeed, {
-      committed:state=>analysis.sync(state),
+      committed:state=>{const old=analysis.getContext()?.token;analysis.sync(state);if(old!==analysis.getContext()?.token)untrack(()=>void bindSharedDrawings())},
       state: state=>{setDataState(state);setLoadError(state.error?`${state.errorCode??state.operation??'data'}: ${state.error}`:'');comparisons.mainChanged();props.onDataState?.(state)},
       loading: active => {setLoading(active);setLoadingVisible(active)},
-      ready: identity => {setLoadError('');drawingHistory.reproject();if(!resuming())props.onDataReady?.(identity)},
+      ready: identity => {setLoadError('');drawingHistory.reproject();void bindSharedDrawings();if(!resuming())props.onDataReady?.(identity)},
       error: error => {setLoadError(error.message);props.onError?.(error)},
       price: bar => props.onPriceUpdate?.(bar.close,bar.timestamp)
     })
@@ -723,7 +765,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     widgetRef!.removeEventListener('click',analysisClick,true)
     ++factoryGeneration;comparisons.dispose()
     if(widget)drawingBindings.delete(widget)
-    drawingPreferences.dispose();drawingController.dispose();drawingHistory.dispose()
+    ++sharingEpoch;drawingCoordinator.dispose();drawingPreferences.dispose();drawingController.dispose();drawingHistory.dispose()
     loader?.dispose()
     window.removeEventListener('resize', documentResize)
     widgetRef!.removeEventListener('keydown', handleKeyDown)
@@ -753,7 +795,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   createEffect((prev?: PrevSymbolPeriod) => {
     const s = symbol(), p = period()
     if(!engineReady())return undefined
-    if (prev) untrack(()=>{analysis.clear();++indicatorGeneration;++factoryGeneration;comparisons.clear();cancelDrawing();drawingHistory.reset(true);setSelectedOverlay(null);props.onDataReset?.(s)})
+    if (prev) untrack(()=>{analysis.clear();++indicatorGeneration;++factoryGeneration;comparisons.clear();cancelDrawing();++sharingEpoch;boundShareKey=undefined;drawingCoordinator.detach();const retained=JSON.stringify(prev.symbol)===JSON.stringify(s)?drawingHistory.getDrawings().filter(d=>d.owner==='local'):[];drawingHistory.reset(true);if(retained.length)drawingHistory.reconcile('local',retained);setSelectedOverlay(null);props.onDataReset?.(s)})
     setLoadError('')
     loader?.activate(s,p)
     return {symbol:s,period:p}
@@ -876,7 +918,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         <SymbolSearchModal
           locale={locale()}
           datafeed={props.datafeed}
-          onSymbolSelected={symbol => { setSymbol(symbol) }}
+          onSymbolSelected={symbol => {try{assertDrawingTransition();setSymbol(symbol)}catch(error){setLoadError(error instanceof Error?error.message:String(error))}}}
           onClose={() => { setSymbolSearchModalVisible(false) }}/>
       </Show>
       <Show when={indicatorModalVisible()}>
@@ -943,8 +985,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         />
       </Show>
       <div class="klinecharts-pro-drawing-history" style={{display:'flex','flex-wrap':'wrap',gap:'8px',padding:'4px 8px','font-size':'12px'}}>
-        <button aria-label={i18n('drawing_undo',locale())} disabled={!drawingState().canUndo||drawingState().pending>0} onClick={()=>void drawingHistory.undo().catch(()=>{})}>{i18n('drawing_undo',locale())}</button>
-        <button aria-label={i18n('drawing_redo',locale())} disabled={!drawingState().canRedo||drawingState().pending>0} onClick={()=>void drawingHistory.redo().catch(()=>{})}>{i18n('drawing_redo',locale())}</button>
+        <button aria-label={i18n('drawing_undo',locale())} disabled={!drawingState().canUndo||drawingState().pending>0} onClick={()=>void drawingController.execute({type:'undo'})}>{i18n('drawing_undo',locale())}</button>
+        <button aria-label={i18n('drawing_redo',locale())} disabled={!drawingState().canRedo||drawingState().pending>0} onClick={()=>void drawingController.execute({type:'redo'})}>{i18n('drawing_redo',locale())}</button>
         <button aria-expanded={workbenchOpen()} onClick={()=>setWorkbenchOpen(!workbenchOpen())}>{locale()==='en-US'?'Drawing manager':'绘图管理'}</button>
         <Show when={workbenchState()?.toolId}><span role="status">{drawingCatalog.find(t=>t.toolId===workbenchState()?.toolId)?.labels[locale()==='en-US'?'en-US':'zh-CN']} · {locale()==='en-US'?'Step':'步骤'} {workbenchState()?.step??0} · Esc {locale()==='en-US'?'cancel':'取消'}</span></Show>
         <Show when={drawingState().pending>0}><span role="status">{i18n('drawing_pending',locale())}: {drawingState().pending}</span></Show>
@@ -983,7 +1025,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           } catch (e) { console.warn('[TradingChest] toggle drawing bar failed:', e) }
         }}
         onSymbolClick={() => { setSymbolSearchModalVisible(!symbolSearchModalVisible()) }}
-        onPeriodChange={setChartPeriod}
+        onPeriodChange={value=>{try{setChartPeriod(value)}catch(error){setLoadError(error instanceof Error?error.message:String(error))}}}
         onIndicatorClick={() => { refreshIndicators();setIndicatorModalVisible((visible => !visible)) }}
         onTimezoneClick={() => { setTimezoneModalVisible((visible => !visible)) }}
         onSettingClick={() => { setSettingModalVisible((visible => !visible)) }}

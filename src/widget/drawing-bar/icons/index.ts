@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 
-import { Component, from } from 'solid-js'
+import { Component } from 'solid-js'
+import * as workbenchIcons from './workbench'
 
 import horizontalStraightLine from './horizontalStraightLine'
 import horizontalRayLine from './horizontalRayLine'
@@ -74,6 +75,7 @@ import type { SelectDataSourceItem } from '../../../component'
 import i18n from '../../../i18n'
 
 export const mapping = {
+  ...workbenchIcons,
   horizontalStraightLine,
   horizontalRayLine,
   horizontalSegment,

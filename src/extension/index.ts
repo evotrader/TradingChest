@@ -1,4 +1,5 @@
 import arrow from './arrow'
+import workbenchTools from './workbenchTools'
 
 import circle from './circle'
 import rect from './rect'
@@ -34,6 +35,7 @@ import tradeMarker from './tradeMarker'
 import alertLine from '../alert/AlertLine'
 
 const overlays = [
+  ...workbenchTools,
   arrow,
   circle, rect, triangle, parallelogram,
   fibonacciCircle, fibonacciSegment, fibonacciSpiral,

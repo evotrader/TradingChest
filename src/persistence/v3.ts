@@ -100,16 +100,22 @@ export function captureLayout(chartPro:ChartPro, options:{localDrawingIds?:strin
     overlayData:localOverlays.map(o=>({id:o.id,paneId:o.paneId,name:o.name,groupId:o.groupId,points:o.points.map(({timestamp,dataIndex,value})=>({timestamp,dataIndex,value})),lock:o.lock,visible:o.visible,styles:o.styles??undefined,extendData:o.extendData??undefined})),
     context:options.context,annotationRefs:options.annotationRefs,viewport:from&&to?{fromTimestamp:from.timestamp,toTimestamp:to.timestamp,barSpace:chart.getBarSpace().bar}:undefined}) as unknown as ChartLayoutV3
 }
-export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3):Promise<void> {
+export interface EngineLayoutRestoreTransaction {
+  assertCurrent:()=>void
+  reset:()=>void
+  restore:ChartPro['restoreDrawings']
+}
+export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3,transaction?:EngineLayoutRestoreTransaction):Promise<void> {
   if(!isChartLayoutV3(layout))throw Error('布局结构无效')
   const chart=chartPro.getChart();if(!chart)throw Error('图表尚未就绪')
   const epoch=getIdentityEpoch(chart),symbol=chartPro.getSymbol().ticker,period=chartPro.getPeriod()
   const assertReady=()=>{
+    transaction?.assertCurrent()
     if(chartPro.getChart()!==chart)throw Error('图表实例已改变，请重新加载布局')
     const current=chartPro.getPeriod()
     if(getIdentityEpoch(chart)!==epoch||chartPro.getSymbol().ticker!==symbol||current.timespan!==period.timespan||current.multiplier!==period.multiplier)throw new DOMException('布局恢复期间标的或周期已改变','AbortError')
     if(layout.context?.ticker && layout.context.ticker!==chartPro.getSymbol().ticker)throw Error('布局标的与当前图表不匹配')
-    if(chartPro.getDrawingHistoryState().pending)throw Error('绘图提交尚未确认，请完成后再恢复布局')
+    if(!transaction&&chartPro.getDrawingHistoryState().pending)throw Error('绘图提交尚未确认，请完成后再恢复布局')
     if(chartPro.getDrawingHistoryState().uncertainLogicalIds.length)throw Error('绘图提交结果待确认，请刷新标注后恢复布局')
   }
   assertReady()
@@ -122,7 +128,7 @@ export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3):Prom
   for(const indicator of layout.indicators)if(!supported.has(indicator.name))throw Error(`无法恢复指标 ${indicator.name}：当前引擎未注册该指标，当前工作台已保留`)
   assertReady()
   const backendDrawings=chartPro.getDrawings().filter(d=>d.owner==='backend').map(d=>({drawing:d,names:d.overlay.paneId&&d.overlay.paneId!=='candle_pane'?chart.getIndicators({paneId:d.overlay.paneId}).map(({id,name,calcParams})=>({id,name,calcParams})):[]}))
-  chartPro.resetDrawingHistory()
+  if(transaction)transaction.reset();else chartPro.resetDrawingHistory()
   chartPro.setTheme(layout.theme);chartPro.setLocale(layout.locale);chartPro.setTimezone(layout.timezone)
   chart.setStyles(layout.styles as DeepPartial<Styles> ?? {})
   for(const indicator of chart.getIndicators())if(!['TradeVis','COMPARE'].includes(indicator.name)&&!runtimeBindings.get(chart)?.indicatorIds.has(indicator.id))chart.removeIndicator({id:indicator.id})
@@ -143,8 +149,8 @@ export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3):Prom
     if(!chart.getYAxes({id,paneId:axis.paneId}).length)chart.createYAxis({...config,id} as YAxisOverride)
     else chart.overrideYAxis({...config,id})
   }
-  chartPro.restoreDrawings('local',layout.overlayData.map(overlay=>({logicalId:overlay.id??`local-${crypto.randomUUID()}`,owner:'local',overlay:{...overlay,id:overlay.id??'',styles:overlay.styles,extendData:overlay.extendData} as import('../types').OverlaySnapshot})))
-  chartPro.restoreDrawings('backend',backendDrawings.map(({drawing,names})=>{
+  ;(transaction?.restore??chartPro.restoreDrawings.bind(chartPro))('local',layout.overlayData.map(overlay=>({logicalId:overlay.id??`local-${crypto.randomUUID()}`,owner:'local',overlay:{...overlay,id:overlay.id??'',styles:overlay.styles,extendData:overlay.extendData} as import('../types').OverlaySnapshot})))
+  ;(transaction?.restore??chartPro.restoreDrawings.bind(chartPro))('backend',backendDrawings.map(({drawing,names})=>{
     return {...drawing,overlay:{...drawing.overlay,paneId:resolveDrawingPane(chart,drawing.overlay.paneId,names)}}
   }))
   if(layout.viewport){chart.setBarSpace(layout.viewport.barSpace);const index=chart.getDataList().findIndex(b=>b.timestamp===layout.viewport!.toTimestamp);if(index>=0)chart.scrollToDataIndex(index,0)}

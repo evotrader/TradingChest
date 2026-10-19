@@ -16,9 +16,10 @@ describe('confirmed drawing history',()=>{
     const commit=vi.fn(async():Promise<DrawingCommitResult>=>({status:'uncertain',message:'Response lost'}))
     const history=new DrawingHistory({context,commit,apply:(_id,value)=>{if(failRender)throw Error('Pane removed');return value}})
     history.reconcile('backend',[snapshot(10,'backend','server-1')]);failRender=true
-    await expect(history.submit('delete','drawing-1',null,'keyboard')).rejects.toThrow('Pane removed')
+    await expect(history.submit('delete','drawing-1',null,'keyboard')).resolves.toMatchObject({status:'uncertain',message:'Response lost'})
     expect(history.getState()).toMatchObject({pending:0,canUndo:false,uncertainLogicalIds:['drawing-1'],error:'Response lost'})
-    await expect(history.submit('delete','drawing-1',null,'keyboard')).rejects.toThrow('Pane removed');expect(commit).toHaveBeenCalledTimes(1)
+    expect(history.getState().projectionErrors).toEqual({'drawing-1':'Pane removed'})
+    await expect(history.submit('delete','drawing-1',null,'keyboard')).resolves.toMatchObject({status:'rejected'});expect(commit).toHaveBeenCalledTimes(1)
     failRender=false;history.reconcile('backend',[]);expect(history.getState().uncertainLogicalIds).toEqual([])
   })
   it('rechecks queued intents and undo targets before host writes without making the result uncertain',async()=>{
@@ -29,7 +30,8 @@ describe('confirmed drawing history',()=>{
     await expect(pending).rejects.toThrow('Transient pane');expect(commit).not.toHaveBeenCalled();expect(visible.size).toBe(0)
     blocked=false;await history.submit('create','drawing-1',snapshot(10,'backend','server-1'),'manual')
     blocked=true;await history.submit('delete','drawing-1',null,'keyboard')
-    await expect(history.undo()).rejects.toThrow('Transient pane');expect(commit).toHaveBeenCalledTimes(2);expect(visible.size).toBe(0)
+    await expect(history.undo()).resolves.toMatchObject({status:'rejected',message:'Transient pane'});expect(commit).toHaveBeenCalledTimes(2);expect(visible.size).toBe(0)
+    expect(history.getLastResult()).toMatchObject({status:'rejected',items:[{logicalId:'drawing-1',status:'rejected',message:'Transient pane'}]})
     expect(history.getState()).toMatchObject({pending:0,canUndo:true,canRedo:false,uncertainLogicalIds:[]})
   })
   it('preflights an entire canonical batch before removing or applying any drawings',()=>{

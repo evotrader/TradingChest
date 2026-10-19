@@ -24,6 +24,7 @@ export interface SymbolInfo {
   exchange?: string
   market?: string
   pricePrecision?: number
+  tickSize?: number
   volumePrecision?: number
   priceCurrency?: string
   type?: string
@@ -124,6 +125,8 @@ export interface OverlayLifecycleEvent {
 }
 
 export interface ChartProOptions extends AnalysisOptions {
+  drawingCatalog?:import('./drawing/catalog').DrawingToolDescriptor[]
+  onDrawingStateChange?:(state:import('./drawing/types').DrawingState)=>void
   indicatorCatalog?:import('./indicator/catalog').IndicatorDescriptor[]
   comparisonSymbols?:SymbolInfo[]
   createComparisonDatafeed?:(symbol:SymbolInfo,period:Period)=>import('./compare/types').ComparisonDatafeed
@@ -168,6 +171,9 @@ export interface ChartProOptions extends AnalysisOptions {
 }
 
 export interface ChartPro {
+  getDrawingTools():import('./drawing/catalog').DrawingToolDescriptor[]
+  getDrawingState():import('./drawing/types').DrawingState
+  executeDrawingCommand(command:import('./drawing/types').DrawingCommand):Promise<import('./drawing/types').DrawingCommandResult>
   getAnalysisContext():import('./analysis/types').AnalysisContext|null
   addAnalysisLayer<S extends import('./analysis/types').AnalysisLayerSpec>(context:import('./analysis/types').AnalysisContext,spec:S):import('./analysis/types').AnalysisLayerHandle<S>
   getIndicatorCatalog():import('./indicator/catalog').IndicatorDescriptor[]

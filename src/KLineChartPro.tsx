@@ -22,6 +22,7 @@ import ChartProComponent, { type ChartComponentApi } from './ChartProComponent'
 import { SymbolInfo, Period, ChartPro, ChartProOptions } from './types'
 
 import KeyboardShortcutManager from './shortcut'
+import {copyDrawingCatalog} from './drawing/catalog'
 import { exportToCSV, exportAllToCSV, exportScreenshot } from './export'
 import { AlertManager } from './alert'
 import type { AlertConfig } from './alert/types'
@@ -50,6 +51,8 @@ export default class KLineChartPro implements ChartPro {
         <ChartProComponent
           ref={(chart: ChartComponentApi) => { this._chartApi = chart }}
           indicatorCatalog={options.indicatorCatalog}
+          drawingCatalog={options.drawingCatalog}
+          onDrawingStateChange={options.onDrawingStateChange}
           analysisLayerListVisible={options.analysisLayerListVisible}
           onAnalysisLayerChange={options.onAnalysisLayerChange}
           onAnalysisEventClick={options.onAnalysisEventClick}
@@ -197,18 +200,13 @@ export default class KLineChartPro implements ChartPro {
       },
       // 图表操作
       'chart:screenshot': () => { this.exportScreenshot() },
-      'chart:cancelDraw': () => { this._chartApi?.cancelDrawing() },
-      'chart:deleteSelected': () => { this._chartApi?.deleteSelectedDrawing() },
+      'chart:cancelDraw': () => { void this._chartApi?.executeDrawingCommand({type:'cancel'}) },
+      'chart:deleteSelected': () => { const ids=this._chartApi?.getDrawingState().selectedIds??[];if(ids.length)void this._chartApi?.executeDrawingCommand({type:'delete',ids}) },
       'drawing:undo': () => { void this._chartApi?.undoDrawing().catch(()=>{}) },
       'drawing:redo': () => { void this._chartApi?.redoDrawing().catch(()=>{}) },
-      // 绘图工具
-      'draw:straightLine': () => { this._chartApi?.createDrawing({ name: 'straightLine' }) },
-      'draw:horizontalStraightLine': () => { this._chartApi?.createDrawing({ name: 'horizontalStraightLine' }) },
-      'draw:verticalStraightLine': () => { this._chartApi?.createDrawing({ name: 'verticalStraightLine' }) },
-      'draw:fibonacciLine': () => { this._chartApi?.createDrawing({ name: 'fibonacciLine' }) },
-      'draw:rect': () => { this._chartApi?.createDrawing({ name: 'rect' }) },
-      'draw:brush': () => { this._chartApi?.createDrawing({ name: 'simpleAnnotation' }) },
-      'draw:dateAndPriceRange': () => { this._chartApi?.createDrawing({ name: 'dateAndPriceRange' }) },
+      ...Object.fromEntries(copyDrawingCatalog(options.drawingCatalog).map(tool=>[`draw:${tool.toolId}`,()=>{void this._chartApi?.executeDrawingCommand({type:'tool',toolId:tool.toolId})}])),
+      'drawing:copy':()=>{const ids=this._chartApi?.getDrawingState().selectedIds??[];if(ids.length)void this._chartApi?.executeDrawingCommand({type:'copy',ids})},
+      'drawing:paste':()=>{void this._chartApi?.executeDrawingCommand({type:'paste'})},
       // 显示切换
       'toggle:crosshair': () => {
         const chart = this.getChart()
@@ -231,6 +229,7 @@ export default class KLineChartPro implements ChartPro {
         if (axis) chart.overrideYAxis({id:axis.id,paneId:'candle_pane',name:axis.name === 'logarithm' ? 'normal' : 'logarithm'})
       },
     })
+    for(const tool of copyDrawingCatalog(options.drawingCatalog))if(tool.shortcut)this._shortcutManager.addBinding({combo:tool.shortcut.toLowerCase(),action:`draw:${tool.toolId}`,descriptionKey:tool.labels['zh-CN']})
     this._shortcutManager.bindTo(this._container!)
   }
 
@@ -486,6 +485,9 @@ export default class KLineChartPro implements ChartPro {
   }
 
   commitDrawing(change:Parameters<ChartPro['commitDrawing']>[0]) {return this._api().commitDrawing(change)}
+  getDrawingTools(){return this._api().getDrawingTools()}
+  getDrawingState(){return this._api().getDrawingState()}
+  executeDrawingCommand(command:Parameters<ChartPro['executeDrawingCommand']>[0]){return this._api().executeDrawingCommand(command)}
   getDrawings(){return this._api().getDrawings()}
   getDrawingHistoryState(){return this._api().getDrawingHistoryState()}
   restoreDrawings(owner:Parameters<ChartPro['restoreDrawings']>[0],drawings:Parameters<ChartPro['restoreDrawings']>[1]){this._api().restoreDrawings(owner,drawings)}

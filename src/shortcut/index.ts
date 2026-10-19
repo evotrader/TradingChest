@@ -91,7 +91,7 @@ export class KeyboardShortcutManager {
     this.unbind()
     this.element = element
     this.handler = (e: KeyboardEvent) => {
-      if (!this.enabled) return
+      if (!this.enabled||e.isComposing||e.getModifierState?.('AltGraph')||e.defaultPrevented) return
 
       // 如果焦点在 input/textarea 上，忽略快捷键
       const target = e.target as HTMLElement

@@ -14,7 +14,7 @@ const textAnnotation: OverlayTemplate = {
   needDefaultYAxisFigure: true,
   createPointFigures: ({ coordinates, overlay }) => {
     if (coordinates.length > 0) {
-      const text = (overlay.extendData as string) || 'Text'
+      const text = typeof overlay.extendData==='string'?overlay.extendData:String((overlay.extendData as any)?.text??'')
       return [
         {
           type: 'rectText',
@@ -36,33 +36,14 @@ const textAnnotation: OverlayTemplate = {
             paddingRight: 8,
             paddingTop: 4,
             paddingBottom: 4,
-            size: 12
+            size: 12,
+            ...overlay.styles?.text
           }
         }
       ]
     }
     return []
   },
-  // 绘制完成后弹出文字输入
-  onDrawEnd: ({ overlay }) => {
-    const input = window.prompt('输入标注文字 / Enter text:', (overlay.extendData as string) || 'Text')
-    if (input !== null && input.trim() !== '') {
-      overlay.extendData = input.trim()
-    }
-    return true
-  },
-  // 双击编辑文字
-  onClick: ({ overlay }) => {
-    // 右键或特殊操作才编辑，普通点击不处理
-    return false
-  },
-  onRightClick: ({ overlay }) => {
-    const input = window.prompt('编辑标注文字 / Edit text:', (overlay.extendData as string) || '')
-    if (input !== null && input.trim() !== '') {
-      overlay.extendData = input.trim()
-    }
-    return true  // 阻止默认右键菜单
-  }
 }
 
 export default textAnnotation

@@ -14,7 +14,7 @@ const note: OverlayTemplate = {
   needDefaultYAxisFigure: true,
   createPointFigures: ({ coordinates, overlay }) => {
     if (coordinates.length > 0) {
-      const text = (overlay.extendData as string) || 'Note'
+      const text = typeof overlay.extendData==='string'?overlay.extendData:String((overlay.extendData as any)?.text??'')
       return [
         {
           type: 'rectText',
@@ -36,27 +36,14 @@ const note: OverlayTemplate = {
             paddingRight: 8,
             paddingTop: 6,
             paddingBottom: 6,
-            size: 12
+            size: 12,
+            ...overlay.styles?.text
           }
         }
       ]
     }
     return []
   },
-  onDrawEnd: ({ overlay }) => {
-    const input = window.prompt('输入便签内容 / Enter note:', (overlay.extendData as string) || 'Note')
-    if (input !== null && input.trim() !== '') {
-      overlay.extendData = input.trim()
-    }
-    return true
-  },
-  onRightClick: ({ overlay }) => {
-    const input = window.prompt('编辑便签内容 / Edit note:', (overlay.extendData as string) || '')
-    if (input !== null && input.trim() !== '') {
-      overlay.extendData = input.trim()
-    }
-    return true
-  }
 }
 
 export default note

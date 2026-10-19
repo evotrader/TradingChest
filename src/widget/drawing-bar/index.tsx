@@ -1,228 +1,39 @@
-/**
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
-
- * http://www.apache.org/licenses/LICENSE-2.0
-
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-import { Component, createMemo, createSignal } from 'solid-js'
-
-import { OverlayCreate, OverlayMode } from 'klinecharts'
-
-import { List } from '../../component'
-import {
-  createSingleLineOptions, createMoreLineOptions,
-  createPolygonOptions, createFibonacciOptions, createWaveOptions,
-  createMeasurementOptions, createChannelOptions, createAnnotationOptions, createPositionOptions,
-  createMagnetOptions,
-  Icon
-} from './icons'
+import {createSignal,For,Show,type Component} from 'solid-js'
+import type {OverlayCreate} from 'klinecharts'
+import {builtinDrawingCatalog,type DrawingToolDescriptor} from '../../drawing/catalog'
+import {Icon} from './icons'
 
 export interface DrawingBarProps {
-  locale: string
-  onDrawingItemClick: (overlay: OverlayCreate) => void
-  onModeChange: (mode: string) => void,
-  onLockChange: (lock: boolean) => void
-  onVisibleChange: (visible: boolean) => void
-  onRemoveClick: (groupId: string) => void
+  locale:string
+  catalog?:DrawingToolDescriptor[]
+  onDrawingItemClick:(overlay:OverlayCreate)=>void
+  onModeChange:(mode:string)=>void
+  onLockChange:(lock:boolean)=>void
+  onVisibleChange:(visible:boolean)=>void
+  onRemoveClick:(groupId:string)=>void
 }
-
-const GROUP_ID = 'drawing_tools'
-
-const DrawingBar: Component<DrawingBarProps> = props => {
-  const [singleLineIcon, setSingleLineIcon] = createSignal('horizontalStraightLine')
-  const [moreLineIcon, setMoreLineIcon] = createSignal('priceChannelLine')
-  const [polygonIcon, setPolygonIcon] = createSignal('circle')
-  const [fibonacciIcon, setFibonacciIcon] = createSignal('fibonacciLine')
-  const [waveIcon, setWaveIcon] = createSignal('xabcd')
-  const [measurementIcon, setMeasurementIcon] = createSignal('dateAndPriceRange')
-  const [channelIcon, setChannelIcon] = createSignal('pitchfork')
-  const [annotationIcon, setAnnotationIcon] = createSignal('textAnnotation')
-  const [positionIcon, setPositionIcon] = createSignal('longPosition')
-
-  const [modeIcon, setModeIcon] = createSignal('weak_magnet')
-  const [mode, setMode] = createSignal('normal')
-
-  const [lock, setLock] = createSignal(false)
-
-  const [visible, setVisible] = createSignal(true)
-
-  const [popoverKey, setPopoverKey] = createSignal('')
-
-  const overlays = createMemo(() => {
-    return [
-      { key: 'singleLine', icon: singleLineIcon(), list: createSingleLineOptions(props.locale), setter: setSingleLineIcon },
-      { key: 'moreLine', icon: moreLineIcon(), list: createMoreLineOptions(props.locale), setter: setMoreLineIcon },
-      { key: 'polygon', icon: polygonIcon(), list: createPolygonOptions(props.locale), setter: setPolygonIcon },
-      { key: 'fibonacci', icon: fibonacciIcon(), list: createFibonacciOptions(props.locale), setter: setFibonacciIcon },
-      { key: 'wave', icon: waveIcon(), list: createWaveOptions(props.locale), setter: setWaveIcon },
-      { key: 'measurement', icon: measurementIcon(), list: createMeasurementOptions(props.locale), setter: setMeasurementIcon },
-      { key: 'channel', icon: channelIcon(), list: createChannelOptions(props.locale), setter: setChannelIcon },
-      { key: 'annotation', icon: annotationIcon(), list: createAnnotationOptions(props.locale), setter: setAnnotationIcon },
-      { key: 'position', icon: positionIcon(), list: createPositionOptions(props.locale), setter: setPositionIcon }
-    ]
-  })
-
-  const modes = createMemo(() => createMagnetOptions(props.locale))
-
-  return (
-    <div
-      class="klinecharts-pro-drawing-bar">
-      {
-        overlays().map(item => {
-          const currentLabel = () => String(item.list.find(d => d.key === item.icon)?.text ?? '')
-          return (
-          <div
-            class="item"
-            title={currentLabel()}
-            tabIndex={0}
-            onBlur={() => { setPopoverKey('') }}>
-            <span
-              style="width:32px;height:32px"
-              onClick={() => { props.onDrawingItemClick({ groupId: GROUP_ID, name: item.icon, visible: visible(), lock: lock(), mode: mode() as OverlayMode }) }}>
-              <Icon name={item.icon} />
-            </span>
-            <div
-              class="icon-arrow"
-              onClick={() => {
-                if (item.key === popoverKey()) {
-                  setPopoverKey('')
-                } else {
-                  setPopoverKey(item.key)
-                }
-              }}>
-              <svg
-                class={item.key === popoverKey() ? 'rotate' : ''}
-                viewBox="0 0 4 6">
-                <path d="M1.07298,0.159458C0.827521,-0.0531526,0.429553,-0.0531526,0.184094,0.159458C-0.0613648,0.372068,-0.0613648,0.716778,0.184094,0.929388L2.61275,3.03303L0.260362,5.07061C0.0149035,5.28322,0.0149035,5.62793,0.260362,5.84054C0.505822,6.05315,0.903789,6.05315,1.14925,5.84054L3.81591,3.53075C4.01812,3.3556,4.05374,3.0908,3.92279,2.88406C3.93219,2.73496,3.87113,2.58315,3.73964,2.46925L1.07298,0.159458Z" stroke="none" stroke-opacity="0"/>
-              </svg>
-            </div>
-            {
-              item.key === popoverKey() && (
-                <List class="list">
-                  {
-                    item.list.map(data => (
-                      <li
-                        onClick={() => {
-                          item.setter(data.key)
-                          props.onDrawingItemClick({ name: data.key, lock: lock(), mode: mode() as OverlayMode })
-                          setPopoverKey('')
-                        }}>
-                        <Icon name={data.key}/>
-                        <span style="padding-left:8px">{data.text}</span>
-                      </li>
-                    ))
-                  }
-                </List>
-              )
-            }
-          </div>
-          )
-        })
-      }
-      <span class="split-line"/>
-      <div
-        class="item"
-        tabIndex={0}
-        onBlur={() => { setPopoverKey('') }}>
-        <span
-          style="width:32px;height:32px"
-          onClick={() => {
-            let currentMode = modeIcon()
-            if (mode() !== 'normal') {
-              currentMode = 'normal'
-            }
-            setMode(currentMode)
-            props.onModeChange(currentMode)
-          }}>
-          {
-            modeIcon() === 'weak_magnet'
-              ? (mode() === 'weak_magnet' ? <Icon name="weak_magnet" class="selected"/> : <Icon name="weak_magnet"/>) 
-              : (mode() === 'strong_magnet' ? <Icon name="strong_magnet" class="selected"/> : <Icon name="strong_magnet"/>)
-          }
-        </span>
-        <div
-          class="icon-arrow"
-          onClick={() => {
-            if (popoverKey() === 'mode') {
-              setPopoverKey('')
-            } else {
-              setPopoverKey('mode')
-            }
-          }}>
-          <svg
-            class={popoverKey() === 'mode' ? 'rotate' : ''}
-            viewBox="0 0 4 6">
-            <path d="M1.07298,0.159458C0.827521,-0.0531526,0.429553,-0.0531526,0.184094,0.159458C-0.0613648,0.372068,-0.0613648,0.716778,0.184094,0.929388L2.61275,3.03303L0.260362,5.07061C0.0149035,5.28322,0.0149035,5.62793,0.260362,5.84054C0.505822,6.05315,0.903789,6.05315,1.14925,5.84054L3.81591,3.53075C4.01812,3.3556,4.05374,3.0908,3.92279,2.88406C3.93219,2.73496,3.87113,2.58315,3.73964,2.46925L1.07298,0.159458Z" stroke="none" stroke-opacity="0"/>
-          </svg>
-        </div>
-        {
-          popoverKey() === 'mode' && (
-            <List class="list">
-              {
-                modes().map(data => (
-                  <li
-                    onClick={() => {
-                      setModeIcon(data.key)
-                      setMode(data.key)
-                      props.onModeChange(data.key)
-                      setPopoverKey('')
-                    }}>
-                    <Icon name={data.key}/>
-                    <span style="padding-left:8px">{data.text}</span>
-                  </li>
-                ))
-              }
-            </List>
-          )
-        }
-      </div>
-      <div
-        class="item">
-        <span
-          style="width:32px;height:32px"
-          onClick={() => {
-            const currentLock = !lock()
-            setLock(currentLock)
-            props.onLockChange(currentLock)
-          }}>
-          {
-            lock() ? <Icon name="lock"/> : <Icon name="unlock" />
-          }
-        </span>
-      </div>
-      <div
-        class="item">
-        <span
-          style="width:32px;height:32px"
-          onClick={() => {
-            const v = !visible()
-            setVisible(v)
-            props.onVisibleChange(v)
-          }}>
-          {
-            visible() ? <Icon name="visible" /> : <Icon name="invisible" />
-          }
-        </span>
-      </div>
-      <span class="split-line"/>
-      <div
-        class="item">
-        <span
-          style="width:32px;height:32px"
-          onClick={() => { props.onRemoveClick(GROUP_ID) }}>
-          <Icon name="remove" />
-        </span>
-      </div>
-    </div>
-  )
+const DrawingBar:Component<DrawingBarProps>=props=>{
+  const [open,setOpen]=createSignal(false),[search,setSearch]=createSignal(''),[mode,setMode]=createSignal('normal'),[locked,setLocked]=createSignal(false),[visible,setVisible]=createSignal(true)
+  const catalog=()=>props.catalog??builtinDrawingCatalog
+  const label=(tool:DrawingToolDescriptor)=>tool.labels[props.locale==='en-US'?'en-US':'zh-CN']
+  const categories=()=>[...new Set(catalog().map(t=>t.category))]
+  const filtered=(category:string)=>catalog().filter(t=>t.category===category&&`${t.labels['zh-CN']} ${t.labels['en-US']} ${t.toolId}`.toLowerCase().includes(search().toLowerCase()))
+  const choose=(tool:DrawingToolDescriptor)=>{props.onDrawingItemClick({name:tool.overlayName,groupId:'drawing_tools',mode:mode() as any});setOpen(false)}
+  return <div class="klinecharts-pro-drawing-bar tc-drawing-bar">
+    <button title={props.locale==='en-US'?'All drawing tools':'全部绘图工具'} aria-label={props.locale==='en-US'?'All drawing tools':'全部绘图工具'} aria-expanded={open()} onClick={()=>setOpen(!open())}>＋</button>
+    <For each={categories()}>{category=>{
+      const tool=()=>catalog().find(t=>t.category===category)!
+      return <button title={`${label(tool())}${tool().shortcut?` (${tool().shortcut})`:''}`} aria-label={label(tool())} onClick={()=>choose(tool())}><Icon name={tool().icon}/></button>
+    }}</For>
+    <select aria-label={props.locale==='en-US'?'Magnet mode':'吸附模式'} value={mode()} onChange={event=>{setMode(event.currentTarget.value);props.onModeChange(mode())}}><option value="normal">{props.locale==='en-US'?'None':'无'}</option><option value="weak_magnet">{props.locale==='en-US'?'Weak':'弱磁'}</option><option value="strong_magnet">{props.locale==='en-US'?'Strong':'强磁'}</option></select>
+    <button aria-label={props.locale==='en-US'?'Prevent dragging':'防误拖动'} aria-pressed={locked()} onClick={()=>{setLocked(!locked());props.onLockChange(locked())}}><Icon name={locked()?'lock':'unlock'}/></button>
+    <button aria-label={props.locale==='en-US'?'Temporarily hide drawings':'暂时隐藏绘图'} aria-pressed={!visible()} onClick={()=>{setVisible(!visible());props.onVisibleChange(visible())}}><Icon name={visible()?'visible':'invisible'}/></button>
+    <Show when={open()}><section class="tc-drawing-tool-picker" aria-label={props.locale==='en-US'?'Drawing tools':'绘图工具'} onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();setOpen(false)}}}>
+      <input aria-label={props.locale==='en-US'?'Search drawing tools':'搜索绘图工具'} value={search()} onInput={event=>setSearch(event.currentTarget.value)} placeholder={props.locale==='en-US'?'Search tools':'搜索工具'}/>
+      <For each={categories()}>{category=><Show when={filtered(category).length}><div class="tc-drawing-tool-category">{category}</div><For each={filtered(category)}>{tool=><button onClick={()=>choose(tool)} title={tool.shortcut}><Icon name={tool.icon}/><span>{label(tool)}</span><kbd>{tool.shortcut}</kbd></button>}</For></Show>}</For>
+      <Show when={!catalog().some(t=>`${t.labels['zh-CN']} ${t.labels['en-US']} ${t.toolId}`.toLowerCase().includes(search().toLowerCase()))}><p>{props.locale==='en-US'?'No matching tools':'没有匹配工具'}</p></Show>
+      <button onClick={()=>setOpen(false)}>{props.locale==='en-US'?'Close':'关闭'}</button>
+    </section></Show>
+  </div>
 }
-
 export default DrawingBar

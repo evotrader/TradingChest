@@ -1,0 +1,14 @@
+<!doctype html><html><meta charset="utf-8"><body><p>隔离合成行情与偏好/提交替身；用于公开历史路由反例，不是真实后端验收。</p><div id="a" style="width:900px;height:500px"></div><div id="b" style="width:900px;height:500px"></div><script type="module">
+import {KLineChartPro,DrawingSessionRegistry} from '/src/chart.ts'
+import {makeBars} from './syntheticBars.ts'
+const bars=makeBars(200),symbol={ticker:'A.X',market:'test',exchange:'X',priceCurrency:'USD'},period={multiplier:1,timespan:'minute',text:'1m'},identity={namespace:'history-routing',symbol,priceBasisKey:'test-raw'}
+window.events=[[],[]];window.commits=[];window.registries=[];window.charts=[];window.readyCounts=[0,0];window.reads=0
+const mode=new URL(location.href).searchParams.get('mode');let release;const gate=new Promise(r=>release=r);window.releasePreferences=()=>release()
+for(const [i,id] of (mode==='queue'?['a']:['a','b']).entries()){
+ const pro=new KLineChartPro({container:document.querySelector('#'+id),symbol,period,mainIndicators:[],subIndicators:[],onDataReady:()=>readyCounts[i]++,onDrawingHistoryChange:s=>events[i].push(structuredClone(s)),...(mode==='queue'?{drawingOwner:()=> 'backend',commitDrawing:async change=>{commits.push(structuredClone(change));return {status:'confirmed',snapshot:change.after?{...change.after,backendId:change.logicalId}:null}},drawingPreferencesScope:'isolated-queue',drawingPreferencesStore:{read:async()=>{if(++reads===1)throw Error('隔离首次偏好读取失败');await gate;return null},write:async()=>{}}}:{}),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async()=>({bars,basis:'test-raw',hasMoreBefore:false}),subscribe:()=>{},unsubscribe:()=>{}}});charts.push(pro)
+}
+while(readyCounts.some(n=>!n)&&charts.length===2||!readyCounts[0])await new Promise(r=>setTimeout(r,1))
+if(mode!=='queue'){const registry=new DrawingSessionRegistry({scope:'workspace'});registries.push(registry);await Promise.all(charts.map(pro=>pro.bindDrawingWorkspace(registry,()=>({identity}))))}
+window.makeDrawing=(id,owner='local')=>({logicalId:id,owner,anchors:bars.slice(-20,-18).map(b=>({kind:'market',timestamp:b.timestamp,value:b.close})),overlay:{id,name:'segment',paneId:'candle_pane',groupId:'drawing_tools',points:bars.slice(-20,-18).map(b=>({timestamp:b.timestamp,value:b.close})),lock:false,visible:true,styles:null,extendData:null}})
+window.cleanup=()=>{charts.forEach(c=>c.dispose());registries.forEach(r=>r.dispose())};window.ready=true
+</script></body></html>

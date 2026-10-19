@@ -221,7 +221,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       if(kind==='create'&&overlay.name==='anchoredText')anchors=[convertDrawingAnchor({logicalId:overlay.id,owner:'local',overlay:value,anchors},0,'viewport')]
       if(kind==='update'){
         void drawingController.execute({type:'update',ids:[overlay.id],patch:source==='property-bar'?{text:textOf(overlay.extendData)}:{anchors}})
-      }else void commitDrawing({kind,logicalId:overlay.id,after:kind==='delete'?null:{...existing,logicalId:overlay.id,owner:existing?.owner??props.drawingOwner?.(value)??'local',overlay:value,anchors,yAxisId:existing?.yAxisId??widget?.getYAxes({paneId:overlay.paneId})[0]?.id,parameters:existing?.parameters??drawingParameters(overlay.extendData)},source}).then(result=>{if(kind==='create'&&result.status==='confirmed'){if(selectedOverlay()?.id===overlay.id)void drawingController.execute({type:'select',ids:[overlay.id]});drawingController.completed(drawingCatalog.find(t=>t.overlayName===overlay.name)?.toolId)}}).catch(reason=>{if(kind==='create'){applyingDrawing=true;try{widget?.removeOverlay({id:overlay.id});ownedDrawingIds.delete(overlay.id);completedDrawingIds.delete(overlay.id)}finally{applyingDrawing=false}}setDrawingState({...drawingCoordinator.state(),error:reason instanceof Error?reason.message:String(reason)})})
+      }else void commitDrawing({kind,logicalId:overlay.id,after:kind==='delete'?null:{...existing,logicalId:overlay.id,owner:existing?.owner??props.drawingOwner?.(value)??'local',overlay:value,anchors,yAxisId:existing?.yAxisId,parameters:existing?.parameters??drawingParameters(overlay.extendData)},source}).then(result=>{if(kind==='create'&&result.status==='confirmed'){if(selectedOverlay()?.id===overlay.id)void drawingController.execute({type:'select',ids:[overlay.id]});drawingController.completed(drawingCatalog.find(t=>t.overlayName===overlay.name)?.toolId)}}).catch(reason=>{if(kind==='create'){applyingDrawing=true;try{widget?.removeOverlay({id:overlay.id});ownedDrawingIds.delete(overlay.id);completedDrawingIds.delete(overlay.id)}finally{applyingDrawing=false}}setDrawingState({...drawingCoordinator.state(),error:reason instanceof Error?reason.message:String(reason)})})
     }catch(reason){setDrawingState({...drawingHistory.getState(),error:reason instanceof Error?reason.message:String(reason)})}
   }
   const promptTextOverlay = (overlay:Overlay,creating=true) => {
@@ -520,11 +520,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     locale,
     validate:validateDrawingTarget,validateTransfer:values=>validateRestore('local',values),
     context:()=>({symbol:symbol(),period:period()}),apply:applyDrawing,commit:change=>props.commitDrawing?props.commitDrawing(change):Promise.resolve({status:'rejected',message:i18n('drawing_message_3',locale())}),
-    onChange:state=>{if(disposed)return;setDrawingState(state);props.onDrawingHistoryChange?.(state);if(drawingPresentationFrame===undefined)drawingPresentationFrame=requestAnimationFrame(()=>{drawingPresentationFrame=undefined;if(!disposed){drawingController?.refresh();widget?.resize()}})},
+    onChange:state=>{if(disposed)return;setDrawingState(state);if(drawingPresentationFrame===undefined)drawingPresentationFrame=requestAnimationFrame(()=>{drawingPresentationFrame=undefined;if(!disposed){drawingController?.refresh();widget?.resize()}})},
     onConfirmed:change=>{if(change.after&&change.source!=='history')drawingController?.rememberConfirmed(change.after);const event={overlay:(change.after??change.before)!.overlay,source:change.source};if(change.kind==='create')props.onOverlayCreate?.(event);else if(change.kind==='update')props.onOverlayUpdate?.(event);else props.onOverlayDelete?.(event)},
   })
   const sharedProjectionObjects=new Map<string,Overlay>()
-  drawingCoordinator=new DrawingCoordinator(drawingHistory,{saveAs:props.createDrawingDocumentId&&props.drawingHostSessions?async(session,identity)=>{const id=await props.createDrawingDocumentId!(identity);if(!id)throw Error('宿主没有提供另存文档 ID');const target=await props.drawingHostSessions!.bind({identity,documentId:id});if(target.getState().revision!==null||target.history.getDrawingIds().length)throw Error('另存目标已存在，当前草稿已保留');return target}:undefined,owns:id=>sharedProjectionObjects.get(id)===widget?.getOverlays({id})[0]&&sharedProjectionObjects.has(id),project:(id,value)=>{if(!value&&sharedProjectionObjects.get(id)!==widget?.getOverlays({id})[0]){sharedProjectionObjects.delete(id);return;}applyDrawing(id,value);if(value){const actual=widget?.getOverlays({id})[0];if(actual)sharedProjectionObjects.set(id,actual)}else sharedProjectionObjects.delete(id)},validate:value=>{validateDrawingTarget(value);validateDrawingRestore([value],{editable,existing:widget?.getOverlays().map(snapshotOverlay)??[],ownedIds:new Set([...drawingHistory.getDrawingIds(),...[...sharedProjectionObjects].filter(([id,object])=>object===widget?.getOverlays({id})[0]).map(([id])=>id)])})},changed:()=>{if(disposed)return;const state=drawingCoordinator?.state(drawingController?.getState().selectedIds??[]);if(state){setDrawingState(state);props.onDrawingHistoryChange?.(state)}drawingController?.refresh()}})
+  drawingCoordinator=new DrawingCoordinator(drawingHistory,{saveAs:props.createDrawingDocumentId&&props.drawingHostSessions?async(session,identity)=>{const id=await props.createDrawingDocumentId!(identity);if(!id)throw Error('宿主没有提供另存文档 ID');const target=await props.drawingHostSessions!.bind({identity,documentId:id});if(target.getState().revision!==null||target.history.getDrawingIds().length)throw Error('另存目标已存在，当前草稿已保留');return target}:undefined,owns:id=>sharedProjectionObjects.get(id)===widget?.getOverlays({id})[0]&&sharedProjectionObjects.has(id),project:(id,value)=>{if(!value&&sharedProjectionObjects.get(id)!==widget?.getOverlays({id})[0]){sharedProjectionObjects.delete(id);return;}applyDrawing(id,value);if(value){const actual=widget?.getOverlays({id})[0];if(actual)sharedProjectionObjects.set(id,actual)}else sharedProjectionObjects.delete(id)},validate:value=>{validateDrawingTarget(value);validateDrawingRestore([value],{editable,existing:widget?.getOverlays().map(snapshotOverlay)??[],ownedIds:new Set([...drawingHistory.getDrawingIds(),...[...sharedProjectionObjects].filter(([id,object])=>object===widget?.getOverlays({id})[0]).map(([id])=>id)])})},changed:()=>{if(disposed)return;const state=drawingCoordinator?.state(drawingController?.getState().selectedIds??[]);if(state){setDrawingState(state)}drawingController?.refresh()}})
   let workspaceSessions=props.drawingWorkspaceSessions,shareResolver=props.resolveDrawingShareKey,sharingEpoch=0
   let boundShareKey:string|undefined,boundWorkspace:DrawingSessionRegistry|undefined,boundHost:DrawingSessionRegistry|undefined
   const bindSharedDrawings=async()=>{
@@ -549,6 +549,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     const history=drawingCoordinator.history(change.kind==='create'?[]:[change.logicalId],true)
     const after=change.after&&history!==drawingHistory?drawingCoordinator.prepare({...change.after,presentation:{...change.after.presentation,scope:change.kind==='create'?drawingCoordinator.getScope():drawingCoordinator.getDrawing(change.logicalId)?.presentation?.scope??'chart'}}):change.after
     if(after&&history!==drawingHistory)drawingCoordinator.validate(after)
+    drawingController?.rememberHistory(history)
     return history.submit(change.kind,change.logicalId,after,change.source)
   }
   const [snapHint,setSnapHint]=createSignal('')
@@ -738,7 +739,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if(!overlay||!tool||tool.mode!=='variable')return {status:'rejected',items:[],message:'当前没有待完成的可变点绘图'}
     const points=overlay.points.slice(0,Math.max(0,overlay.currentStep-1))
     if(points.length<tool.minPoints)return {status:'rejected',items:[],message:`请至少确认 ${tool.minPoints} 个点后完成`}
-    const id=overlay.id,value={...snapshotOverlay(overlay),points},snapshot:DrawingSnapshot={logicalId:id,owner:props.drawingOwner?.(value)??'local',overlay:value,anchors:anchorsFromPoints(points,widget!.getDataList(),period(),'interaction'),parameters:drawingParameters(overlay.extendData),yAxisId:widget!.getYAxes({paneId:overlay.paneId})[0]?.id}
+    const id=overlay.id,value={...snapshotOverlay(overlay),points},snapshot:DrawingSnapshot={logicalId:id,owner:props.drawingOwner?.(value)??'local',overlay:value,anchors:anchorsFromPoints(points,widget!.getDataList(),period(),'interaction'),parameters:drawingParameters(overlay.extendData)}
     applyingDrawing=true
     try{widget!.removeOverlay({id});widget!.createOverlay({...value,lock:true,...drawingHandlers()});activeDrawingId=null}finally{applyingDrawing=false}
     let result:import('./drawing/types').DrawingCommitResult
@@ -753,7 +754,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     owner:value=>props.drawingOwner?.(value.overlay)??'local',
     coordinates:(value,patch)=>{if(!widget)throw Error('图表尚未就绪');if(patch.anchors)return {...value,overlay:{...value.overlay,points:projectDrawingPoints(value)}};return {...value,anchors:anchorsFromPoints(value.overlay.points,widget.getDataList(),period(),'interaction')}},
     project:()=>{drawingHistory.reproject();drawingCoordinator.project()},
-    changed:state=>{setWorkbenchState(state);props.onDrawingStateChange?.(state);queueMicrotask(refreshDrawingHandles)},
+    changed:state=>{setWorkbenchState(state);setDrawingState(state.history);props.onDrawingStateChange?.(state);props.onDrawingHistoryChange?.(state.history);queueMicrotask(refreshDrawingHandles)},
     selected:ids=>{props.onDrawingSelect?.(ids.length===1?ids[0]:null)}
   })
 
@@ -773,11 +774,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     executeDrawingCommand:command=>drawingController.execute(command),
     bindDrawingWorkspace:async(registry,resolve)=>{workspaceSessions=registry;if(resolve)shareResolver=resolve;await bindSharedDrawings()},
     getDrawings:()=>drawingCoordinator.getDrawings(),
-    getDrawingHistoryState:()=>drawingCoordinator.state(drawingController.getState().selectedIds),
+    getDrawingHistoryState:()=>drawingController.getHistoryState(),
     restoreDrawings:(owner,values)=>{validateRestore(owner,values);drawingHistory.reconcile(owner,values)},
     resetDrawingHistory:()=>drawingHistory.reset(),
-    undoDrawing:()=>drawingCoordinator.history(drawingController.getState().selectedIds,true).undo(),
-    redoDrawing:()=>drawingCoordinator.history(drawingController.getState().selectedIds,true).redo(),
+    undoDrawing:()=>drawingController.travel('undo'),
+    redoDrawing:()=>drawingController.travel('redo'),
     retryData:()=>replayEngine?Promise.reject(new Error('回放中请先退出回放')):loader?.retry()??Promise.resolve(),
     reloadData: options => replayEngine ? Promise.reject(new Error('回放中请先退出回放，再重新加载行情')) : loader?.reload(options?.preserveViewport ?? true) ?? Promise.resolve(),
     applySnapshot: snapshot => loader?.applySnapshot(snapshot) ?? Promise.reject(new Error(i18n('chart_not_ready',locale()))),

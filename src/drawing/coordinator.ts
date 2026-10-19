@@ -73,6 +73,13 @@ export class DrawingCoordinator {
   getScope():DrawingScope{return this.scope}
   setScope(scope:DrawingScope):void{const state=this.state();if(scope!==this.scope&&(state.pending||state.uncertainLogicalIds.length))throw Error('绘图或迁移尚未确认，不能切换作用域');if(scope!=='chart'&&!this.sessions[scope])throw Error(this.reason||'该共享作用域尚未启用');this.scope=scope;this.options.changed()}
   getSession(scope:'workspace'|'host'):DrawingSession{const session=this.sessions[scope];if(!session)throw Error(this.reason||'共享会话尚未就绪');return session}
+  scopeOf(history:DrawingHistory):DrawingScope|undefined{return history===this.local?'chart':this.list().find(session=>session.history===history)?.scope}
+  getBindingEpoch():number{return this.bindingEpoch}
+  assertWritable(history:DrawingHistory):void{
+    const scope=this.scopeOf(history)
+    if(scope===undefined)throw Error('绘图会话已解绑，请在当前上下文重试')
+    if(scope!=='chart'&&['loading','uncertain'].includes(this.getSession(scope).getState().status))throw Error('共享存储尚未确认，请先刷新核对')
+  }
   getSharing(){return {canSaveAs:!!this.options.saveAs,workspace:this.sessions.workspace?.getState(),host:this.sessions.host?.getState(),reason:this.reason||undefined}}
   getDrawings():DrawingSnapshot[]{return [...this.local.getDrawings(),...this.list().flatMap(s=>s.history.getDrawings()).filter(d=>!this.local.getDrawing(d.logicalId))]}
   /** Shared values project onto each chart's main price axis, never an engine instance ID. */
@@ -83,7 +90,7 @@ export class DrawingCoordinator {
     if(owners.size>1)throw Error('所选绘图属于不同会话，请按作用域分别操作')
     const history=owners.values().next().value??(this.scope==='chart'?this.local:this.getSession(this.scope).history)
     const session=this.list().find(s=>s.history===history)
-    if(write&&session&&['loading','uncertain'].includes(session.getState().status))throw Error('共享存储尚未确认，请先刷新核对')
+    if(write)this.assertWritable(history)
     return history
   }
   state(ids:string[]=[]):DrawingHistoryState{

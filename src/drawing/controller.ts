@@ -2,7 +2,7 @@ import {copyDrawingCatalog,validateDrawingParameters,type DrawingToolDescriptor}
 import type {DrawingHistory} from './history'
 import type {DrawingCoordinator} from './coordinator'
 import type {DrawingPreferencesManager,DrawingStylePreset,DrawingTemplate} from './preferences'
-import type {DrawingCommand,DrawingCommandResult,DrawingSnapshot,DrawingState,DrawingPresentation} from './types'
+import type {DrawingCommand,DrawingCommandResult,DrawingSnapshot,DrawingState,DrawingPresentation,DrawingCommitResult,DrawingHistoryState} from './types'
 
 interface Options {
   history:DrawingHistory
@@ -47,14 +47,25 @@ export class DrawingController {
   constructor(private options:Options){this.catalog=copyDrawingCatalog(options.catalog)}
   private executionIds:string[]|undefined
   private previewBases:DrawingSnapshot[]|undefined
+  private travelTarget?:{history:DrawingHistory;generation:number}
+  private rememberedHistory():DrawingHistory|undefined{
+    const target=this.travelTarget
+    return target&&target.history.isAvailable(target.generation)&&(!this.options.coordinator||this.options.coordinator.scopeOf(target.history)!==undefined)?target.history:undefined
+  }
   private history(write=false):DrawingHistory{return this.options.coordinator?.history(this.executionIds??this.selectedIds,write)??this.options.history}
   private drawings():DrawingSnapshot[]{return this.options.coordinator?.getDrawings()??this.options.history.getDrawings()}
   getState():DrawingState {
     const objects=this.drawings(),groups=new Map<string,{id:string;name:string;paneId:string}>()
     for(const object of objects)if(object.presentation?.groupId)groups.set(object.presentation.groupId,{id:object.presentation.groupId,name:object.presentation.groupName??object.presentation.groupId,paneId:object.overlay.paneId??'candle_pane'})
-    return {origin:this.options.coordinator?.getOrigin()??'user',toolId:this.toolId,step:this.step,continuous:this.continuous,selectedIds:[...this.selectedIds],scope:this.options.coordinator?.getScope()??'chart',historyScope:this.selectedIds.length?(objects.find(d=>d.logicalId===this.selectedIds[0])?.presentation?.scope??'chart'):this.options.coordinator?.getScope()??'chart',sharing:this.options.coordinator?.getSharing(),objects,groups:[...groups.values()],magnet:this.magnet,hidden:this.hidden,preventDragging:this.preventDragging,history:this.options.coordinator?.state(this.selectedIds)??this.options.history.getState(),preferences:this.options.preferences?.getState(),lastResult:this.lastResult?copy(this.lastResult):undefined}
+    const remembered=this.rememberedHistory(),history=this.getHistoryState()
+    return {origin:this.options.coordinator?.getOrigin()??'user',toolId:this.toolId,step:this.step,continuous:this.continuous,selectedIds:[...this.selectedIds],scope:this.options.coordinator?.getScope()??'chart',historyScope:remembered?this.options.coordinator?.scopeOf(remembered)??'chart':this.selectedIds.length?(objects.find(d=>d.logicalId===this.selectedIds[0])?.presentation?.scope??'chart'):this.options.coordinator?.getScope()??'chart',sharing:this.options.coordinator?.getSharing(),objects,groups:[...groups.values()],magnet:this.magnet,hidden:this.hidden,preventDragging:this.preventDragging,history,preferences:this.options.preferences?.getState(),lastResult:this.lastResult?copy(this.lastResult):undefined}
   }
   getSelectedIds():string[]{return [...this.selectedIds]}
+  getHistoryState():DrawingHistoryState{
+    const remembered=this.rememberedHistory(),aggregate=this.options.coordinator?.state(this.selectedIds)??this.options.history.getState()
+    if(!remembered)return aggregate
+    const state=remembered.getState();return {...aggregate,error:state.error,canUndo:state.canUndo,canRedo:state.canRedo}
+  }
   getViewState():{hidden:boolean;preventDragging:boolean;magnet:import('./snap').DrawingMagnetMode}{return {magnet:this.magnet,hidden:this.hidden,preventDragging:this.preventDragging}}
   refresh():void {
     if(this.disposed)return
@@ -89,7 +100,8 @@ export class DrawingController {
     })
   }
   private async batch(build:()=>Array<{before?:DrawingSnapshot;after:DrawingSnapshot|null}>):Promise<DrawingCommandResult>{
-    return this.history(true).submitBatch(()=>{
+    const history=this.history(true);this.rememberHistory(history)
+    return history.submitBatch(()=>{
       for(const before of this.previewBases??[])if(JSON.stringify(this.options.coordinator?.getDrawing(before.logicalId)??this.options.history.getDrawing(before.logicalId))!==JSON.stringify(before))throw Error('绘图已被更新，本次手势已取消，请重新操作')
       const values=build().map(value=>({...value,after:value.after?this.options.coordinator?.prepare(value.after)??value.after:null}))
       for(const value of values)if(value.after)this.options.validate(value.after)
@@ -99,18 +111,37 @@ export class DrawingController {
   execute(command:DrawingCommand):Promise<DrawingCommandResult>{
     return this.enqueue(command)
   }
+  /** Legacy methods and visible commands share the same serial history routing. */
+  travel(direction:'undo'|'redo'):Promise<DrawingCommitResult|undefined>{
+    const assertContext=this.captureTravelContext(),run=this.tail.catch(()=>{}).then(()=>{assertContext();return this.travelNow(direction)});this.tail=run;return run
+  }
+  rememberHistory(history:DrawingHistory):void{this.travelTarget={history,generation:history.getDocumentGeneration()}}
+  private captureTravelContext():()=>void{
+    const generation=this.options.history.getDocumentGeneration(),epoch=this.options.coordinator?.getBindingEpoch()
+    return ()=>{if(this.disposed||this.options.history.getDocumentGeneration()!==generation||this.options.coordinator?.getBindingEpoch()!==epoch)throw new DOMException('排队期间绘图上下文已改变，已取消旧撤销或重做','AbortError')}
+  }
+  private async travelNow(direction:'undo'|'redo'):Promise<DrawingCommitResult|undefined>{
+    if(this.disposed)throw Error('绘图工作台已释放')
+    this.refresh()
+    const history=this.rememberedHistory()??this.history(true)
+    this.options.coordinator?.assertWritable(history)
+    this.rememberHistory(history)
+    try{return await history[direction]()}finally{this.refresh()}
+  }
   commitPreview(command:DrawingCommand,before:DrawingSnapshot[]):Promise<DrawingCommandResult>{return this.enqueue(command,before)}
   nudgePoint(id:string,index:number,dx:number,dy:number):Promise<DrawingCommandResult>{return this.enqueue({type:'move-point',ids:[id],index,dx,dy})}
   private enqueue(command:DrawingIntent,before?:DrawingSnapshot[]):Promise<DrawingCommandResult>{
-    const intent=copy(command),bases=before&&copy(before),run=this.tail.catch(()=>{}).then(()=>this.run(intent,bases))
+    const intent=copy(command),bases=before&&copy(before),assertContext=command.type==='undo'||command.type==='redo'?this.captureTravelContext():undefined,run=this.tail.catch(()=>{}).then(()=>this.run(intent,bases,assertContext))
     this.tail=run;return run
   }
-  private async run(command:DrawingIntent,before?:DrawingSnapshot[]):Promise<DrawingCommandResult>{
+  private async run(command:DrawingIntent,before?:DrawingSnapshot[],assertContext?:()=>void):Promise<DrawingCommandResult>{
     if(this.disposed)return {status:'rejected',items:[],message:'绘图工作台已释放'}
     let result=complete()
     this.executionIds='ids' in command?command.ids:undefined
     this.previewBases=before
+    if(!['undo','redo','view','copy','preferences','preferences-retry','template'].includes(command.type))this.travelTarget=undefined
     try{
+      assertContext?.()
       if(command.type==='scope'){
         if(!this.options.coordinator&&command.scope!=='chart')throw Error('宿主未启用共享绘图')
         this.options.coordinator?.setScope(command.scope);this.selectedIds=[];this.options.selected?.([])
@@ -174,7 +205,7 @@ export class DrawingController {
           }
         }
       }else if(command.type==='undo'||command.type==='redo'){
-        const history=this.history(true);await history[command.type]();result=history.getLastResult()
+        await this.travelNow(command.type);result=(this.rememberedHistory()??this.history()).getLastResult()
       }else if(command.type==='copy'){
         this.clipboard=copy(this.targets(command.ids))
       }else if(command.type==='paste'||command.type==='duplicate'){
@@ -252,5 +283,5 @@ export class DrawingController {
     }catch(error){result={status:'rejected',items:[],message:error instanceof Error?error.message:String(error)}}
     this.executionIds=undefined;this.previewBases=undefined;this.lastResult=result;this.refresh();return copy(result)
   }
-  dispose():void{this.disposed=true;this.clipboard=[];this.selectedIds=[]}
+  dispose():void{this.disposed=true;this.clipboard=[];this.selectedIds=[];this.travelTarget=undefined}
 }

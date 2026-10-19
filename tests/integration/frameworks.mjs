@@ -3,11 +3,13 @@ import {writeFileSync,copyFileSync} from 'node:fs'
 import path from 'node:path'
 import {packedWorkspace,example,command,start,waitHTTP,freePort,evidence} from './support.mjs'
 import {launchBrowser} from '../browser/support.mjs'
+import {runDrawingComparison} from './drawing-comparison.mjs'
+import {runDrawingWorkbenchExample} from './drawing-workbench.mjs'
 const workspace=await packedWorkspace(),results=[],prepareOnly=process.argv.includes('--prepare-only')
 if(prepareOnly)copyFileSync(workspace.tarball,new URL('../../examples/'+path.basename(workspace.tarball),import.meta.url))
 const browser=prepareOnly?undefined:await launchBrowser({traceDir:evidence})
 try{
- for(const [name,version] of [['datafeed-contract'],['react-vite','18.3.1'],['react-vite','19.2.3'],['vue-vite'],['next-app']]) {
+ for(const [name,version] of [['datafeed-contract'],['drawing-workbench'],['react-vite','18.3.1'],['react-vite','19.2.3'],['vue-vite'],['next-app']]) {
   console.log('Framework:',name,version||'')
   if(prepareOnly&&version==='18.3.1')continue
   const directory=await example(workspace,name,{react:version,updateLocks:process.argv.includes('--update-locks')})
@@ -15,6 +17,7 @@ try{
   if(name==='datafeed-contract'){
     console.log(await command('npm',['test'],directory));results.push({name,passed:true});continue
   }
+  if(name==='drawing-workbench')console.log(await command('npm',['test'],directory))
   await command('npm',['run','build'],directory)
   const port=await freePort(),url=`http://127.0.0.1:${port}`
   const server=await start(directory,name==='next-app'?'start':'dev',['--port',String(port)])
@@ -23,7 +26,10 @@ try{
   try{
     await waitHTTP(url,server);await page.goto(url)
     if(name==='next-app')await page.getByRole('link',{name:'打开图表'}).click()
-    if(name==='vue-vite'){
+    if(name==='drawing-workbench'){
+      console.log(JSON.stringify(await runDrawingWorkbenchExample(page,url,{http:true})))
+      await runDrawingComparison(page,url,evidence)
+    }else if(name==='vue-vite'){
       await page.waitForFunction(()=>window.tcVue?.chart?.getChart()?.getDataList().length===300)
       await page.getByRole('button',{name:'卸载',exact:true}).click()
       await page.waitForFunction(()=>window.tcVue.metrics.created===window.tcVue.metrics.disposed&&window.tcVue.metrics.subscriptions===0)

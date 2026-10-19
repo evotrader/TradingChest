@@ -5,7 +5,7 @@ Implement the host adapter using the [data contract](./data-access). `host`, `sy
 ## React chart
 
 ```bash
-npm install trading-chest@0.9.0 klinecharts@10.1.0 react@19.2.3 react-dom@19.2.3
+npm install trading-chest@0.10.0 klinecharts@10.1.0 react@19.2.3 react-dom@19.2.3
 ```
 
 The integration matrix pairs React/ReactDOM **18.3.1/18.3.1** and **19.2.3/19.2.3**. Do not mix major versions. Pure `chart` and `testing` consumers do not need React or ReactDOM.
@@ -88,7 +88,7 @@ export function Workspace() {
 
 Cells render through portals and retain parent React Context. Do not create separate React roots for them. The `signal` in `renderCell` identifies this binding's lifetime; after cancellation/removal/failed staging, obsolete `onReady` callbacks cannot hand off results.
 
-After actual data application, a cell calls `onReady({chart,captureOptions?})`; later confirmed applications may call it again. For persistent drawings, supply actual `localDrawingIds`/backend `annotationRefs` through `captureOptions`. Do not copy the omitted example field and lose business references. Runtime analytical layers and market data stay outside layouts.
+After actual data application, a cell calls `onReady({chart,captureOptions?})`; later confirmed applications may call it again. Confirmed chart-local drawings are captured by default; `captureOptions.localDrawingIds` optionally selects a subset. The host must provide actual backend `annotationRefs`; do not omit business references by copying the abbreviated example. Runtime analytical layers and market data stay outside layouts.
 
 `store={sharedStore}` borrows a store without closing it. `createStore(signal)` creates an owned store for every mount and must return a store with `dispose():void`, synchronously or asynchronously. The wrapper closes it after workspace/cell cleanup, including late results. These props are mutually exclusive. Without either, storage management is disabled. Shared-store owners close it after every borrower unmounts.
 
@@ -174,3 +174,8 @@ Maintainers run `npm ci`, `npm run build`, then `npm run docs:site` to merge doc
 
 
 The complete static artifact provides a downloadable Next.js source archive in the [demo index](/demos/), including the matching TradingChest tarball and independent lock. Extract it, enter next-app, and run npm ci, npm run build, and npm start. Next.js still requires a Node server.
+
+
+## Drawing workbench example
+
+The drawing-workbench example installs the same public tarball. Two workspaces borrow one host drawing registry; a third refreshes explicitly. First-party IndexedDB persists preferences and drawings across reloads. Its optional loopback HTTP CAS server runs only in development; static builds disable it. See the drawing and 0.10.0 migration pages for ownership and format changes.

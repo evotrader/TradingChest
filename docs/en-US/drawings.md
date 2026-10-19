@@ -49,3 +49,5 @@ Finish variable-point tools with Enter or the visible Finish button; Escape canc
 Settings use each object's own price axis and authoritative anchors. Handles and price/time labels use the same projection. Future logical anchors show subsequent bars without invented trading dates; fractional anchors describe a proportion of the reference interval. Layout restoration maps stored axes to actual axes in the new chart instance.
 
 Regression uses loaded OHLC OLS and population residual deviation. Range tools distinguish bar counts from elapsed time. Fibonacci prices are calculated before axis projection. Position tools report price, explicit ticks and reward/risk only. Invalid log-domain values, zero risk and invalid stop directions have explicit unavailable states.
+
+Document IDs, logical drawing IDs and revisions are opaque strings; consumers must not depend on UUID formatting. First-party generation uses `crypto.getRandomValues` without requiring `randomUUID`. Existing persisted IDs and revisions are retained.

@@ -4,11 +4,13 @@ import {existsSync,cpSync,mkdirSync,writeFileSync,readFileSync,statSync} from 'n
 import path from 'node:path'
 import {packedWorkspace,example,command,root,evidence} from './support.mjs'
 import {launchBrowser} from '../browser/support.mjs'
+import {runDrawingComparison} from './drawing-comparison.mjs'
+import {runDrawingWorkbenchExample} from './drawing-workbench.mjs'
 const website=path.join(root,'website'),base='/TradingChest/'
 if(process.argv.includes('--build')){
  await command('npm',['run','docs:build'],root)
  const workspace=await packedWorkspace('tc09-site-')
- for(const name of ['react-vite','vue-vite']){
+ for(const name of ['react-vite','vue-vite','drawing-workbench']){
   const directory=await example(workspace,name)
   await command('npm',['run','build','--','--base',base+'demos/'+name+'/'],directory)
   cpSync(path.join(directory,'dist'),path.join(website,'demos',name),{recursive:true})
@@ -22,7 +24,7 @@ if(process.argv.includes('--build')){
  cpSync(path.join(directory,'dist'),path.join(website,'demos/analysis-sdk'),{recursive:true})
  const nextDirectory=await example(workspace,'next-app')
  await command('tar',['-czf',path.join(website,'demos/next-app-source.tar.gz'),'--exclude=node_modules','--exclude=.next','-C',workspace.directory,path.basename(nextDirectory),path.basename(workspace.tarball)],workspace.directory)
- writeFileSync(path.join(website,'demos/index.html'),`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>TradingChest 演示</title><h1>TradingChest 独立演示</h1><p>全部使用隔离合成输入，不连接生产服务。</p><ul>${[['analysis-sdk/','JS 分析图层'],['analysis-sdk/data-workspace.html','JS 数据与工作台'],['react-vite/','React 单图与工作台'],['vue-vite/','Vue 图表']].map(([href,label])=>`<li><a href="${base}demos/${href}">${label}</a></li>`).join('')}</ul><p>Next App Router 需要 Node 服务：<a download="next-app-source.tar.gz" href="${base}demos/next-app-source.tar.gz">下载 Next.js 源码包</a>。解包后进入 next-app，npm ci、npm run build、npm start；旁边的同版 tarball 已配好，README 包含运行说明。</p><a href="${base}">中文文档</a> · <a href="${base}en-US/">English</a></html>`)
+ writeFileSync(path.join(website,'demos/index.html'),`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>TradingChest 演示</title><h1>TradingChest 独立演示</h1><p>全部使用隔离合成输入，不连接生产服务。</p><ul>${[['drawing-workbench/','绘图工作台'],['analysis-sdk/','JS 分析图层'],['analysis-sdk/data-workspace.html','JS 数据与工作台'],['react-vite/','React 单图与工作台'],['vue-vite/','Vue 图表']].map(([href,label])=>`<li><a href="${base}demos/${href}">${label}</a></li>`).join('')}</ul><p>Next App Router 需要 Node 服务：<a download="next-app-source.tar.gz" href="${base}demos/next-app-source.tar.gz">下载 Next.js 源码包</a>。解包后进入 next-app，npm ci、npm run build、npm start；旁边的同版 tarball 已配好，README 包含运行说明。</p><a href="${base}">中文文档</a> · <a href="${base}en-US/">English</a></html>`)
  console.log('Complete Pages artifact:',website)
 }
 if(process.argv.includes('--test')){
@@ -49,6 +51,7 @@ if(process.argv.includes('--test')){
   await page.getByRole('button',{name:'读取完整合成会话（range）',exact:true}).click();await page.getByRole('status').filter({hasText:'range 返回完整区间 240 根'}).waitFor()
   await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'React 单图与工作台',exact:true}).click();await page.waitForFunction(()=>window.tcExample?.workspace.current?.getCells()[0]?.chart?.getChart()?.getDataList().length===300)
   await page.getByRole('button',{name:'卸载',exact:true}).click();await page.waitForFunction(()=>window.tcExample.metrics.created===window.tcExample.metrics.disposed)
+  await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'绘图工作台',exact:true}).click();await runDrawingWorkbenchExample(page,page.url());await runDrawingComparison(page,page.url(),evidence)
   await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'Vue 图表',exact:true}).click();await page.waitForFunction(()=>window.tcVue?.chart?.getChart()?.getDataList().length===300)
   await page.getByRole('button',{name:'卸载',exact:true}).click();await page.waitForFunction(()=>window.tcVue.metrics.created===window.tcVue.metrics.disposed)
   assert.deepEqual(errors,[]);assert.deepEqual(bad,[]);assert.deepEqual(api,[])

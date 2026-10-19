@@ -5,7 +5,7 @@ TradingChest 是通用浏览器图表库。行情、指标计算输入、存储�
 ## 安装
 
 ```bash
-npm install trading-chest@0.9.0 klinecharts@10.1.0
+npm install trading-chest@0.10.0 klinecharts@10.1.0
 ```
 
 本页描述 0.9.0 源码契约；尚未发布新版时，先在源码目录 `npm ci && npm run build`，再 `npm pack` 并安装实际 tarball。版本号说明不代表已公开发布。

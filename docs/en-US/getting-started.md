@@ -5,7 +5,7 @@ TradingChest is a general browser chart library. Hosts own market data, analytic
 ## Install
 
 ```bash
-npm install trading-chest@0.9.0 klinecharts@10.1.0
+npm install trading-chest@0.10.0 klinecharts@10.1.0
 ```
 
 This page describes the 0.9.0 source contract. Before publication, run `npm ci && npm run build`, then `npm pack` in the source checkout and install the actual tarball. Versioned instructions do not claim public publication.

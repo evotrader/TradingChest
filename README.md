@@ -15,6 +15,10 @@
   <img src="docs/public/image.png" alt="TradingChest Screenshot" width="800" />
 </p>
 
+## 0.10.0 drawing workbench
+
+A unified 51-tool catalog, multiline text, precise handles and coordinates, multiselection/groups, templates/preferences and explicit local/workspace/host sharing. Backend writes retain their original confirmation authority. New layouts use ChartLayoutV4 and WorkspaceDocument v2; legacy originals are preserved during migration. See [drawing usage](docs/en-US/drawings.md), [migration](docs/en-US/upgrade/0.10.0.md) and the [standalone example](examples/drawing-workbench). This is the source contract; local artifacts do not imply publication or complete TradingView parity.
+
 ## 0.9.0 framework integration
 
 `trading-chest/react` adds TradingChart and TradingWorkspace with explicit per-mount datafeed ownership, cancellation, Context-preserving portals and borrowed/owned store lifecycles. React/ReactDOM 18.3.1 and 19.2.3 are paired integration targets. The React entry preserves `use client` and supports DOM-free Node imports/renderToString; Canvas is initialized on the client. Next.js factories belong inside Client Components. Pure chart/testing consumers do not need React.
@@ -113,7 +117,7 @@ Candle Solid, Candle Hollow, Up Hollow, Down Hollow, OHLC, Area, **Heikin Ashi**
 ## Install
 
 ```bash
-npm install trading-chest@0.9.0 klinecharts@10.1.0
+npm install trading-chest@0.10.0 klinecharts@10.1.0
 ```
 
 ## React usage

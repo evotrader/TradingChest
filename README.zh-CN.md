@@ -15,6 +15,10 @@
   <img src="docs/public/image.png" alt="TradingChest 截图" width="800" />
 </p>
 
+## 0.10.0 绘图工作台
+
+统一 51 工具目录、多行文字、精确坐标与控制点、多选分组、模板偏好，以及本图／工作台／宿主共享。后端写入保留原确认权威，布局升级 ChartLayoutV4／WorkspaceDocument v2，旧原件纯读取迁移。参见[绘图使用](docs/drawings.md)、[升级说明](docs/upgrade/0.10.0.md)与[独立示例](examples/drawing-workbench)。本地源码／产物不代表已经发布，也不代表所有 TradingView 工具等价。
+
 ## 0.8.0 数据接入与命名工作台
 
 支持带命名空间的 KLineChart 模板、每图指标目录与按 ID 操作的真实实例，参数含数字／选择器／布尔开关，同名实例互不串改。外部线、正负柱、价格带、只读事件和有序标签面板接受宿主显式快照，落实 scope token、dataBasis 与回放 availableAt 规则。工作台尺寸／主题／语言／工具栏由宿主配置。

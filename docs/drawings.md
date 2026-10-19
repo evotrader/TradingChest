@@ -49,3 +49,5 @@ DrawingPreferencesStore.read/write 携 AbortSignal；drawingPreferencesScope 是
 设置面板可以选择对象自己的价格轴、编辑锚点和工具参数。控制点及价格／时间标签都按该轴投影。未来逻辑锚点只标后续根数，亚根位置标参考时段比例，不构造未来交易日期。重开布局时保存轴引用映射到新实例真实轴。
 
 回归工具使用已加载 OHLC 的 OLS 与总体残差标准差；根数测量与自然时长分别显示。Fib 参数在价格值域计算后投影，多空头只计算价格、已知 tick 和盈亏比。对数域非正派生价格、零风险或无效止损方向显示不可用原因。
+
+文档 ID、绘图逻辑 ID 和 revision 均为不透明字符串，消费者不应依赖 UUID 格式。首方生成使用浏览器 `crypto.getRandomValues`，不要求 `randomUUID`；保存原有 ID 和 revision 时不重生成。

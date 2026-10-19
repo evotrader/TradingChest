@@ -1,0 +1,17 @@
+{
+  "name": "trading-chest-drawing-workbench-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "test": "node --test http-store.test.mjs"
+  },
+  "dependencies": {
+    "klinecharts": "10.1.0",
+    "trading-chest": "file:../trading-chest-0.10.0.tgz"
+  },
+  "devDependencies": {
+    "vite": "5.4.21"
+  }
+}

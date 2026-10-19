@@ -122,7 +122,7 @@ new KLineChartPro(
 
 重载完成还要求引擎应用数据和订阅准备成功；订阅挂接后抛错时 Promise 拒绝，保留原 bars／basis／scope 并撤销部分订阅。准备期间同步到达的普通 bar，以及回放退出时比较 provider 的 bar／snapshot，复制到本次订阅的临时队列，成功后消费，失败／切换／销毁时释放。公开 `applySnapshot` 在组合检查点内保留最新输入，成功提交后再处理。
 
-当前布局只通过 `captureLayout`、`saveLayoutV4`、`loadLayoutV4`、`restoreLayout`、`deleteLayoutV4`、`listLayoutsV4` 写读 v4。读取结果为 `ok`／`missing`／`error`；错误携带 code 和 message。旧 v1／v2／v3 只在内存迁移，原键保留；新版损坏不会回落旧记录。恢复前先准备同身份、同周期的数据。后端标注只保存引用，本地绘图须显式提供 IDs，订单、成交、持仓及报警状态不写入布局。
+当前布局只通过 `captureLayout`、`saveLayoutV4`、`loadLayoutV4`、`restoreLayout`、`deleteLayoutV4`、`listLayoutsV4` 写读 v4。读取结果为 `ok`／`missing`／`error`；错误携带 code 和 message。旧 v1／v2／v3 只在内存迁移，原键保留；新版损坏不会回落旧记录。恢复前先准备同身份、同周期的数据。后端标注只保存宿主提供的引用。默认捕获已确认且属于本图的 local 绘图，`localDrawingIds` 可筛选子集，不能凭 ID 接管原始覆盖物。订单、成交、持仓及报警状态不写入布局。
 
 设置面板和快捷键使用 `getYAxes`／`overrideYAxis` 修改真实价格轴，名称为 `normal`／`percentage`／`logarithm`；价格轴类型不再写入 `styles.yAxis.type`。
 
@@ -306,7 +306,7 @@ readLegacyWorkspace(scope:string,options:{symbols:SymbolInfo[];
 
 错误类 `WorkspaceStoreError.code` 为 WORKSPACE_NOT_FOUND、WORKSPACE_STORE_UNAVAILABLE、WORKSPACE_INVALID_DOCUMENT 或 WORKSPACE_CONFLICT。冲突不自动覆盖，刷新后重新选择或另存。取消／超时可能已有写入，界面显示结果待确认并读取同 scope/ID 核对；核对前禁用新存储变更。每实例仅一个存储变更，图表交互保持可用。
 
-省略 store 时禁用管理并说明原因；IndexedDB 失败不回落其他存储。保存为显式手动操作，切换前应保存未保存改动。导入只读旧工作台键及 loadLayoutV3 支持的单图 v1/v2/v3 键，不自动加载或修改旧键。内容为 WorkspaceDocument v2 与单图 v4，外层持有名称／ID／revision，行情与运行时分析不入文档。销毁顺序为 workspace.dispose()，随后自有 store.dispose()；借用者不关闭共享 store。单图 saveLayoutV4/listLayoutsV4 保留原职责。
+省略 store 时禁用管理并说明原因；IndexedDB 失败不回落其他存储。保存为显式手动操作，切换前应保存未保存改动。导入只读旧工作台键及 loadLayoutV4 支持的单图 v1/v2/v3 旧键，不自动加载或修改旧键。内容为 WorkspaceDocument v2 与单图 v4，外层持有名称／ID／revision，行情与运行时分析不入文档。销毁顺序为 workspace.dispose()，随后自有 store.dispose()；借用者不关闭共享 store。单图 saveLayoutV4/listLayoutsV4 保留原职责。
 
 ## React 组件接口（0.9.0）
 

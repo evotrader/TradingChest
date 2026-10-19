@@ -5,7 +5,7 @@
 ## React 单图
 
 ```bash
-npm install trading-chest@0.9.0 klinecharts@10.1.0 react@19.2.3 react-dom@19.2.3
+npm install trading-chest@0.10.0 klinecharts@10.1.0 react@19.2.3 react-dom@19.2.3
 ```
 
 配套验证组合为 React／ReactDOM **18.3.1／18.3.1** 和 **19.2.3／19.2.3**。不要混装不同主版本。纯 `chart` 或 `testing` 消费者无需安装 React／ReactDOM。
@@ -88,7 +88,7 @@ export function Workspace() {
 
 工作台通过 portal 渲染 cell，保留父级 React Context。不要给每个 cell 再创建 `createRoot`。`renderCell` 的 `signal` 表示本次 cell 绑定生命周期；取消、移除或恢复失败后，不能再用旧的 `onReady` 交接结果。
 
-子图在数据实际应用后调用 `onReady({chart,captureOptions?})`，后续重复确认可再次调用。需要持久绘图时，`captureOptions` 必须返回真实 `localDrawingIds`／后端 `annotationRefs`；不要使用示例中的省略写法丢失业务引用。运行时分析和行情不写入布局。
+子图在数据实际应用后调用 `onReady({chart,captureOptions?})`，后续重复确认可再次调用。默认捕获已确认的本图 local 绘图，`captureOptions.localDrawingIds` 可筛选子集；后端 `annotationRefs` 必须由宿主提供真实引用，不要因省略示例字段丢失业务引用。运行时分析和行情不写入布局。
 
 `store={sharedStore}` 表示借用：组件不会关闭它。`createStore(signal)` 表示自有：必须每次创建返回带 `dispose():void` 的 store（可异步），待工作台和 cell 清理后关闭；迟到返回也关闭。两者互斥。未提供时管理禁用，不默认为其它存储。共享 store 的所有者应在全部借用者卸载后关闭它。
 
@@ -174,3 +174,8 @@ onUnmounted(() => { controller.abort(); chart?.dispose() })
 
 
 完整静态站产物的[演示索引](/demos/)提供 Next.js 源码下载包，内含同版 TradingChest tarball 与独立锁；解包进入 next-app 后运行 npm ci、npm run build、npm start。Next.js 仍需 Node 服务。
+
+
+## 绘图工作台独立示例
+
+drawing-workbench 示例实际安装同版公开 tarball。两个工作台借用同一宿主绘图 registry，第三个实例显式刷新；首方 IndexedDB 保存偏好和绘图。可运行的 loopback HTTP CAS 示例仅在开发服务可用，静态站禁用该选项。所有权与格式迁移见绘图页及 0.10.0 升级页。

@@ -1,8 +1,8 @@
 {
-  "source": "2026-10-17 READY plan G4; original 2026-10-15 single/comparison final gates.limit and first workspace baseline; approved long/comparison cold 500ms",
+  "source": "2026-10-17 READY plan G4; original 2026-10-15 single/comparison final gates.limit and first workspace baseline; approved long/comparison cold 500ms; 2026-10-19 operator approved 10k single cold 350ms and 50k single analysis cold 500ms",
   "cases": {
     "10000": {
-      "cold": 265.60000002384186,
+      "cold": 350,
       "update": 56.39999992847443,
       "interaction": 55.30000002384186
     },
@@ -59,6 +59,11 @@
       "limit": 750,
       "approvedOn": "2026-10-17",
       "source": "Operator approved the proposed analysis-only dual-chart cold budget; all other gates unchanged"
+    },
+    "50000": {
+      "limit": 500,
+      "approvedOn": "2026-10-19",
+      "source": "Operator approved the complete 0.10 cold-budget proposal: 50k single-chart analysis cold 500ms; all update/interaction gates and existing dual-chart overrides unchanged"
     }
   }
 }

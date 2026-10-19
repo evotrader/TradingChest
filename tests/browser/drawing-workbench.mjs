@@ -28,8 +28,10 @@ try{
  await editor.getByRole('textbox').fill('支撑区域\n等待确认')
  await editor.getByRole('button',{name:'确认',exact:true}).click()
  await page.waitForFunction(()=>pro.getDrawings().length===2&&pro.getDrawingHistoryState().pending===0)
- assert.equal(await page.evaluate(()=>pro.getDrawings().find(d=>d.overlay.name==='textAnnotation').overlay.extendData),'支撑区域\n等待确认')
- results.push({scenario:'multiline-text',passed:true})
+ assert.equal(await page.evaluate(()=>(()=>{const data=pro.getDrawings().find(d=>d.overlay.name==='textAnnotation').overlay.extendData;return typeof data==='string'?data:data.text})()),'支撑区域\n等待确认')
+ assert.deepEqual(await page.evaluate(()=>pro.getDrawings().find(d=>d.overlay.name==='textAnnotation').parameters),{textAlign:'center'})
+ assert.equal(await page.evaluate(()=>pro.getDrawings().find(d=>d.overlay.name==='textAnnotation').overlay.extendData.drawingParameters),undefined)
+ results.push({scenario:'multiline-text-and-authoritative-default-parameters',passed:true})
  await page.getByRole('button',{name:'全部绘图工具',exact:true}).click()
  await page.getByRole('textbox',{name:'搜索绘图工具',exact:true}).fill('矩形')
  await page.locator('.tc-drawing-tool-picker button[title="Alt+R"]').click()
@@ -59,11 +61,13 @@ try{
  await manager.getByRole('textbox',{name:'模板名称'}).fill('默认说明')
  await manager.getByRole('button',{name:'保存为新模板',exact:true}).click()
  await page.waitForFunction(()=>pro.getDrawingState().preferences.value.templates.length===1&&pro.getDrawingState().preferences.status==='saved')
+ assert.deepEqual(await page.evaluate(()=>pro.getDrawingState().preferences.value.templates[0].parameters),{textAlign:'center'})
  const layout=await page.evaluate(async()=>{
   const {captureLayout,restoreLayout}=await import('/src/persistence/v4.ts')
   const layout=captureLayout(pro,{annotationRefs:pro.getDrawings().filter(d=>d.owner==='backend').map(d=>d.backendId)})
   await pro.executeDrawingCommand({type:'delete',ids:pro.getDrawings().filter(d=>d.owner==='local').map(d=>d.logicalId)})
   await restoreLayout(pro,layout)
+  if(pro.getDrawings().find(d=>d.overlay.name==='textAnnotation').parameters.textAlign!=='center')throw Error('Authoritative text parameters were lost on restore')
   return {version:layout.version,local:layout.drawings.length,refs:layout.annotationRefs.length,objects:pro.getDrawings().length,presentation:pro.getDrawings().find(d=>d.overlay.name==='textAnnotation').presentation}
  })
  assert.equal(layout.version,4);assert.equal(layout.local,1);assert.equal(layout.refs,2);assert.equal(layout.objects,3);assert.equal(layout.presentation.name,'分析说明')
@@ -71,6 +75,27 @@ try{
  await page.reload();await page.waitForFunction(()=>window.ready&&pro.getDrawingState().preferences.status==='saved')
  assert.equal(await page.evaluate(()=>pro.getDrawingState().preferences.value.templates[0].name),'默认说明')
  results.push({scenario:'native-indexeddb-template-reload',passed:true})
+ const workspacePage=await browser.newPage({viewport:{width:1400,height:1100}})
+ workspacePage.on('pageerror',error=>errors.push(error.message))
+ await workspacePage.goto(`${process.env.TC_BROWSER_BASE??'http://127.0.0.1:4173'}/tests/browser/workspace-store.html`);await workspacePage.waitForFunction(()=>window.ready)
+ const retained=await workspacePage.evaluate(async()=>{
+  await setup({databaseName:crypto.randomUUID()})
+  const identity={namespace:'isolated-browser',symbol:{market:'test',exchange:'X',ticker:'A.X',priceCurrency:'USD'},priceBasisKey:'isolated-raw'}
+  const key=JSON.stringify([identity.namespace,'test','X','A.X','USD','isolated-raw'])
+  const drawing={logicalId:'shared-one',owner:'local',anchors:[{kind:'market',timestamp:1700000000000,value:10},{kind:'market',timestamp:1700000060000,value:11}],overlay:{id:'shared-one',name:'segment',paneId:'candle_pane',groupId:'tools',points:[{timestamp:1700000000000,value:10},{timestamp:1700000060000,value:11}],styles:null,extendData:null,lock:false,visible:true},presentation:{scope:'workspace'}}
+  const doc=workspace.capture();doc.sharedDrawings=[{version:1,key,identity,drawings:[drawing]}]
+  const signal=new AbortController().signal,saved=await nativeStore.write('ui-isolated',{kind:'create',id:crypto.randomUUID(),name:'Shared preservation',document:doc},signal)
+  await workspace.load(saved.id);const captured=workspace.capture();await workspace.save()
+  const stored=await nativeStore.read('ui-isolated',saved.id,signal),old=workspace.getCells()[0].chart
+  const invalid=structuredClone(doc);invalid.cells[0].chart.indicators.push({name:'NOT_REGISTERED',placement:'main',paneId:'candle_pane'})
+  let rejected=false;try{await workspace.restore(invalid)}catch{rejected=true}
+  const after=workspace.capture()
+  const result={captured:captured.sharedDrawings,stored:stored.document.sharedDrawings,afterFailure:after.sharedDrawings,rejected,keptInstance:workspace.getCells()[0].chart===old}
+  workspace.dispose();ownedStore.dispose();return result
+ })
+ assert.equal(retained.captured.length,1);assert.deepEqual(retained.stored,retained.captured);assert.deepEqual(retained.afterFailure,retained.captured);assert.equal(retained.rejected,true);assert.equal(retained.keptInstance,true)
+ results.push({scenario:'workspace-v2-shared-document-preservation',passed:true})
+ await workspacePage.close()
  await page.screenshot({path:`${process.env.TC_BROWSER_EVIDENCE??'test-results/browser'}/drawing-workbench.png`})
  await page.evaluate(()=>{pro.dispose();preferenceStore.dispose()});assert.deepEqual(errors,[])
  const evidence={passed:true,scope:'isolated-engine-browser',results,errors}

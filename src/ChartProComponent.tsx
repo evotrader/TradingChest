@@ -49,6 +49,7 @@ import type {ComparisonState} from './compare/types'
 import {DrawingHistory} from './drawing/history'
 import {DrawingController} from './drawing/controller'
 import {DrawingPreferencesManager} from './drawing/preferences'
+import {drawingParameters,drawingContent,engineDrawingData} from './drawing/content'
 import {drawingBindings} from './drawing/bindings'
 import {validateDrawingRestore} from './drawing/restore'
 import {anchorsFromPoints,projectAnchors,intervalVisible,validateAnchor} from './drawing/anchors'
@@ -112,7 +113,7 @@ function snapshotOverlay (overlay: Overlay): OverlayLifecycleEvent['overlay'] {
     groupId: overlay.groupId,
     name: overlay.name,
     points: (overlay.points ?? []).map(({timestamp,dataIndex,value}) => ({timestamp,dataIndex,value})),
-    extendData: overlay.extendData,
+    extendData: drawingContent(overlay.extendData),
     styles: overlay.styles,
     lock: overlay.lock,
     visible: overlay.visible
@@ -202,7 +203,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       if(kind==='create'&&overlay.name==='anchoredText')anchors=[convertDrawingAnchor({logicalId:overlay.id,owner:'local',overlay:value,anchors},0,'viewport')]
       if(kind==='update'){
         void drawingController.execute({type:'update',ids:[overlay.id],patch:source==='property-bar'?{text:textOf(overlay.extendData)}:{anchors}})
-      }else void commitDrawing({kind,logicalId:overlay.id,after:kind==='delete'?null:{...existing,logicalId:overlay.id,owner:existing?.owner??props.drawingOwner?.(value)??'local',overlay:value,anchors},source}).then(result=>{if(kind==='create'&&result.status==='confirmed'){if(selectedOverlay()?.id===overlay.id)void drawingController.execute({type:'select',ids:[overlay.id]});drawingController.completed(drawingCatalog.find(t=>t.overlayName===overlay.name)?.toolId)}}).catch(reason=>setDrawingState({...drawingHistory.getState(),error:reason instanceof Error?reason.message:String(reason)}))
+      }else void commitDrawing({kind,logicalId:overlay.id,after:kind==='delete'?null:{...existing,logicalId:overlay.id,owner:existing?.owner??props.drawingOwner?.(value)??'local',overlay:value,anchors,parameters:existing?.parameters??drawingParameters(overlay.extendData)},source}).then(result=>{if(kind==='create'&&result.status==='confirmed'){if(selectedOverlay()?.id===overlay.id)void drawingController.execute({type:'select',ids:[overlay.id]});drawingController.completed(drawingCatalog.find(t=>t.overlayName===overlay.name)?.toolId)}}).catch(reason=>setDrawingState({...drawingHistory.getState(),error:reason instanceof Error?reason.message:String(reason)}))
     }catch(reason){setDrawingState({...drawingHistory.getState(),error:reason instanceof Error?reason.message:String(reason)})}
   }
   const promptTextOverlay = (overlay:Overlay,creating=true) => {
@@ -414,7 +415,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       try{points=projectDrawingPoints(value)}catch(error){widget.removeOverlay({id});throw error}
       widget.removeOverlay({id});ownedDrawingIds.delete(id);completedDrawingIds.delete(id)
       const state=drawingController?.getViewState()
-      const created=widget.createOverlay({...overlay,id,points,zLevel:value.presentation?.order??0,fixedZLevel:true,visible:overlay.visible&&!state?.hidden&&intervalVisible(value.presentation?.intervals,period()),lock:overlay.lock||state?.preventDragging,styles:overlay.styles??undefined,extendData:overlay.extendData??undefined,...drawingHandlers()})
+      const created=widget.createOverlay({...overlay,id,points,zLevel:value.presentation?.order??0,fixedZLevel:true,visible:overlay.visible&&!state?.hidden&&intervalVisible(value.presentation?.intervals,period()),lock:overlay.lock||state?.preventDragging,styles:overlay.styles??undefined,extendData:engineDrawingData(overlay.extendData,value.parameters)??undefined,...drawingHandlers()})
       const actual=widget.getOverlays({id})[0]
       if(created!==id||!actual||(overlay.paneId&&actual.paneId!==overlay.paneId))throw Error(i18n('drawing_render_failure',locale()))
       if(value.anchors?.some(a=>a.kind==='viewport')&&actual.createPointFigures){

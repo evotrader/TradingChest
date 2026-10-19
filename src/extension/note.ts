@@ -23,7 +23,7 @@ const note: OverlayTemplate = {
             y: coordinates[0].y,
             text: text,
             baseline: 'top',
-            align: 'left'
+            align: (overlay.extendData as any)?.drawingParameters?.textAlign??'left'
           },
           styles: {
             style: 'stroke_fill',

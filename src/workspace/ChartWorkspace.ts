@@ -29,6 +29,7 @@ export class ChartWorkspace {
   private cells:Runtime[]=[]
   private pending=new Set<Runtime>()
   private staged=new Set<Runtime>()
+  private retainedSharedDrawings:WorkspaceDocument['sharedDrawings']=[]
   private layout:WorkspaceLayout=1
   private active='primary'
   private sync=emptySync()
@@ -230,7 +231,7 @@ export class ChartWorkspace {
   capture():WorkspaceDocument {
     if(this.busy||this.cells.length!==this.layout||this.cells.some(c=>c.transitioning))throw this.failure('workspace_not_ready')
     const cells=this.cells.map(c=>{if(!c.pro)throw this.failure('workspace_cell_not_ready',{id:c.cell.cellId});if(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)throw this.failure('workspace_drawing_save');const options=c.binding?.captureOptions?.()??{};return {...c.cell,chart:captureLayout(c.pro,{...options,localDrawingIds:[...(options.localDrawingIds??[]),...c.restoredIds,...c.pro.getDrawings().filter(d=>d.owner==='local').map(d=>d.logicalId)],context:{ticker:c.cell.symbol.ticker,period:{multiplier:c.cell.period.multiplier,timespan:c.cell.period.timespan}}})}})
-    const doc:WorkspaceDocument={version:2,sharedDrawings:[],layout:this.layout,activeCellId:this.active,sync:{...this.sync},columnRatio:this.columnRatio,rowRatio:this.rowRatio,cells}
+    const doc:WorkspaceDocument={version:2,sharedDrawings:this.copy(this.retainedSharedDrawings),layout:this.layout,activeCellId:this.active,sync:{...this.sync},columnRatio:this.columnRatio,rowRatio:this.rowRatio,cells}
     if(!isWorkspaceDocument(doc))throw this.failure('workspace_invalid_save')
     return doc
   }
@@ -355,6 +356,7 @@ export class ChartWorkspace {
       this.assertDrawingIdle(this.cells)
       for(const c of this.cells)this.disposeCell(c)
       this.cells=staged;for(const c of staged){this.staged.delete(c);this.grid.append(c.element);this.publishLabels(c)}
+      this.retainedSharedDrawings=this.copy(doc.sharedDrawings)
       this.layout=doc.layout;this.sync={...doc.sync};this.columnRatio=doc.columnRatio;this.rowRatio=doc.rowRatio
       for(const control of this.controls)control.checked=this.sync[control.dataset.sync as keyof WorkspaceSync]
       for(const [key,value] of [['columnRatio',this.columnRatio],['rowRatio',this.rowRatio]] as const)(this.root.querySelector(`[data-ratio="${key}"]`) as HTMLInputElement).value=String(value)

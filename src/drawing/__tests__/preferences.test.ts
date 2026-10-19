@@ -19,6 +19,23 @@ describe('drawing preferences and template ownership',()=>{
     expect(manager.getState().value.favorites).toEqual(['rect']);expect(read.mock.calls[0][0]).toBe(' opaque:scope ')
     manager.dispose()
   })
+  it('merges recency and newly saved templates into a late original without erasing unseen templates or defaults',async()=>{
+    let release!:(value:DrawingPreferences)=>void
+    const original=defaultDrawingPreferences();original.templates=[{id:'existing',name:'Existing',toolId:'rect',styles:{line:{color:'#123456'}}}];original.defaults={rect:{styles:{line:{size:4}}}};original.shortcuts={brush:'alt+1'}
+    let stored=structuredClone(original)
+    const write=vi.fn(async(_scope:string,value:DrawingPreferences)=>{stored=structuredClone(value)})
+    const manager=new DrawingPreferencesManager({catalog:builtinDrawingCatalog,scope:'scope',store:{read:()=>new Promise(resolve=>{release=resolve}),write}})
+    manager.update({recent:['brush']});manager.update({templates:[{id:'new',name:'New',toolId:'rect',styles:{line:{color:'#f00'}}}]})
+    expect(write).not.toHaveBeenCalled();release(original);await manager.save()
+    expect(stored.templates.map(t=>t.id)).toEqual(['existing','new']);expect(stored.defaults).toEqual(original.defaults);expect(stored.shortcuts).toEqual(original.shortcuts);expect(stored.recent[0]).toBe('brush');expect(manager.getState().status).toBe('saved');manager.dispose()
+  })
+  it('does not write an unread original after failed initialization, then merges edits on retry',async()=>{
+    const original=defaultDrawingPreferences();original.templates=[{id:'existing',name:'Existing',toolId:'rect',styles:{}}]
+    const read=vi.fn().mockRejectedValueOnce(Error('unavailable')).mockResolvedValue(original),write=vi.fn(async()=>{})
+    const manager=new DrawingPreferencesManager({catalog:builtinDrawingCatalog,scope:'scope',store:{read,write}})
+    manager.update({recent:['brush']});await manager.save();expect(write).not.toHaveBeenCalled();expect(manager.getState().status).toBe('error')
+    await manager.retry();expect(write).toHaveBeenCalledOnce();expect(write.mock.calls[0][1].templates[0].id).toBe('existing');expect(manager.getState().value.recent[0]).toBe('brush');manager.dispose()
+  })
   it('reports failed writes as unsaved while preserving the editable session',async()=>{
     const write=vi.fn(async()=>{throw Error('quota')})
     const manager=new DrawingPreferencesManager({catalog:builtinDrawingCatalog,scope:'scope',store:{read:async()=>null,write}})

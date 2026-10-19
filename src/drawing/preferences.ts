@@ -22,6 +22,24 @@ export interface DrawingPreferencesStore {
 export interface DrawingPreferencesState {value:DrawingPreferences;status:'session-only'|'loading'|'saving'|'saved'|'error';error?:string}
 export const defaultDrawingPreferences=():DrawingPreferences=>({version:1,favorites:['horizontalStraightLine','segment','rect','textAnnotation','brush'],recent:[],defaults:{},templates:[],shortcuts:{},ui:{continuous:false,favoritesPosition:{x:72,y:10}}})
 const clone=<T>(value:T):T=>structuredClone(value)
+const equal=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b)
+function mergeInitialEdit(stored:DrawingPreferences,before:DrawingPreferences,patch:Partial<DrawingPreferences>):DrawingPreferences {
+  const result=clone(stored)
+  for(const [field,value] of Object.entries(patch)){
+    if(field==='templates'){
+      const next=value as DrawingTemplate[],previous=new Map(before.templates.map(t=>[t.id,t])),map=new Map(result.templates.map(t=>[t.id,t]))
+      for(const id of previous.keys())if(!next.some(t=>t.id===id))map.delete(id)
+      for(const template of next)if(!equal(template,previous.get(template.id)))map.set(template.id,clone(template))
+      result.templates=[...map.values()]
+    }else if(field==='defaults'||field==='shortcuts'||field==='ui'){
+      const previous=before[field] as any,next=value as any,target=result[field] as any
+      for(const key of Object.keys(previous))if(!(key in next))delete target[key]
+      for(const [key,entry] of Object.entries(next))if(!equal(previous[key],entry))target[key]=clone(entry)
+    }else if(field==='recent')result.recent=[...new Set([...(value as string[]),...result.recent])].slice(0,12)
+    else (result as any)[field]=clone(value)
+  }
+  return result
+}
 export function validateDrawingPreferences(value:DrawingPreferences,catalog?:DrawingToolDescriptor[]):void {
   if(!value||!jsonSafe(value)||value.version!==1||!Array.isArray(value.favorites)||!Array.isArray(value.recent)||!value.defaults||typeof value.defaults!=='object'||Array.isArray(value.defaults)||!Array.isArray(value.templates)||!value.shortcuts||typeof value.shortcuts!=='object'||!value.ui||typeof value.ui.continuous!=='boolean'||!value.ui.favoritesPosition||Object.values(value.ui.favoritesPosition).some(v=>typeof v!=='number'||!Number.isFinite(v)||v<0))throw Error('绘图偏好格式无效')
   for(const values of [value.favorites,value.recent])if(new Set(values).size!==values.length||values.some(id=>typeof id!=='string'||!id||catalog&&!catalog.some(t=>t.toolId===id)))throw Error('绘图偏好包含未知或重复工具')
@@ -55,35 +73,51 @@ export class DrawingPreferencesManager {
   private tail:Promise<unknown>=Promise.resolve()
   private revision=0
   private disposed=false
+  private initialized=false
+  private initialRead?:Promise<void>
+  private initialEdits:Array<{before:DrawingPreferences;patch:Partial<DrawingPreferences>}>=[]
+  private scheduledRevision=-1
   constructor(private options:{catalog:DrawingToolDescriptor[];initial?:DrawingPreferences;scope?:string;store?:DrawingPreferencesStore;changed?:(state:DrawingPreferencesState)=>void}){
     const initial=clone(options.initial??defaultDrawingPreferences())
     if(!options.initial){initial.favorites=initial.favorites.filter(id=>options.catalog.some(t=>t.toolId===id))}
     validateDrawingPreferences(initial,options.catalog)
     if(options.store&&typeof options.scope!=='string')throw Error('启用偏好存储时必须明确提供 drawingPreferencesScope')
     this.state={value:initial,status:options.store?'loading':'session-only'}
-    if(options.store)void this.load()
+    this.initialized=!options.store
+    if(options.store)this.initialRead=this.load()
   }
   getState():DrawingPreferencesState{return clone(this.state)}
   private emit(){if(!this.disposed)this.options.changed?.(this.getState())}
   private async load(){
-    const revision=this.revision
-    try{const value=await this.options.store!.read(this.options.scope!,this.controller.signal);if(this.disposed||revision!==this.revision)return;if(value){validateDrawingPreferences(value,this.options.catalog);this.state.value=clone(value)}this.state.status='saved';this.state.error=undefined}
-    catch(error){if(this.disposed||revision!==this.revision)return;this.state.status='error';this.state.error=`偏好读取失败，本次会话仍可编辑：${error instanceof Error?error.message:String(error)}`}
+    try{
+      const value=await this.options.store!.read(this.options.scope!,this.controller.signal);if(this.disposed)return
+      let merged=clone(value??this.options.initial??defaultDrawingPreferences())
+      if(!value&&!this.options.initial)merged.favorites=merged.favorites.filter(id=>this.options.catalog.some(t=>t.toolId===id))
+      validateDrawingPreferences(merged,this.options.catalog)
+      for(const edit of this.initialEdits)merged=mergeInitialEdit(merged,edit.before,edit.patch)
+      validateDrawingPreferences(merged,this.options.catalog);this.state.value=merged;this.initialized=true;this.initialEdits=[]
+      this.state.status=this.revision?'saving':'saved';this.state.error=undefined
+    }
+    catch(error){if(this.disposed)return;this.initialized=false;this.state.status='error';this.state.error=`偏好读取失败，原件不会被覆盖，本次会话仍可编辑：${error instanceof Error?error.message:String(error)}`}
     this.emit()
   }
   update(patch:Partial<DrawingPreferences>):void {
     const next={...this.state.value,...clone(patch)};validateDrawingPreferences(next,this.options.catalog)
+    if(!this.initialized)this.initialEdits.push({before:clone(this.state.value),patch:clone(patch)})
     this.state.value=next;this.revision++;this.emit();void this.save()
   }
   async save():Promise<void>{
     if(!this.options.store){this.state.status='session-only';this.emit();return}
+    if(!this.initialized){await this.initialRead;if(!this.initialized||this.disposed)return}
+    if(this.scheduledRevision===this.revision){await this.tail.catch(()=>{});return}
     const value=clone(this.state.value),revision=this.revision
+    this.scheduledRevision=revision
     this.state.status='saving';this.state.error=undefined;this.emit()
     const run=this.tail.catch(()=>{}).then(()=>this.options.store!.write(this.options.scope!,value,this.controller.signal))
     this.tail=run
-    try{await run;if(!this.disposed&&revision===this.revision)this.state.status='saved'}catch(error){if(!this.disposed&&revision===this.revision){this.state.status='error';this.state.error=`偏好尚未保存，本次会话有效：${error instanceof Error?error.message:String(error)}`}}
+    try{await run;if(!this.disposed&&revision===this.revision)this.state.status='saved'}catch(error){if(!this.disposed&&revision===this.revision){this.scheduledRevision=-1;this.state.status='error';this.state.error=`偏好尚未保存，本次会话有效：${error instanceof Error?error.message:String(error)}`}}
     this.emit()
   }
-  retry():Promise<void>{return this.revision===0?this.load():this.save()}
+  async retry():Promise<void>{if(!this.initialized){this.initialRead=this.load();await this.initialRead;if(!this.initialized)return}await this.save()}
   dispose():void{this.disposed=true;this.controller.abort()}
 }

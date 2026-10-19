@@ -42,7 +42,7 @@ const callout: OverlayTemplate = {
             y: coordinates[1].y,
             text: text,
             baseline: 'middle',
-            align: 'center'
+            align: (overlay.extendData as any)?.drawingParameters?.textAlign??'center'
           },
           styles: {
             style: 'stroke_fill',

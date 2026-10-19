@@ -23,7 +23,7 @@ const textAnnotation: OverlayTemplate = {
             y: coordinates[0].y,
             text: text,
             baseline: 'middle',
-            align: 'center'
+            align: (overlay.extendData as any)?.drawingParameters?.textAlign??'center'
           },
           styles: {
             style: 'stroke_fill',

@@ -75,6 +75,8 @@ export class DrawingCoordinator {
   getSession(scope:'workspace'|'host'):DrawingSession{const session=this.sessions[scope];if(!session)throw Error(this.reason||'共享会话尚未就绪');return session}
   getSharing(){return {canSaveAs:!!this.options.saveAs,workspace:this.sessions.workspace?.getState(),host:this.sessions.host?.getState(),reason:this.reason||undefined}}
   getDrawings():DrawingSnapshot[]{return [...this.local.getDrawings(),...this.list().flatMap(s=>s.history.getDrawings()).filter(d=>!this.local.getDrawing(d.logicalId))]}
+  /** Shared values project onto each chart's main price axis, never an engine instance ID. */
+  prepare(value:DrawingSnapshot):DrawingSnapshot{if(!value.presentation?.scope||value.presentation.scope==='chart')return value;const prepared=copy(value);delete prepared.yAxisId;return prepared}
   getDrawing(id:string):DrawingSnapshot|undefined{return this.local.getDrawing(id)??this.list().map(s=>s.history.getDrawing(id)).find(Boolean)}
   history(ids:string[]=[],write=false):DrawingHistory {
     const owners=new Set(ids.map(id=>{if(this.local.getDrawing(id))return this.local;const session=this.list().find(s=>s.history.getDrawing(id));if(!session)throw Error('绘图不存在，请刷新对象列表');return session.history}))
@@ -112,7 +114,7 @@ this.options.changed()
     const originals=ids.map(id=>{const value=this.getDrawing(id);if(!value)throw Error('绘图不存在');if(value.owner!=='local'||value.overlay.lock)throw Error('后端标注或锁定对象不能转移');if(value.migration){const target=scope==='host'?this.getSession('host'):undefined,reference=value.migration.target;if(!target||target.getState().documentId!==reference.documentId||JSON.stringify(target.identity)!==JSON.stringify(reference.identity))throw Error('存在未完成迁移，只能核对并完成原固定目标，不能改道')}delete value.migration;return value})
     const source=this.history(ids,true),target=scope==='chart'?this.local:this.getSession(scope).history
     if(source===target)return
-    const values=originals.map(original=>{const value=copy(original);delete value.migration;value.presentation={...value.presentation,scope};delete value.presentation.groupId;delete value.presentation.groupName;this.validate(value);return value})
+    const values=originals.map(original=>{let value=copy(original);delete value.migration;value.presentation={...value.presentation,scope};delete value.presentation.groupId;delete value.presentation.groupName;value=this.prepare(value);this.validate(value);return value})
     const sessionOf=(history:DrawingHistory)=>this.list().find(session=>session.history===history)
     const sourceSession=sessionOf(source),targetSession=sessionOf(target)
     const assertBinding=()=>{if(this.disposed||this.bindingEpoch!==binding)throw Error('共享绑定已改变，原迁移责任已保留，请回到原身份核对')}

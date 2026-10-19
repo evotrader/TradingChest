@@ -91,7 +91,7 @@ export class DrawingController {
   private async batch(build:()=>Array<{before?:DrawingSnapshot;after:DrawingSnapshot|null}>):Promise<DrawingCommandResult>{
     return this.history(true).submitBatch(()=>{
       for(const before of this.previewBases??[])if(JSON.stringify(this.options.coordinator?.getDrawing(before.logicalId)??this.options.history.getDrawing(before.logicalId))!==JSON.stringify(before))throw Error('绘图已被更新，本次手势已取消，请重新操作')
-      const values=build()
+      const values=build().map(value=>({...value,after:value.after?this.options.coordinator?.prepare(value.after)??value.after:null}))
       for(const value of values)if(value.after)this.options.validate(value.after)
       return values.map(v=>({kind:v.before?v.after?'update' as const:'delete' as const:'create' as const,logicalId:(v.before??v.after)!.logicalId,after:v.after}))
     },'programmatic')
@@ -221,6 +221,7 @@ export class DrawingController {
           }
           else if(command.type==='update'){
             const {overlay,text,...patch}=command.patch
+            if(before.presentation?.scope&&before.presentation.scope!=='chart'&&patch.yAxisId!==undefined)throw Error('共享绘图使用各图主价格轴；请先移至本图再指定独立轴')
             Object.assign(after,patch)
             if(patch.parameters)after.parameters={...before.parameters,...patch.parameters}
             if(patch.presentation)after.presentation={...before.presentation,...patch.presentation}

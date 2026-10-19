@@ -17,8 +17,9 @@ try{
  console.log('sharing: native drawing completed')
  await chart.getByRole('button',{name:'绘图管理',exact:true}).click()
  await chart.getByRole('button',{name:'选择搜索结果',exact:true}).click();await chart.getByRole('button',{name:'移至 工作台',exact:true}).click()
- await page.waitForFunction(()=>workspace.getCells()[1].chart.getDrawings().length===1)
+ await page.waitForFunction(()=>workspace.getCells()[1].chart.getDrawings().length===1).catch(async error=>{console.log('transfer-diagnostic',JSON.stringify(await page.evaluate(()=>workspace.getCells().map(c=>c.chart.getDrawingState()))));throw error})
  console.log('sharing: transfer projected')
+ assert.ok(await page.evaluate(()=>workspace.getCells().every(c=>!c.chart.getDrawings()[0].yAxisId&&c.chart.getChart().getOverlays({id:c.chart.getDrawings()[0].logicalId}).length===1&&!Object.keys(c.chart.getDrawingHistoryState().projectionErrors??{}).length)))
  assert.equal(await page.evaluate(()=>workspace.capture().sharedDrawings[0].drawings.length),1)
  assert.ok(await page.evaluate(()=>workspace.capture().cells.every(c=>c.chart.drawings.length===0)))
  await page.evaluate(async()=>{const a=workspace.getCells()[1].chart,id=a.getDrawings()[0].logicalId;await a.executeDrawingCommand({type:'update',ids:[id],patch:{presentation:{name:'双图支撑'}}})})
@@ -26,7 +27,7 @@ try{
  await page.evaluate(async()=>{await workspace.setLayout(1)})
  assert.equal(await page.evaluate(()=>workspace.getCells()[0].chart.getDrawings().length),1)
  await chart.getByRole('button',{name:'移至 宿主共享',exact:true}).click()
- await page.waitForFunction(()=>workspace.getCells()[0].chart.getDrawingState().sharing.host.status==='saved')
+ await page.waitForFunction(()=>workspace.getCells()[0].chart.getDrawingState().sharing.host.status==='saved').catch(async error=>{console.log('shared-save-diagnostic',JSON.stringify(await page.evaluate(()=>({state:workspace.getCells()[0].chart.getDrawingState(),axes:workspace.getCells()[0].chart.getChart().getYAxes({paneId:'candle_pane'})}))));throw error})
  assert.equal(await page.evaluate(()=>workspace.capture().cells[0].chart.sharedDrawingRefs.length),1)
 
  const protection=await page.evaluate(async()=>{

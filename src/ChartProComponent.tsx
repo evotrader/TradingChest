@@ -547,7 +547,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     const overlay=change.after?.overlay??drawingHistory.getDrawing(change.logicalId)?.overlay
     if(overlay&&!editable(overlay))return Promise.reject(Error(i18n('drawing_protected',locale())))
     const history=drawingCoordinator.history(change.kind==='create'?[]:[change.logicalId],true)
-    const after=change.after&&history!==drawingHistory?{...change.after,presentation:{...change.after.presentation,scope:change.kind==='create'?drawingCoordinator.getScope():drawingCoordinator.getDrawing(change.logicalId)?.presentation?.scope??'chart'}}:change.after
+    const after=change.after&&history!==drawingHistory?drawingCoordinator.prepare({...change.after,presentation:{...change.after.presentation,scope:change.kind==='create'?drawingCoordinator.getScope():drawingCoordinator.getDrawing(change.logicalId)?.presentation?.scope??'chart'}}):change.after
     if(after&&history!==drawingHistory)drawingCoordinator.validate(after)
     return history.submit(change.kind,change.logicalId,after,change.source)
   }

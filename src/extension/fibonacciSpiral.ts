@@ -16,13 +16,15 @@ import { OverlayTemplate, utils, registerFigure } from 'klinecharts'
 
 import { getDistance, getRotateCoordinate, getRayLine } from './utils'
 
+import {toolParameters} from './numerics'
+
 const fibonacciSpiral: OverlayTemplate = {
   name: 'fibonacciSpiral',
   totalStep: 3,
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: true,
   needDefaultYAxisFigure: true,
-  createPointFigures: ({ coordinates, bounding }) => {
+  createPointFigures: ({ coordinates, bounding,overlay }) => {
     if (coordinates.length > 1) {
       const startRadius = getDistance(coordinates[0], coordinates[1]) / Math.sqrt(24)
       const flag = coordinates[1].x > coordinates[0].x ? 0 : 1
@@ -60,7 +62,7 @@ const fibonacciSpiral: OverlayTemplate = {
       }]
       let x = coordinates[0].x - startRadius
       let y = coordinates[0].y - startRadius
-      for (let i = 2; i < 9; i++) {
+      for (let i = 2; i < Number(toolParameters(overlay).segments??9); i++) {
         const r = arcs[i - 2].r + arcs[i - 1].r
         let startAngle = 0
         switch (i % 4) {

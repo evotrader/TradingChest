@@ -19,6 +19,8 @@ import { OverlayTemplate } from 'klinecharts'
  * 两次点击确定价格区间，显示价格差、涨跌幅百分比、K线根数
  * 上涨显示绿色，下跌显示红色
  */
+import {rangeValues,formatRangeDuration} from './numerics'
+
 const priceRange: OverlayTemplate = {
   name: 'priceRange',
   totalStep: 3,
@@ -33,11 +35,12 @@ const priceRange: OverlayTemplate = {
 
       // 计算价格差和涨跌幅
       const priceDiff = price2 - price1
-      const percentChange = (priceDiff / price1) * 100
+      const percentChange = price1>0?(priceDiff / price1) * 100:undefined
       const isUp = priceDiff >= 0
 
       // 根据 x 坐标近似估算 K 线根数
-      const bars = Math.abs(Math.round((coordinates[1].x - coordinates[0].x) / 10))
+      const measured=rangeValues(points,coordinates,chart.getBarSpace().bar)
+      const bars=Number(measured.bars.toFixed(2))
 
       // 矩形区域的边界
       const minX = Math.min(coordinates[0].x, coordinates[1].x)
@@ -57,7 +60,7 @@ const priceRange: OverlayTemplate = {
 
       // 格式化显示文本
       const sign = priceDiff >= 0 ? '+' : ''
-      const displayText = `${sign}${priceDiff.toFixed((chart.getSymbol()?.pricePrecision ?? 2))}  (${sign}${percentChange.toFixed(2)}%)  ${bars} 根`
+      const displayText = `${sign}${priceDiff.toFixed((chart.getSymbol()?.pricePrecision ?? 2))}  (${percentChange===undefined?'基准非正，百分比不可用':sign+percentChange.toFixed(2)+'%'})  ${bars} 根`
 
       // 文本位置：矩形中间
       const textX = (coordinates[0].x + coordinates[1].x) / 2

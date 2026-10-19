@@ -18,13 +18,15 @@ import { OverlayTemplate } from 'klinecharts'
  * 时间区间测量工具
  * 两次点击确定时间区间，显示垂直阴影带、K 线根数及时间跨度
  */
+import {rangeValues,formatRangeDuration} from './numerics'
+
 const dateRange: OverlayTemplate = {
   name: 'dateRange',
   totalStep: 3,
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: true,
   needDefaultYAxisFigure: true,
-  createPointFigures: ({ coordinates, bounding, overlay }) => {
+  createPointFigures: ({ coordinates, bounding, overlay,chart }) => {
     if (coordinates.length > 1) {
       const points = overlay.points
       const ts1 = points[0].timestamp!
@@ -34,10 +36,11 @@ const dateRange: OverlayTemplate = {
       const timeDiffMs = Math.abs(ts2 - ts1)
 
       // 根据 x 坐标近似估算 K 线根数
-      const bars = Math.abs(Math.round((coordinates[1].x - coordinates[0].x) / 10))
+      const measured=rangeValues(points,coordinates,chart.getBarSpace().bar)
+      const bars=Number(measured.bars.toFixed(2))
 
       // 格式化时间跨度为可读文本
-      const durationText = formatDuration(timeDiffMs)
+      const durationText = formatRangeDuration(measured.durationMs,chart.getLocale()==='en-US')
 
       // 垂直阴影带：从图表顶部到底部
       const minX = Math.min(coordinates[0].x, coordinates[1].x)
@@ -92,28 +95,5 @@ const dateRange: OverlayTemplate = {
   }
 }
 
-/**
- * 将毫秒时间差格式化为可读文本
- * 根据跨度自动选择合适的单位
- */
-function formatDuration (ms: number): string {
-  const seconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const hours = Math.floor(minutes / 60)
-  const days = Math.floor(hours / 24)
-
-  if (days > 0) {
-    const remainHours = hours % 24
-    return remainHours > 0 ? `${days}天${remainHours}小时` : `${days}天`
-  }
-  if (hours > 0) {
-    const remainMinutes = minutes % 60
-    return remainMinutes > 0 ? `${hours}小时${remainMinutes}分` : `${hours}小时`
-  }
-  if (minutes > 0) {
-    return `${minutes}分钟`
-  }
-  return `${seconds}秒`
-}
 
 export default dateRange

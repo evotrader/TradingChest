@@ -11,6 +11,7 @@ export interface DrawingPreferences {
   favorites:string[]
   recent:string[]
   defaults:Record<string,DrawingStylePreset>
+  lastStyles?:Record<string,DrawingStylePreset>
   templates:DrawingTemplate[]
   shortcuts:Record<string,string>
   ui:{continuous:boolean;favoritesPosition:{x:number;y:number}}
@@ -31,8 +32,8 @@ function mergeInitialEdit(stored:DrawingPreferences,before:DrawingPreferences,pa
       for(const id of previous.keys())if(!next.some(t=>t.id===id))map.delete(id)
       for(const template of next)if(!equal(template,previous.get(template.id)))map.set(template.id,clone(template))
       result.templates=[...map.values()]
-    }else if(field==='defaults'||field==='shortcuts'||field==='ui'){
-      const previous=before[field] as any,next=value as any,target=result[field] as any
+    }else if(field==='defaults'||field==='lastStyles'||field==='shortcuts'||field==='ui'){
+      const previous=(before[field]??{}) as any,next=value as any,target=((result as any)[field]??={}) as any
       for(const key of Object.keys(previous))if(!(key in next))delete target[key]
       for(const [key,entry] of Object.entries(next))if(!equal(previous[key],entry))target[key]=clone(entry)
     }else if(field==='recent')result.recent=[...new Set([...(value as string[]),...result.recent])].slice(0,12)
@@ -48,6 +49,7 @@ export function validateDrawingPreferences(value:DrawingPreferences,catalog?:Dra
     const tool=catalog?.find(t=>t.toolId===toolId);if(catalog&&!tool)throw Error('模板工具不在当前目录');if(tool)validateDrawingParameters(tool,p.parameters??{})
   }
   for(const [id,p] of Object.entries(value.defaults))preset(p,id)
+  for(const [id,p] of Object.entries(value.lastStyles??{}))preset(p,id)
   const ids=new Set<string>()
   for(const template of value.templates){
     if(!template||typeof template.id!=='string'||!template.id||ids.has(template.id)||typeof template.name!=='string'||!template.name.trim()||template.name.length>80||typeof template.toolId!=='string')throw Error('绘图模板名称或 ID 无效')
@@ -55,9 +57,11 @@ export function validateDrawingPreferences(value:DrawingPreferences,catalog?:Dra
   }
   const combos=new Set<string>()
   for(const [toolId,combo] of Object.entries(value.shortcuts)){
-    if(catalog&&!catalog.some(t=>t.toolId===toolId)||typeof combo!=='string'||!/^(?:(?:ctrl|alt|shift)\+)*[a-z0-9]$/.test(combo)||['ctrl+l','ctrl+w','ctrl+t','ctrl+n','ctrl+r','alt+f4'].includes(combo)||combos.has(combo))throw Error('快捷键无效、重复或被浏览器保留')
+    if(catalog&&!catalog.some(t=>t.toolId===toolId)||typeof combo!=='string'||!/^(?:(?:ctrl|alt|shift)\+)*[a-z0-9]$/.test(combo)||['ctrl+l','ctrl+w','ctrl+t','ctrl+n','ctrl+r','ctrl+z','ctrl+shift+z','ctrl+y','ctrl+c','ctrl+v','alt+f4'].includes(combo)||combos.has(combo))throw Error('快捷键无效、重复或被浏览器保留')
+    const canonical=combo.split('+'),key=canonical.pop();if([...['ctrl','alt','shift'].filter(mod=>canonical.includes(mod)),key].join('+')!==combo)throw Error('快捷键修饰键顺序无效或重复')
     combos.add(combo)
   }
+  const effective=new Set<string>();for(const tool of catalog??[]){const combo=value.shortcuts[tool.toolId]??tool.shortcut?.toLowerCase();if(combo){if(effective.has(combo))throw Error('快捷键与其它工具的实际快捷键冲突');effective.add(combo)}}
 }
 export function createIndexedDBDrawingPreferencesStore(options:{databaseName?:string}={}):DrawingPreferencesStore&{dispose():void}{
   const db=createDrawingDatabase(options.databaseName)

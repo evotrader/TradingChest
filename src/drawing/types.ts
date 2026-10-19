@@ -46,6 +46,8 @@ export type DrawingCommand=
   | {type:'tool';toolId:string|null;continuous?:boolean}
   | {type:'select';ids:string[];additive?:boolean}
   | {type:'cancel'}
+  | {type:'finish'}
+  | {type:'move';ids:string[];dx:number;dy:number;clone?:boolean}
   | {type:'scope';scope:DrawingScope}
   | {type:'transfer';ids:string[];scope:DrawingScope}
   | {type:'recover-transfer';id:string;scope:DrawingScope}
@@ -57,7 +59,7 @@ export type DrawingCommand=
   | {type:'ungroup';ids:string[]}
   | {type:'reorder';ids:string[];direction:'front'|'back'|'up'|'down'}
   | {type:'presentation';ids:string[];patch:Partial<DrawingPresentation>}
-  | {type:'view';hidden?:boolean;preventDragging?:boolean}
+  | {type:'view';hidden?:boolean;preventDragging?:boolean;magnet?:import('./snap').DrawingMagnetMode}
   | {type:'preferences';patch:Partial<import('./preferences').DrawingPreferences>}
   | {type:'preferences-retry'}
   | {type:'template';action:'save'|'overwrite'|'rename'|'delete'|'apply'|'default';templateId?:string;name?:string;ids?:string[];styleOnly?:boolean}
@@ -74,6 +76,7 @@ export interface DrawingState {
   sharing?:{canSaveAs?:boolean;workspace?:import('./session').DrawingSessionState;host?:import('./session').DrawingSessionState;reason?:string}
   objects:DrawingSnapshot[]
   groups:DrawingGroup[]
+  magnet:import('./snap').DrawingMagnetMode
   hidden:boolean
   preventDragging:boolean
   history:DrawingHistoryState

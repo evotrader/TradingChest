@@ -14,23 +14,27 @@
 
 import { OverlayTemplate, LineAttrs, TextAttrs } from 'klinecharts'
 
+import {canProjectAxisValue,toolLevels} from './numerics'
+
 const fibonacciSegment: OverlayTemplate = {
   name: 'fibonacciSegment',
   totalStep: 3,
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: true,
   needDefaultYAxisFigure: true,
-  createPointFigures: ({ coordinates, overlay, chart }) => {
+  createPointFigures: ({ coordinates, overlay, chart, yAxis }) => {
     const lines: LineAttrs[] = []
     const texts: TextAttrs[] = []
     if (coordinates.length > 1) {
       const textX = coordinates[1].x > coordinates[0].x ? coordinates[0].x : coordinates[1].x
-      const percents = [1, 0.786, 0.618, 0.5, 0.382, 0.236, 0]
+      const percents = toolLevels(overlay)
       const yDif = coordinates[0].y - coordinates[1].y
       const points = overlay.points
       const valueDif = points[0].value! - points[1].value!
+      if(percents.some(percent=>!canProjectAxisValue(yAxis,points[1].value! + valueDif * percent)))return [{type:'rectText',attrs:{...coordinates[0],text:'当前价格轴不能显示此级别，请调整级别或切换线性轴'}}]
       percents.forEach(percent => {
-        const y = coordinates[1].y + yDif * percent
+        const value=points[1].value!+valueDif*percent
+        const y = yAxis!.convertToPixel(value)
         const price = (points[1].value! + valueDif * percent).toFixed((chart.getSymbol()?.pricePrecision ?? 2))
         lines.push({ coordinates: [{ x: coordinates[0].x, y }, { x: coordinates[1].x, y }] })
         texts.push({

@@ -105,7 +105,7 @@ export interface EngineLayoutRestoreTransaction {
   reset:()=>void
   restore:ChartPro['restoreDrawings']
 }
-export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3,transaction?:EngineLayoutRestoreTransaction):Promise<void> {
+export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3,transaction?:EngineLayoutRestoreTransaction):Promise<Map<string,string>> {
   if(!isChartLayoutV3(layout))throw Error('布局结构无效')
   const chart=chartPro.getChart();if(!chart)throw Error('图表尚未就绪')
   const epoch=getIdentityEpoch(chart),symbol=chartPro.getSymbol().ticker,period=chartPro.getPeriod()
@@ -148,10 +148,12 @@ export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3,trans
     if(!id)throw Error('布局价格轴没有对应的真实窗格')
     if(!chart.getYAxes({id,paneId:axis.paneId}).length)chart.createYAxis({...config,id} as YAxisOverride)
     else chart.overrideYAxis({...config,id})
+    if(axis.id)axisIds.set(axis.id,id)
   }
   ;(transaction?.restore??chartPro.restoreDrawings.bind(chartPro))('local',layout.overlayData.map(overlay=>({logicalId:overlay.id??`local-${crypto.randomUUID()}`,owner:'local',overlay:{...overlay,id:overlay.id??'',styles:overlay.styles,extendData:overlay.extendData} as import('../types').OverlaySnapshot})))
   ;(transaction?.restore??chartPro.restoreDrawings.bind(chartPro))('backend',backendDrawings.map(({drawing,names})=>{
     return {...drawing,overlay:{...drawing.overlay,paneId:resolveDrawingPane(chart,drawing.overlay.paneId,names)}}
   }))
   if(layout.viewport){chart.setBarSpace(layout.viewport.barSpace);const index=chart.getDataList().findIndex(b=>b.timestamp===layout.viewport!.toTimestamp);if(index>=0)chart.scrollToDataIndex(index,0)}
+  return axisIds
 }

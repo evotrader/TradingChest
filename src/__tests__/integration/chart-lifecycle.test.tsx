@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, fireEvent } from '@solidjs/testing-library'
+import { cleanup, render, fireEvent, waitFor } from '@solidjs/testing-library'
 import ChartProComponent from '../../ChartProComponent'
 import KLineChartPro from '../../KLineChartPro'
 import type { ChartComponentApi as ChartPro } from '../../ChartProComponent'
@@ -44,12 +44,15 @@ function mount(history = vi.fn((_symbol:any,_period:any,query:HistoryQuery)=>Pro
   mock.chart = new Proxy({
     getStyles: () => ({}), getDataList: () => data, getDom: () => null,
     getVisibleRange:()=>({from:0,to:data.length}),getBarSpace:()=>({bar:6}),
+    getPaneOptions:(id:string)=>id==='candle_pane'?{id}:undefined,
+    getSize:()=>({width:600,height:300}),getYAxes:()=>[{id:'price',name:'normal',convertToPixel:(v:number)=>v}],
+    convertToPixel:(point:any)=>({x:point.dataIndex??data.findIndex(row=>row.timestamp===point.timestamp),y:point.value}),
     getIndicators:()=>[],getOverlays:vi.fn(()=>[]),
     setDataLoader:(value:any)=>{loader=value;mock.loadMore=(timestamp:number)=>request('forward',timestamp)},
     getSymbol:()=>symbol,getPeriod:()=>period,
     setSymbol:(value:any)=>{symbol=value;request('init')},setPeriod:(value:any)=>{period=value;request('init')},
     resetData:()=>request('init'),initialData,barData,olderData,
-  } as any, { get(target, key) { return target[key] ?? (target[key] = vi.fn()) } })
+  } as any, { get(target, key) { return typeof key==='symbol'?target[key]:target[key] ?? (target[key] = vi.fn()) } })
   let api!: ChartPro
   const feed = { getHistoryKLineData: history, subscribe: vi.fn(), unsubscribe: vi.fn(), searchSymbols: vi.fn() }
   const price = vi.fn()
@@ -126,10 +129,10 @@ describe('chart lifecycle isolation', () => {
     const host = mount(); await tick()
     const overlays = new Map<string, any>([['alert', {}], ['order', {}]])
     host.chart.createOverlay.mockImplementation((options: any) => {
-      overlays.set(options.id, { ...options, currentStep: 1, points: [] })
+      overlays.set(options.id, { ...options, paneId:'candle_pane',currentStep:options.points?-1:1,points:options.points??[] })
       return options.id
     })
-    host.chart.getOverlays.mockImplementation(({id}: {id:string}) => overlays.has(id) ? [overlays.get(id)] : [])
+    host.chart.getOverlays.mockImplementation((filter?: {id:string}) => filter?overlays.has(filter.id)?[overlays.get(filter.id)]:[]:[...overlays.values()])
     host.chart.removeOverlay.mockImplementation(({ id }: { id: string }) => {
       const overlay = overlays.get(id)
       overlays.delete(id)
@@ -138,19 +141,21 @@ describe('chart lifecycle isolation', () => {
     for (const id of ['a', 'b', 'c']) {
       host.api.createDrawing({ name: 'rect', id })
       const overlay = overlays.get(id)
-      overlay.currentStep = -1
+      overlay.currentStep = -1;overlay.points=[{timestamp:bars[0].timestamp,value:10},{timestamp:bars[1].timestamp,value:11}]
       overlay.onDrawEnd({ overlay })
+      await waitFor(()=>expect(host.api.getDrawings().some(value=>value.logicalId===id)).toBe(true))
     }
     host.api.cancelDrawing()
     expect([...overlays.keys()]).toEqual(['alert', 'order', 'a', 'b', 'c'])
     overlays.get('b').onSelected({ overlay: overlays.get('b') })
+    await waitFor(()=>expect(host.api.getDrawingState().selectedIds).toEqual(['b']))
     const widget = host.container.querySelector('.klinecharts-pro-widget')!
     const input = document.createElement('input')
     widget.appendChild(input)
     fireEvent.keyDown(input, { key: 'Delete' })
     expect(overlays.has('b')).toBe(true)
     fireEvent.keyDown(widget, { key: 'Delete' })
-    expect([...overlays.keys()]).toEqual(['alert', 'order', 'a', 'c'])
+    await waitFor(()=>expect([...overlays.keys()]).toEqual(['alert', 'order', 'a', 'c']))
     host.api.createDrawing({ name: 'rect', id: 'draft' })
     host.api.cancelDrawing()
     expect([...overlays.keys()]).toEqual(['alert', 'order', 'a', 'c'])

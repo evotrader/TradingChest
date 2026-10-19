@@ -5,6 +5,7 @@ import circle from './circle'
 import rect from './rect'
 import parallelogram from './parallelogram'
 import triangle from './triangle'
+import fibonacciLine from './fibonacciLine'
 import fibonacciCircle from './fibonacciCircle'
 import fibonacciSegment from './fibonacciSegment'
 import fibonacciSpiral from './fibonacciSpiral'
@@ -38,7 +39,7 @@ const overlays = [
   ...workbenchTools,
   arrow,
   circle, rect, triangle, parallelogram,
-  fibonacciCircle, fibonacciSegment, fibonacciSpiral,
+  fibonacciLine, fibonacciCircle, fibonacciSegment, fibonacciSpiral,
   fibonacciSpeedResistanceFan, fibonacciExtension, gannBox,
   threeWaves, fiveWaves, eightWaves, anyWaves, abcd, xabcd,
   priceRange, dateRange, dateAndPriceRange,

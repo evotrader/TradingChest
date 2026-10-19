@@ -14,22 +14,24 @@
 
 import { OverlayTemplate, CircleAttrs, TextAttrs } from 'klinecharts'
 
+import {toolLevels} from './numerics'
+
 const fibonacciCircle: OverlayTemplate = {
   name: 'fibonacciCircle',
   totalStep: 3,
   needDefaultPointFigure: true,
   needDefaultXAxisFigure: true,
   needDefaultYAxisFigure: true,
-  createPointFigures: ({ coordinates }) => {
+  createPointFigures: ({ coordinates,overlay }) => {
     if (coordinates.length > 1) {
       const xDis = Math.abs(coordinates[0].x - coordinates[1].x)
       const yDis = Math.abs(coordinates[0].y - coordinates[1].y)
       const radius = Math.sqrt(xDis * xDis + yDis * yDis)
-      const percents = [0.236, 0.382, 0.5, 0.618, 0.786, 1]
+      const percents = toolLevels(overlay,[.236,.382,.5,.618,.786,1])
       const circles: CircleAttrs[] = []
       const texts: TextAttrs[] = []
       percents.forEach(percent => {
-        const r = radius * percent
+        const r = radius * Math.abs(percent)
         circles.push(
           { ...coordinates[0], r }
         )

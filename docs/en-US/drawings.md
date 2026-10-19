@@ -41,3 +41,11 @@ Use scope for new tools, transfer for existing objects, and shared to save/refre
 DrawingPreferencesStore read/write accept AbortSignal and an opaque drawingPreferencesScope. Defaults are session memory; explicitly provide createIndexedDBDrawingPreferencesStore for persistence. Late reads merge session changes without erasing unseen templates. Read failures retain session changes and never overwrite an unread record.
 
 Templates hold tool styles and parameters, excluding points, text body, identities, backend IDs and scopes. Template commands save, overwrite, rename, delete, apply or set a default. Applying across tool types requires explicit common-style mode. Catalog validation protects parameters, and snapshot.parameters remains authoritative; derived engine extendData parameters are not stored as a second content source.
+
+## Drawing and precision editing
+
+Finish variable-point tools with Enter or the visible Finish button; Escape cancels. Shift constrains the screen angle. Hold Space to pan without confirming an unfinished drawing. Focused control points move by 1px with arrow keys, or 10px with Shift. A completed drag submits once; Alt-drag creates a new object under the target ownership policy. Canvas selection excludes hidden and interval-filtered objects.
+
+Settings use each object's own price axis and authoritative anchors. Handles and price/time labels use the same projection. Future logical anchors show subsequent bars without invented trading dates; fractional anchors describe a proportion of the reference interval. Layout restoration maps stored axes to actual axes in the new chart instance.
+
+Regression uses loaded OHLC OLS and population residual deviation. Range tools distinguish bar counts from elapsed time. Fibonacci prices are calculated before axis projection. Position tools report price, explicit ticks and reward/risk only. Invalid log-domain values, zero risk and invalid stop directions have explicit unavailable states.

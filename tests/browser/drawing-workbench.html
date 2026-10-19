@@ -1,7 +1,7 @@
 <!doctype html><html lang="zh-CN"><meta charset="UTF-8"><body style="margin:0"><p>隔离测试合成行情；提交回调为测试替身，不是真实后端验收。</p><div id="chart" style="width:1100px;height:640px"></div><script type="module">
 import {KLineChartPro,createIndexedDBDrawingPreferencesStore,defaultDrawingPreferences} from '/src/chart.ts'
 import {makeBars} from './syntheticBars.ts'
-const bars=makeBars(2000)
+const bars=makeBars(2000);window.fixtureBars=bars
 window.preferenceStore=createIndexedDBDrawingPreferencesStore({databaseName:new URL(location.href).searchParams.get('database')??'tc-drawing-workbench-test'})
 window.initialPreferences=defaultDrawingPreferences();initialPreferences.defaults.textAnnotation={styles:{text:{color:'#1677ff'}},parameters:{textAlign:'center'}}
 window.commits=[];window.mode='confirmed';window.states=[]
@@ -11,5 +11,5 @@ window.pro=new KLineChartPro({container:document.querySelector('#chart'),symbol:
   if(window.mode==='rejected')return {status:'rejected',message:'测试替身拒绝'}
   if(window.mode==='uncertain')return {status:'uncertain',message:'测试替身未知结果'}
   return {status:'confirmed',snapshot:change.after?{...change.after,backendId:change.before?.backendId??`server-${change.logicalId}`}:null}
- },datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_symbol,_period,query)=>({bars:query.kind==='before'?bars.filter(b=>b.timestamp<query.before):bars.filter(b=>b.timestamp>=query.from&&b.timestamp<query.to),basis:'isolated-raw',hasMoreBefore:false}),subscribe:()=>{},unsubscribe:()=>{}}})
+ },datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_symbol,_period,query)=>({bars:query.kind==='before'?window.fixtureBars.filter(b=>b.timestamp<query.before):window.fixtureBars.filter(b=>b.timestamp>=query.from&&b.timestamp<query.to),basis:'isolated-raw',hasMoreBefore:false}),subscribe:()=>{},unsubscribe:()=>{}}})
 </script></body></html>

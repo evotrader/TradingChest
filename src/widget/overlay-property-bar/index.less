@@ -2,7 +2,7 @@
 
 .@{prefix-cls}-overlay-property-bar {
   position: absolute;
-  z-index: 200;
+  z-index: 18;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -11,7 +11,9 @@
   border: 1px solid var(--klinecharts-pro-border-color);
   border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-  transform: translateX(-50%);
+  max-width: calc(100% - 16px);
+  box-sizing: border-box;
+  flex-wrap: wrap;
 
   &-item {
     position: relative;
@@ -66,7 +68,9 @@
     position: absolute;
     top: calc(100% + 6px);
     left: 50%;
-    transform: translateX(-50%);
+    max-width: calc(100% - 16px);
+  box-sizing: border-box;
+  flex-wrap: wrap;
     display: grid;
     grid-template-columns: repeat(9, 24px);
     gap: 2px;
@@ -101,7 +105,9 @@
     position: absolute;
     top: calc(100% + 6px);
     left: 50%;
-    transform: translateX(-50%);
+    max-width: calc(100% - 16px);
+  box-sizing: border-box;
+  flex-wrap: wrap;
     background-color: var(--klinecharts-pro-popover-background-color);
     border: 1px solid var(--klinecharts-pro-border-color);
     border-radius: 6px;

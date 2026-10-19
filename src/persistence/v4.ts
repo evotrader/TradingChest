@@ -98,7 +98,7 @@ export async function restoreLayout(pro:ChartPro,layout:ChartLayoutV4):Promise<v
   const chart=pro.getChart();if(!chart)throw Error('图表尚未就绪')
   const binding=drawingBindings.get(chart),history=binding?.history
   if(!history||!binding)throw Error('绘图恢复事务尚未绑定到当前图表')
-  binding.validateRestore('local',drawings)
+  binding.validateRestore('local',drawings,{axes:layout.axes})
   const applyReferences=layout.sharedDrawingRefs?.length?await binding.prepareSharedReferences?.(layout.sharedDrawingRefs):undefined
   if(layout.sharedDrawingRefs?.length&&!applyReferences)throw Error('宿主共享存储未启用，引用与当前画面已保留')
   const checkpoint=history.checkpoint(),original=captureLayout(pro),epoch=getIdentityEpoch(chart)
@@ -107,9 +107,9 @@ export async function restoreLayout(pro:ChartPro,layout:ChartLayoutV4):Promise<v
   const assertCurrent=()=>{if(!current())throw new DOMException('布局恢复期间图表身份已改变，旧文档不会写入新上下文','AbortError')}
   const transaction={assertCurrent,reset:()=>{assertCurrent();history.reset(false,lease.token)},restore:(owner:import('../drawing/types').DrawingOwner,values:DrawingSnapshot[])=>{assertCurrent();binding.validateRestore(owner,values);history.reconcile(owner,values,lease.token)}}
   try{
-    await restoreEngineLayout(pro,{...base,version:3,overlayData:[]},transaction)
+    const axisIds=await restoreEngineLayout(pro,{...base,version:3,overlayData:[]},transaction)
     assertCurrent()
-    transaction.restore('local',copy(drawings))
+    transaction.restore('local',copy(drawings).map(d=>({...d,yAxisId:d.yAxisId?axisIds.get(d.yAxisId)??d.yAxisId:undefined})))
     applyReferences?.apply()
     transaction.restore('backend',pro.getDrawings().filter(d=>d.owner==='backend').map(d=>({...d,presentation:drawingPresentation[d.logicalId]??d.presentation})))
   }catch(error){

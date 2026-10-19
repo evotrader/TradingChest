@@ -19,6 +19,8 @@ import { OverlayTemplate } from 'klinecharts'
  * 两次点击确定矩形区域，同时显示价格变动、涨跌幅、K 线根数及时间跨度
  * 上涨绿色，下跌红色
  */
+import {rangeValues,formatRangeDuration} from './numerics'
+
 const dateAndPriceRange: OverlayTemplate = {
   name: 'dateAndPriceRange',
   totalStep: 3,
@@ -35,15 +37,16 @@ const dateAndPriceRange: OverlayTemplate = {
 
       // 计算价格差和涨跌幅
       const priceDiff = price2 - price1
-      const percentChange = (priceDiff / price1) * 100
+      const percentChange = price1>0?(priceDiff / price1) * 100:undefined
       const isUp = priceDiff >= 0
 
       // 根据 x 坐标近似估算 K 线根数
-      const bars = Math.abs(Math.round((coordinates[1].x - coordinates[0].x) / 10))
+      const measured=rangeValues(points,coordinates,chart.getBarSpace().bar)
+      const bars=Number(measured.bars.toFixed(2))
 
       // 计算时间跨度
       const timeDiffMs = Math.abs(ts2 - ts1)
-      const durationText = formatDuration(timeDiffMs)
+      const durationText = formatRangeDuration(measured.durationMs,chart.getLocale()==='en-US')
 
       // 上涨绿色，下跌红色
       const fillColor = isUp
@@ -55,7 +58,7 @@ const dateAndPriceRange: OverlayTemplate = {
 
       // 格式化显示文本：价格差 / 涨跌幅 / K 线数 / 时间
       const sign = priceDiff >= 0 ? '+' : ''
-      const line1 = `${sign}${priceDiff.toFixed((chart.getSymbol()?.pricePrecision ?? 2))}  (${sign}${percentChange.toFixed(2)}%)`
+      const line1 = `${sign}${priceDiff.toFixed((chart.getSymbol()?.pricePrecision ?? 2))}  (${percentChange===undefined?'基准非正，百分比不可用':sign+percentChange.toFixed(2)+'%'})`
       const line2 = `${bars} 根  |  ${durationText}`
 
       // 文本位置：矩形中间
@@ -124,28 +127,5 @@ const dateAndPriceRange: OverlayTemplate = {
   }
 }
 
-/**
- * 将毫秒时间差格式化为可读文本
- * 根据跨度自动选择合适的单位
- */
-function formatDuration (ms: number): string {
-  const seconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(seconds / 60)
-  const hours = Math.floor(minutes / 60)
-  const days = Math.floor(hours / 24)
-
-  if (days > 0) {
-    const remainHours = hours % 24
-    return remainHours > 0 ? `${days}天${remainHours}小时` : `${days}天`
-  }
-  if (hours > 0) {
-    const remainMinutes = minutes % 60
-    return remainMinutes > 0 ? `${hours}小时${remainMinutes}分` : `${hours}小时`
-  }
-  if (minutes > 0) {
-    return `${minutes}分钟`
-  }
-  return `${seconds}秒`
-}
 
 export default dateAndPriceRange

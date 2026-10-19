@@ -2,11 +2,12 @@ import type {Chart} from 'klinecharts'
 import type {DrawingHistory} from './history'
 import type {DrawingSnapshot,DrawingOwner} from './types'
 
+export interface DrawingRestoreTarget {axes:Array<{id?:string;default?:boolean;paneId:string;name:string}>}
 interface DrawingBinding {
   history:DrawingHistory
   captureSharedReferences?:()=>import('./session').DrawingSharedReference[]
   prepareSharedReferences?:(references:import('./session').DrawingSharedReference[])=>Promise<{apply:()=>void;rollback:()=>void}>
-  validateRestore:(owner:DrawingOwner,values:DrawingSnapshot[])=>void
+  validateRestore:(owner:DrawingOwner,values:DrawingSnapshot[],target?:DrawingRestoreTarget)=>void
 }
 const key=Symbol.for('trading-chest.drawing-binding')
 type BoundChart=Chart&{[key]?:DrawingBinding}

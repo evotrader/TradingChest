@@ -13,6 +13,9 @@ interface Options {
   validate:(snapshot:DrawingSnapshot)=>void
   create:(tool:DrawingToolDescriptor)=>void
   cancel:()=>void
+  finish?:()=>Promise<DrawingCommandResult>
+  translate?:(snapshot:DrawingSnapshot,dx:number,dy:number)=>DrawingSnapshot
+  translatePoint?:(snapshot:DrawingSnapshot,index:number,dx:number,dy:number)=>DrawingSnapshot
   project:()=>void
   owner:(snapshot:DrawingSnapshot)=>DrawingSnapshot['owner']
   coordinates?:(snapshot:DrawingSnapshot,patch:Extract<DrawingCommand,{type:'update'}>['patch'])=>DrawingSnapshot
@@ -26,6 +29,7 @@ export function mergeDrawingStyles(before:DrawingSnapshot['overlay']['styles'],p
   return result
 }
 const complete=():DrawingCommandResult=>({status:'completed',items:[]})
+type DrawingIntent=DrawingCommand|{type:'move-point';ids:string[];index:number;dx:number;dy:number}
 /** A command coordinator; DrawingHistory remains the sole content writer. */
 export class DrawingController {
   readonly catalog:DrawingToolDescriptor[]
@@ -33,6 +37,7 @@ export class DrawingController {
   private step=0
   private continuous=false
   private selectedIds:string[]=[]
+  private magnet:import('./snap').DrawingMagnetMode='normal'
   private hidden=false
   private preventDragging=false
   private clipboard:DrawingSnapshot[]=[]
@@ -41,14 +46,16 @@ export class DrawingController {
   private tail:Promise<unknown>=Promise.resolve()
   constructor(private options:Options){this.catalog=copyDrawingCatalog(options.catalog)}
   private executionIds:string[]|undefined
+  private previewBases:DrawingSnapshot[]|undefined
   private history(write=false):DrawingHistory{return this.options.coordinator?.history(this.executionIds??this.selectedIds,write)??this.options.history}
   private drawings():DrawingSnapshot[]{return this.options.coordinator?.getDrawings()??this.options.history.getDrawings()}
   getState():DrawingState {
     const objects=this.drawings(),groups=new Map<string,{id:string;name:string;paneId:string}>()
     for(const object of objects)if(object.presentation?.groupId)groups.set(object.presentation.groupId,{id:object.presentation.groupId,name:object.presentation.groupName??object.presentation.groupId,paneId:object.overlay.paneId??'candle_pane'})
-    return {origin:this.options.coordinator?.getOrigin()??'user',toolId:this.toolId,step:this.step,continuous:this.continuous,selectedIds:[...this.selectedIds],scope:this.options.coordinator?.getScope()??'chart',historyScope:this.selectedIds.length?(objects.find(d=>d.logicalId===this.selectedIds[0])?.presentation?.scope??'chart'):this.options.coordinator?.getScope()??'chart',sharing:this.options.coordinator?.getSharing(),objects,groups:[...groups.values()],hidden:this.hidden,preventDragging:this.preventDragging,history:this.options.coordinator?.state(this.selectedIds)??this.options.history.getState(),preferences:this.options.preferences?.getState(),lastResult:this.lastResult?copy(this.lastResult):undefined}
+    return {origin:this.options.coordinator?.getOrigin()??'user',toolId:this.toolId,step:this.step,continuous:this.continuous,selectedIds:[...this.selectedIds],scope:this.options.coordinator?.getScope()??'chart',historyScope:this.selectedIds.length?(objects.find(d=>d.logicalId===this.selectedIds[0])?.presentation?.scope??'chart'):this.options.coordinator?.getScope()??'chart',sharing:this.options.coordinator?.getSharing(),objects,groups:[...groups.values()],magnet:this.magnet,hidden:this.hidden,preventDragging:this.preventDragging,history:this.options.coordinator?.state(this.selectedIds)??this.options.history.getState(),preferences:this.options.preferences?.getState(),lastResult:this.lastResult?copy(this.lastResult):undefined}
   }
-  getViewState():{hidden:boolean;preventDragging:boolean}{return {hidden:this.hidden,preventDragging:this.preventDragging}}
+  getSelectedIds():string[]{return [...this.selectedIds]}
+  getViewState():{hidden:boolean;preventDragging:boolean;magnet:import('./snap').DrawingMagnetMode}{return {magnet:this.magnet,hidden:this.hidden,preventDragging:this.preventDragging}}
   refresh():void {
     if(this.disposed)return
     const ids=new Set(this.drawings().map(d=>d.logicalId))
@@ -57,6 +64,10 @@ export class DrawingController {
     this.options.changed?.(this.getState())
   }
   setStep(step:number):void{if(this.step===step)return;this.step=step;this.refresh()}
+  rememberConfirmed(value:DrawingSnapshot):void{
+    const preferences=this.options.preferences,tool=this.catalog.find(tool=>tool.overlayName===value.overlay.name);if(!preferences||!tool)return
+    const previous=preferences.getState().value,preset={styles:copy(value.overlay.styles??{}),parameters:copy(value.parameters??{})};if(JSON.stringify(previous.lastStyles?.[tool.toolId])!==JSON.stringify(preset))preferences.update({lastStyles:{...previous.lastStyles,[tool.toolId]:preset}})
+  }
   completed(expectedToolId?:string):void {
     if(expectedToolId&&expectedToolId!==this.toolId)return
     const tool=this.catalog.find(t=>t.toolId===this.toolId)
@@ -79,19 +90,26 @@ export class DrawingController {
   }
   private async batch(build:()=>Array<{before?:DrawingSnapshot;after:DrawingSnapshot|null}>):Promise<DrawingCommandResult>{
     return this.history(true).submitBatch(()=>{
+      for(const before of this.previewBases??[])if(JSON.stringify(this.options.coordinator?.getDrawing(before.logicalId)??this.options.history.getDrawing(before.logicalId))!==JSON.stringify(before))throw Error('绘图已被更新，本次手势已取消，请重新操作')
       const values=build()
       for(const value of values)if(value.after)this.options.validate(value.after)
       return values.map(v=>({kind:v.before?v.after?'update' as const:'delete' as const:'create' as const,logicalId:(v.before??v.after)!.logicalId,after:v.after}))
     },'programmatic')
   }
   execute(command:DrawingCommand):Promise<DrawingCommandResult>{
-    const intent=copy(command),run=this.tail.catch(()=>{}).then(()=>this.run(intent))
+    return this.enqueue(command)
+  }
+  commitPreview(command:DrawingCommand,before:DrawingSnapshot[]):Promise<DrawingCommandResult>{return this.enqueue(command,before)}
+  nudgePoint(id:string,index:number,dx:number,dy:number):Promise<DrawingCommandResult>{return this.enqueue({type:'move-point',ids:[id],index,dx,dy})}
+  private enqueue(command:DrawingIntent,before?:DrawingSnapshot[]):Promise<DrawingCommandResult>{
+    const intent=copy(command),bases=before&&copy(before),run=this.tail.catch(()=>{}).then(()=>this.run(intent,bases))
     this.tail=run;return run
   }
-  private async run(command:DrawingCommand):Promise<DrawingCommandResult>{
+  private async run(command:DrawingIntent,before?:DrawingSnapshot[]):Promise<DrawingCommandResult>{
     if(this.disposed)return {status:'rejected',items:[],message:'绘图工作台已释放'}
     let result=complete()
     this.executionIds='ids' in command?command.ids:undefined
+    this.previewBases=before
     try{
       if(command.type==='scope'){
         if(!this.options.coordinator&&command.scope!=='chart')throw Error('宿主未启用共享绘图')
@@ -108,6 +126,8 @@ export class DrawingController {
         this.options.cancel();this.toolId=command.toolId;this.continuous=command.continuous??this.options.preferences?.getState().value.ui.continuous??false;this.step=0
         if(command.toolId){const tool=this.catalog.find(t=>t.toolId===command.toolId);if(!tool)throw Error('工具不在本图绘图目录中');this.options.create(tool)}
         if(command.toolId&&this.options.preferences){const value=this.options.preferences.getState().value;this.options.preferences.update({recent:[command.toolId,...value.recent.filter(id=>id!==command.toolId)].slice(0,12)})}
+      }else if(command.type==='finish'){
+        if(!this.options.finish)throw Error('当前图表没有可完成的绘制');result=await this.options.finish()
       }else if(command.type==='cancel'){
         this.options.cancel();this.toolId=null;this.step=0;result={status:'cancelled',items:[]}
       }else if(command.type==='select'){
@@ -115,6 +135,7 @@ export class DrawingController {
         this.selectedIds=command.additive?[...new Set([...this.selectedIds,...command.ids])]:[...command.ids]
         this.options.selected?.([...this.selectedIds])
       }else if(command.type==='view'){
+        if(command.magnet!==undefined){if(!['normal','weak_magnet','strong_magnet'].includes(command.magnet))throw Error('吸附模式无效');this.magnet=command.magnet}
         if(command.hidden!==undefined)this.hidden=command.hidden
         if(command.preventDragging!==undefined)this.preventDragging=command.preventDragging
         this.options.project()
@@ -144,7 +165,7 @@ export class DrawingController {
           if(selected.length!==1)throw Error('请选择一个绘图作为样式来源')
           const source=selected[0],tool=this.catalog.find(t=>t.overlayName===source.overlay.name)!
           const preset:DrawingStylePreset={styles:copy(source.overlay.styles??{}),parameters:copy(source.parameters??{})}
-          if(command.action==='default')preferences.update({defaults:{...value.defaults,[tool.toolId]:preset}})
+          if(command.action==='default')preferences.update({defaults:{...value.defaults,[tool.toolId]:preset},lastStyles:{...value.lastStyles,[tool.toolId]:preset}})
           else{
             if(!command.name?.trim()&&command.action!=='overwrite')throw Error('请输入模板名称')
             if(template&&template.toolId!==tool.toolId)throw Error('不能用不同工具覆盖此模板')
@@ -176,6 +197,7 @@ export class DrawingController {
         const presentation=['presentation','group','ungroup','reorder'].includes(command.type)
         const unlock=command.type==='update'&&Object.keys(command.patch).length===1&&command.patch.overlay&&Object.keys(command.patch.overlay).every(k=>k==='lock'||k==='visible')
         const objects=this.targets(command.ids,true,!!unlock||presentation)
+        if(command.type==='move'&&new Set(objects.map(o=>o.overlay.paneId??'candle_pane')).size>1)throw Error('不能整体移动不同窗格中的绘图')
         if(command.type==='group'&&(new Set(objects.map(o=>o.overlay.paneId??'candle_pane')).size>1||new Set(objects.map(o=>o.presentation?.scope??'chart')).size>1))throw Error('只能对同一会话和窗格中的绘图分组')
         const groupId=command.type==='group'?`group-${crypto.randomUUID()}`:undefined
         const all=this.history().getDrawings().sort((a,b)=>(a.presentation?.order??0)-(b.presentation?.order??0))
@@ -191,7 +213,13 @@ export class DrawingController {
         return affected.map(before=>{
           if(command.type==='delete')return {before,after:null}
           let after=copy(before)
-          if(command.type==='update'){
+          if(command.type==='move-point'){
+            if(!this.options.translatePoint)throw Error('控制点坐标尚未就绪');after=this.options.translatePoint(before,command.index,command.dx,command.dy)
+          }else if(command.type==='move'){
+            if(!this.options.translate)throw Error('绘图坐标尚未就绪');after=this.options.translate(before,command.dx,command.dy)
+            if(command.clone){const id=`drawing-${crypto.randomUUID()}`;after.logicalId=id;after.overlay.id=id;delete after.backendId;delete after.migration;after.presentation={...after.presentation,groupId:undefined,groupName:undefined};after.owner=this.options.owner(after);return {after}}
+          }
+          else if(command.type==='update'){
             const {overlay,text,...patch}=command.patch
             Object.assign(after,patch)
             if(patch.parameters)after.parameters={...before.parameters,...patch.parameters}
@@ -221,7 +249,7 @@ export class DrawingController {
         })
       }
     }catch(error){result={status:'rejected',items:[],message:error instanceof Error?error.message:String(error)}}
-    this.executionIds=undefined;this.lastResult=result;this.refresh();return copy(result)
+    this.executionIds=undefined;this.previewBases=undefined;this.lastResult=result;this.refresh();return copy(result)
   }
   dispose():void{this.disposed=true;this.clipboard=[];this.selectedIds=[]}
 }

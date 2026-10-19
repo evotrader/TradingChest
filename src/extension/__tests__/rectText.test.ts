@@ -79,4 +79,13 @@ describe('rectText shared drawing and hit bounds', () => {
     expect(rectText.checkEventOn({ x: 159, y: 111 }, attrs, styles)).toBe(true)
     expect(rectText.checkEventOn({ x: 161, y: 111 }, attrs, styles)).toBe(false)
   })
+  it('renders separate CJK lines and hits their complete padded block',()=>{
+    const attrs={x:100,y:100,text:'支撑区域\n等待确认',align:'left' as const,baseline:'top' as const},styles={size:16,paddingLeft:4,paddingRight:4,paddingTop:3,paddingBottom:3}
+    rectText.draw(canvasContext,attrs,styles)
+    expect(context.fillText).toHaveBeenCalledWith('支撑区域',104,103,80)
+    expect(context.fillText).toHaveBeenCalledWith('等待确认',104,124.6,80)
+    expect(rectText.checkEventOn({x:185,y:145},attrs,styles)).toBe(true)
+    expect(rectText.checkEventOn({x:185,y:151},attrs,styles)).toBe(false)
+  })
+
 })

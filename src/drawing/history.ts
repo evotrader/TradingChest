@@ -39,6 +39,8 @@ export class DrawingHistory {
   constructor(options:Options){this.options=options}
   getState():DrawingHistoryState{return {pending:this.pending+(this.restoreToken?1:0),canUndo:this.past.length>0,canRedo:this.future.length>0,error:this.error,uncertainLogicalIds:[...this.uncertain.keys()],projectionErrors:Object.fromEntries(this.projectionErrors)}}
   getDrawings():DrawingSnapshot[]{return [...this.drawings.values()].map(copy)}
+  getDrawing(id:string):DrawingSnapshot|undefined{const value=this.drawings.get(id);return value?copy(value):undefined}
+  getDrawingIds():string[]{return [...this.drawings.keys()]}
   reproject():void{for(const value of this.getDrawings())this.apply(value.logicalId,value);this.emit()}
   private emit(){if(!this.disposed)this.options.onChange?.(this.getState())}
   private dropHistory(id:string){

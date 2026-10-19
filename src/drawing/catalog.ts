@@ -1,5 +1,5 @@
 export type DrawingCategory='lines'|'channels'|'geometry'|'fibonacci'|'waves'|'measurement'|'annotations'|'positions'
-export interface DrawingParameter {key:string;label:string;kind:'number'|'text'|'boolean'|'levels';min?:number;max?:number;defaultValue:number|string|boolean|number[]}
+export interface DrawingParameter {key:string;label:string;kind:'number'|'text'|'boolean'|'levels';min?:number;max?:number;choices?:string[];defaultValue:number|string|boolean|number[]}
 export interface DrawingToolDescriptor {
   toolId:string
   overlayName:string
@@ -31,7 +31,7 @@ export const builtinDrawingCatalog:DrawingToolDescriptor[]=groups.flatMap(([cate
   return {toolId,overlayName:toolId,labels:{'zh-CN':zh,'en-US':en},category,icon:toolId,shortcut,
     mode:['brush','highlighter'].includes(toolId)?'continuous':text?'text':variable?'variable':'points',minPoints:points,maxPoints:variable||['brush','highlighter'].includes(toolId)?null:points,
     settings:['style',...(text?['text' as const]:[]),'coordinates','visibility',...(category==='fibonacci'||category==='channels'?['parameters' as const]:[])],
-    parameters:category==='fibonacci'?[{key:'levels',label:'级别',kind:'levels' as const,defaultValue:[0,.236,.382,.5,.618,.786,1]}]:[]}
+    parameters:category==='fibonacci'?[{key:'levels',label:'级别',kind:'levels' as const,defaultValue:[0,.236,.382,.5,.618,.786,1]}]:text?[{key:'textAlign',label:'文字对齐',kind:'text' as const,defaultValue:'left',choices:['left','center','right']}]:[]}
 }))
 export function copyDrawingCatalog(input:DrawingToolDescriptor[]=builtinDrawingCatalog):DrawingToolDescriptor[] {
   const ids=new Set<string>(),names=new Set<string>()
@@ -48,5 +48,6 @@ export function validateDrawingParameters(tool:DrawingToolDescriptor,parameters:
     if(spec.kind==='number'&&(typeof value!=='number'||!Number.isFinite(value)||(spec.min!==undefined&&value<spec.min)||(spec.max!==undefined&&value>spec.max)))throw Error(`参数 ${spec.label} 无效`)
     if(spec.kind==='levels'&&(!Array.isArray(value)||!value.length||value.length>64||value.some(v=>typeof v!=='number'||!Number.isFinite(v))))throw Error(`参数 ${spec.label} 无效`)
     if(spec.kind==='text'&&typeof value!=='string'||spec.kind==='boolean'&&typeof value!=='boolean')throw Error(`参数 ${spec.label} 无效`)
+    if(spec.choices&&!spec.choices.includes(String(value)))throw Error(`参数 ${spec.label} 不在允许选项内`)
   }
 }

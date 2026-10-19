@@ -45,7 +45,7 @@ export type DrawingCommand=
   | {type:'tool';toolId:string|null;continuous?:boolean}
   | {type:'select';ids:string[];additive?:boolean}
   | {type:'cancel'}
-  | {type:'update';ids:string[];patch:Partial<Pick<DrawingSnapshot,'anchors'|'parameters'|'yAxisId'>> & {overlay?:Partial<OverlaySnapshot>;text?:string}}
+  | {type:'update';ids:string[];patch:Partial<Pick<DrawingSnapshot,'anchors'|'parameters'|'yAxisId'|'presentation'>> & {overlay?:Partial<OverlaySnapshot>;text?:string}}
   | {type:'delete'|'duplicate'|'copy';ids:string[]}
   | {type:'paste';paneId?:string}
   | {type:'group';ids:string[];name:string}
@@ -53,6 +53,9 @@ export type DrawingCommand=
   | {type:'reorder';ids:string[];direction:'front'|'back'|'up'|'down'}
   | {type:'presentation';ids:string[];patch:Partial<DrawingPresentation>}
   | {type:'view';hidden?:boolean;preventDragging?:boolean}
+  | {type:'preferences';patch:Partial<import('./preferences').DrawingPreferences>}
+  | {type:'preferences-retry'}
+  | {type:'template';action:'save'|'overwrite'|'rename'|'delete'|'apply'|'default';templateId?:string;name?:string;ids?:string[];styleOnly?:boolean}
   | {type:'undo'}
   | {type:'redo'}
 export interface DrawingState {
@@ -66,6 +69,7 @@ export interface DrawingState {
   hidden:boolean
   preventDragging:boolean
   history:DrawingHistoryState
+  preferences?:import('./preferences').DrawingPreferencesState
   lastResult?:DrawingCommandResult
 }
 export interface DrawingChange {

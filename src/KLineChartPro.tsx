@@ -21,7 +21,7 @@ import ChartProComponent, { type ChartComponentApi } from './ChartProComponent'
 
 import { SymbolInfo, Period, ChartPro, ChartProOptions } from './types'
 
-import KeyboardShortcutManager from './shortcut'
+import KeyboardShortcutManager,{defaultBindings} from './shortcut'
 import {copyDrawingCatalog} from './drawing/catalog'
 import { exportToCSV, exportAllToCSV, exportScreenshot } from './export'
 import { AlertManager } from './alert'
@@ -52,7 +52,10 @@ export default class KLineChartPro implements ChartPro {
           ref={(chart: ChartComponentApi) => { this._chartApi = chart }}
           indicatorCatalog={options.indicatorCatalog}
           drawingCatalog={options.drawingCatalog}
-          onDrawingStateChange={options.onDrawingStateChange}
+          drawingPreferences={options.drawingPreferences}
+          drawingPreferencesStore={options.drawingPreferencesStore}
+          drawingPreferencesScope={options.drawingPreferencesScope}
+          onDrawingStateChange={state=>{this._drawingPreferenceShortcuts=state.preferences?.value.shortcuts??{};this._applyDrawingShortcuts();options.onDrawingStateChange?.(state)}}
           analysisLayerListVisible={options.analysisLayerListVisible}
           onAnalysisLayerChange={options.onAnalysisLayerChange}
           onAnalysisEventClick={options.onAnalysisEventClick}
@@ -179,7 +182,7 @@ export default class KLineChartPro implements ChartPro {
     this._replayAlertManager.onTrigger = event => options.onReplayAlertTrigger?.({ ...event, mode: 'replay' })
 
     // 初始化快捷键管理器
-    this._shortcutManager = new KeyboardShortcutManager()
+    this._shortcutManager = new KeyboardShortcutManager(defaultBindings.filter(binding=>!binding.action.startsWith('draw:')))
     this._shortcutManager.registerActions({
       // 导航
       'nav:scrollToEnd': () => { this.getChart()?.scrollToRealTime() },
@@ -229,10 +232,19 @@ export default class KLineChartPro implements ChartPro {
         if (axis) chart.overrideYAxis({id:axis.id,paneId:'candle_pane',name:axis.name === 'logarithm' ? 'normal' : 'logarithm'})
       },
     })
-    for(const tool of copyDrawingCatalog(options.drawingCatalog))if(tool.shortcut)this._shortcutManager.addBinding({combo:tool.shortcut.toLowerCase(),action:`draw:${tool.toolId}`,descriptionKey:tool.labels['zh-CN']})
+    this._drawingCatalog=copyDrawingCatalog(options.drawingCatalog);this._applyDrawingShortcuts()
     this._shortcutManager.bindTo(this._container!)
   }
 
+  private _drawingCatalog:import('./drawing/catalog').DrawingToolDescriptor[]=[]
+  private _drawingBindingCombos:string[]=[]
+  private _drawingPreferenceShortcuts:Record<string,string>={}
+  private _applyDrawingShortcuts():void {
+    if(!this._shortcutManager)return
+    for(const combo of this._drawingBindingCombos)this._shortcutManager.removeBinding(combo)
+    this._drawingBindingCombos=[]
+    for(const tool of this._drawingCatalog){const combo=(this._drawingPreferenceShortcuts[tool.toolId]??tool.shortcut)?.toLowerCase();if(combo){this._shortcutManager.addBinding({combo,action:`draw:${tool.toolId}`,descriptionKey:tool.labels['zh-CN']});this._drawingBindingCombos.push(combo)}}
+  }
   private _container: Nullable<HTMLElement>
 
   private _chartApi: Nullable<ChartComponentApi> = null

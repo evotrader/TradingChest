@@ -1,7 +1,7 @@
 import type { Chart, Crosshair } from 'klinecharts'
 import type { ChartPro, Period, SymbolInfo } from '../types'
-import {captureLayout,restoreLayout} from '../persistence/v3'
-import {isWorkspaceDocument} from './document'
+import {captureLayout,restoreLayout} from '../persistence/v4'
+import {isWorkspaceDocument,migrateWorkspaceDocument} from './document'
 export {isWorkspaceDocument} from './document'
 import {hideCrosshair,syncCrosshair,syncViewport,visibleTimestamps} from './viewportSync'
 import translate from '../i18n'
@@ -230,7 +230,7 @@ export class ChartWorkspace {
   capture():WorkspaceDocument {
     if(this.busy||this.cells.length!==this.layout||this.cells.some(c=>c.transitioning))throw this.failure('workspace_not_ready')
     const cells=this.cells.map(c=>{if(!c.pro)throw this.failure('workspace_cell_not_ready',{id:c.cell.cellId});if(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)throw this.failure('workspace_drawing_save');const options=c.binding?.captureOptions?.()??{};return {...c.cell,chart:captureLayout(c.pro,{...options,localDrawingIds:[...(options.localDrawingIds??[]),...c.restoredIds,...c.pro.getDrawings().filter(d=>d.owner==='local').map(d=>d.logicalId)],context:{ticker:c.cell.symbol.ticker,period:{multiplier:c.cell.period.multiplier,timespan:c.cell.period.timespan}}})}})
-    const doc:WorkspaceDocument={version:1,layout:this.layout,activeCellId:this.active,sync:{...this.sync},columnRatio:this.columnRatio,rowRatio:this.rowRatio,cells}
+    const doc:WorkspaceDocument={version:2,sharedDrawings:[],layout:this.layout,activeCellId:this.active,sync:{...this.sync},columnRatio:this.columnRatio,rowRatio:this.rowRatio,cells}
     if(!isWorkspaceDocument(doc))throw this.failure('workspace_invalid_save')
     return doc
   }
@@ -241,6 +241,7 @@ export class ChartWorkspace {
     return {id:value.id,name:value.name,revision:value.revision,updatedAt:value.updatedAt}
   }
   private stored(value:StoredWorkspace,id:string):StoredWorkspace {
+    value={...value,document:migrateWorkspaceDocument(value.document)}
     const summary=this.summary(value)
     if(summary.id!==id||!isWorkspaceDocument(value.document)||value.document.cells.some(c=>c.context!==(c.cellId==='primary'?this.options.context:`${this.options.context}:${c.cellId}`)))throw this.storageFailure('WORKSPACE_INVALID_DOCUMENT',this.t('workspace_invalid_document'))
     return {...summary,document:this.copy(value.document)}
@@ -345,11 +346,11 @@ export class ChartWorkspace {
     if(this.busy)throw this.failure('workspace_busy')
     if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
     if(this.cells.some(c=>c.pro&&(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)))throw this.failure('workspace_drawing_load')
-    if(!isWorkspaceDocument(doc))throw this.failure('workspace_invalid_document')
+    try{doc=migrateWorkspaceDocument(doc)}catch{throw this.failure('workspace_invalid_document')}
     for(const cell of doc.cells){if(!this.options.symbols.some(s=>s.ticker===cell.symbol.ticker))throw this.failure('workspace_symbol_missing',{ticker:cell.symbol.ticker});const context=cell.cellId==='primary'?this.options.context:`${this.options.context}:${cell.cellId}`;if(cell.context!==context)throw this.failure('workspace_context_mismatch')}
     this.busy=true;for(const c of this.cells){c.body.inert=true;c.pro?.getShortcutManager()?.setEnabled(false)}++this.alignment;const staged:Runtime[]=[];const stage=document.createElement('div');stage.style.cssText='position:absolute;visibility:hidden;pointer-events:none;width:'+this.grid.clientWidth+'px';this.root.append(stage)
     try{
-      for(const cell of doc.cells){if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');const c=await this.createCell(cell,stage,true,false,signal);staged.push(c);if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');if(!c.pro)throw this.failure('workspace_restored_not_ready');await this.abortable(restoreLayout(c.pro,cell.chart),signal??c.controller.signal);c.restoredIds=cell.chart.overlayData.flatMap(o=>o.id?[o.id]:[])}
+      for(const cell of doc.cells){if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');const c=await this.createCell(cell,stage,true,false,signal);staged.push(c);if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');if(!c.pro)throw this.failure('workspace_restored_not_ready');await this.abortable(restoreLayout(c.pro,cell.chart),signal??c.controller.signal);c.restoredIds=cell.chart.drawings.map(d=>d.logicalId)}
       if(this.disposed||!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
       this.assertDrawingIdle(this.cells)
       for(const c of this.cells)this.disposeCell(c)

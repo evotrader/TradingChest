@@ -1,4 +1,4 @@
-import {isWorkspaceDocument} from './document'
+import {isWorkspaceDocument,migrateWorkspaceDocument} from './document'
 import type {WorkspaceDocument} from './types'
 
 export interface WorkspaceSummary {id:string;name:string;updatedAt:number;revision:string}
@@ -80,7 +80,7 @@ export function copyStoredWorkspace(scope:string,value:unknown,expectedId?:strin
     assertWorkspaceRevision(row.revision)
     if(row.scope!==scope||(expectedId!==undefined&&row.id!==expectedId))throw invalid('Stored workspace identity does not match its key')
     if(row.name!==normalizeWorkspaceName(row.name)||!Number.isFinite(row.updatedAt)||row.updatedAt<0)throw invalid('Stored workspace metadata is invalid')
-    return {id:row.id,name:row.name,updatedAt:row.updatedAt,revision:row.revision,document:copyWorkspaceDocument(scope,row.document)}
+    return {id:row.id,name:row.name,updatedAt:row.updatedAt,revision:row.revision,document:copyWorkspaceDocument(scope,migrateWorkspaceDocument(row.document))}
   }catch(error){
     if(error instanceof WorkspaceStoreError)throw error
     throw invalid('Stored workspace cannot be validated or copied',error)

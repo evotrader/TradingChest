@@ -1,6 +1,6 @@
 import {describe,it,expect,vi} from 'vitest'
 vi.mock('klinecharts',()=>({getSupportedOverlays:()=>['segment'],getSupportedIndicators:()=>['MA'],registerIndicator:vi.fn()}))
-import {migrateLayoutToV4,isChartLayoutV4,loadLayoutV4,saveLayoutV4,restoreLayout} from '../v4'
+import {migrateLayoutToV4,isChartLayoutV4,loadLayoutV4,saveLayoutV4,restoreLayout} from '../index'
 import type {ChartPro} from '../../types'
 import {builtinDrawingCatalog} from '../../drawing/catalog'
 import {DrawingHistory} from '../../drawing/history'

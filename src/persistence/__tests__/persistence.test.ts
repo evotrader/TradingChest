@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import {saveLayoutV3 as saveLayout,loadLayoutV3,deleteLayoutV3 as deleteLayout,listLayoutsV3} from '../index'
+import {saveLayoutV3 as saveLayout,loadLayoutV3,deleteLayoutV3 as deleteLayout,listLayoutsV3} from '../v3'
 const loadLayout=(key:string)=>{const result=loadLayoutV3(key);return result.status==='ok'?result.value:null}
 const listLayouts=()=>{const result=listLayoutsV3();return result.status==='ok'?result.value:[]}
 
@@ -23,7 +23,7 @@ const localStorageMock = {
 
 vi.stubGlobal('localStorage', localStorageMock)
 
-describe('persistence', () => {
+describe('legacy v3 storage', () => {
   beforeEach(() => {
     localStorageMock.clear()
     vi.clearAllMocks()

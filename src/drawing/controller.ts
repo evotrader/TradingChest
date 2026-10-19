@@ -1,9 +1,11 @@
 import {copyDrawingCatalog,validateDrawingParameters,type DrawingToolDescriptor} from './catalog'
 import type {DrawingHistory} from './history'
+import type {DrawingPreferencesManager,DrawingStylePreset,DrawingTemplate} from './preferences'
 import type {DrawingCommand,DrawingCommandResult,DrawingSnapshot,DrawingState,DrawingPresentation} from './types'
 
 interface Options {
   history:DrawingHistory
+  preferences?:DrawingPreferencesManager
   catalog?:DrawingToolDescriptor[]
   editable:(snapshot:DrawingSnapshot)=>boolean
   validate:(snapshot:DrawingSnapshot)=>void
@@ -39,17 +41,19 @@ export class DrawingController {
   getState():DrawingState {
     const objects=this.options.history.getDrawings(),groups=new Map<string,{id:string;name:string;paneId:string}>()
     for(const object of objects)if(object.presentation?.groupId)groups.set(object.presentation.groupId,{id:object.presentation.groupId,name:object.presentation.groupName??object.presentation.groupId,paneId:object.overlay.paneId??'candle_pane'})
-    return copy({toolId:this.toolId,step:this.step,continuous:this.continuous,selectedIds:this.selectedIds,scope:'chart',objects,groups:[...groups.values()],hidden:this.hidden,preventDragging:this.preventDragging,history:this.options.history.getState(),lastResult:this.lastResult})
+    return {toolId:this.toolId,step:this.step,continuous:this.continuous,selectedIds:[...this.selectedIds],scope:'chart',objects,groups:[...groups.values()],hidden:this.hidden,preventDragging:this.preventDragging,history:this.options.history.getState(),preferences:this.options.preferences?.getState(),lastResult:this.lastResult?copy(this.lastResult):undefined}
   }
+  getViewState():{hidden:boolean;preventDragging:boolean}{return {hidden:this.hidden,preventDragging:this.preventDragging}}
   refresh():void {
     if(this.disposed)return
-    const ids=new Set(this.options.history.getDrawings().map(d=>d.logicalId))
+    const ids=new Set(this.options.history.getDrawingIds())
     const selected=this.selectedIds.filter(id=>ids.has(id))
     if(selected.length!==this.selectedIds.length){this.selectedIds=selected;this.options.selected?.([...selected])}
     this.options.changed?.(this.getState())
   }
-  setStep(step:number):void{this.step=step;this.refresh()}
-  completed():void {
+  setStep(step:number):void{if(this.step===step)return;this.step=step;this.refresh()}
+  completed(expectedToolId?:string):void {
+    if(expectedToolId&&expectedToolId!==this.toolId)return
     const tool=this.catalog.find(t=>t.toolId===this.toolId)
     this.step=0
     if(this.continuous&&tool)this.options.create(tool)
@@ -58,9 +62,8 @@ export class DrawingController {
   }
   private targets(ids:string[],write=false,allowLocked=false):DrawingSnapshot[]{
     if(new Set(ids).size!==ids.length)throw Error('绘图选择包含重复对象')
-    const objects=this.options.history.getDrawings()
     return ids.map(id=>{
-      const object=objects.find(o=>o.logicalId===id)
+      const object=this.options.history.getDrawing(id)
       if(!object)throw Error(`绘图 ${id} 不存在，请刷新对象列表`)
       if(!this.options.editable(object))throw Error(`绘图 ${id} 由宿主管理，不能编辑`)
       if(write&&object.overlay.lock&&!allowLocked)throw Error(`绘图 ${object.presentation?.name??id} 已锁定，请先解锁`)
@@ -84,8 +87,9 @@ export class DrawingController {
     let result=complete()
     try{
       if(command.type==='tool'){
-        this.options.cancel();this.toolId=command.toolId;this.continuous=command.continuous??false;this.step=0
+        this.options.cancel();this.toolId=command.toolId;this.continuous=command.continuous??this.options.preferences?.getState().value.ui.continuous??false;this.step=0
         if(command.toolId){const tool=this.catalog.find(t=>t.toolId===command.toolId);if(!tool)throw Error('工具不在本图绘图目录中');this.options.create(tool)}
+        if(command.toolId&&this.options.preferences){const value=this.options.preferences.getState().value;this.options.preferences.update({recent:[command.toolId,...value.recent.filter(id=>id!==command.toolId)].slice(0,12)})}
       }else if(command.type==='cancel'){
         this.options.cancel();this.toolId=null;this.step=0;result={status:'cancelled',items:[]}
       }else if(command.type==='select'){
@@ -96,6 +100,40 @@ export class DrawingController {
         if(command.hidden!==undefined)this.hidden=command.hidden
         if(command.preventDragging!==undefined)this.preventDragging=command.preventDragging
         this.options.project()
+      }else if(command.type==='preferences'){
+        if(!this.options.preferences)throw Error('绘图偏好尚未就绪')
+        this.options.preferences.update(command.patch)
+      }else if(command.type==='preferences-retry'){
+        await this.options.preferences?.retry()
+      }else if(command.type==='template'){
+        const preferences=this.options.preferences;if(!preferences)throw Error('绘图偏好尚未就绪')
+        const value=preferences.getState().value,template=value.templates.find(t=>t.id===command.templateId)
+        if(['rename','delete','overwrite','apply'].includes(command.action)&&!template)throw Error('模板不存在，请刷新列表')
+        if(command.action==='delete')preferences.update({templates:value.templates.filter(t=>t.id!==command.templateId)})
+        else if(command.action==='rename'){
+          if(!command.name?.trim())throw Error('请输入模板名称')
+          preferences.update({templates:value.templates.map(t=>t.id===command.templateId?{...t,name:command.name!.trim()}:t)})
+        }else if(command.action==='apply'){
+          result=await this.batch(()=>this.targets(command.ids??this.selectedIds,true).map(before=>{
+            const tool=this.catalog.find(t=>t.overlayName===before.overlay.name)!
+            if(tool.toolId!==template!.toolId&&!command.styleOnly)throw Error('不同工具只能显式应用共同样式')
+            const after=copy(before);after.overlay.styles=mergeDrawingStyles(after.overlay.styles,template!.styles)
+            if(!command.styleOnly){after.parameters=copy(template!.parameters??{});validateDrawingParameters(tool,after.parameters)}
+            return {before,after}
+          }))
+        }else{
+          const selected=this.targets(command.ids??this.selectedIds)
+          if(selected.length!==1)throw Error('请选择一个绘图作为样式来源')
+          const source=selected[0],tool=this.catalog.find(t=>t.overlayName===source.overlay.name)!
+          const preset:DrawingStylePreset={styles:copy(source.overlay.styles??{}),parameters:copy(source.parameters??{})}
+          if(command.action==='default')preferences.update({defaults:{...value.defaults,[tool.toolId]:preset}})
+          else{
+            if(!command.name?.trim()&&command.action!=='overwrite')throw Error('请输入模板名称')
+            if(template&&template.toolId!==tool.toolId)throw Error('不能用不同工具覆盖此模板')
+            const next:DrawingTemplate={...preset,id:template?.id??crypto.randomUUID(),name:command.name?.trim()??template!.name,toolId:tool.toolId}
+            preferences.update({templates:[...value.templates.filter(t=>t.id!==next.id),next]})
+          }
+        }
       }else if(command.type==='undo'||command.type==='redo'){
         await this.options.history[command.type]();result=this.options.history.getLastResult()
       }else if(command.type==='copy'){
@@ -117,7 +155,7 @@ export class DrawingController {
       }else{
         result=await this.batch(()=>{
         const presentation=['presentation','group','ungroup','reorder'].includes(command.type)
-        const unlock=command.type==='update'&&Object.keys(command.patch).length===1&&command.patch.overlay&&Object.keys(command.patch.overlay).every(k=>k==='lock')
+        const unlock=command.type==='update'&&Object.keys(command.patch).length===1&&command.patch.overlay&&Object.keys(command.patch.overlay).every(k=>k==='lock'||k==='visible')
         const objects=this.targets(command.ids,true,!!unlock||presentation)
         if(command.type==='group'&&(new Set(objects.map(o=>o.overlay.paneId??'candle_pane')).size>1||new Set(objects.map(o=>o.presentation?.scope??'chart')).size>1))throw Error('只能对同一会话和窗格中的绘图分组')
         const groupId=command.type==='group'?`group-${crypto.randomUUID()}`:undefined
@@ -137,6 +175,9 @@ export class DrawingController {
           if(command.type==='update'){
             const {overlay,text,...patch}=command.patch
             Object.assign(after,patch)
+            if(patch.parameters)after.parameters={...before.parameters,...patch.parameters}
+            if(patch.presentation)after.presentation={...before.presentation,...patch.presentation}
+            if(patch.presentation?.scope&&patch.presentation.scope!==(before.presentation?.scope??'chart'))throw Error('共享作用域需通过作用域转移命令修改')
             if(overlay){
               const styles=overlay.styles?mergeDrawingStyles(after.overlay.styles,overlay.styles):overlay.styles
               after.overlay={...after.overlay,...copy(overlay),...(overlay.styles?{styles}:{}),id:after.logicalId,name:after.overlay.name}

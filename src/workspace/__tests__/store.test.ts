@@ -8,10 +8,10 @@ import {createIndexedDBWorkspaceStore} from '../indexedDBStore'
 import type {WorkspaceDocument} from '../types'
 
 function document(scope='scope',layout:1|2|4=1):WorkspaceDocument {
-  return {version:1,layout,activeCellId:'primary',sync:{symbol:false,period:false,crosshair:false,viewport:false},columnRatio:50,rowRatio:50,
+  return {version:2,sharedDrawings:[],layout,activeCellId:'primary',sync:{symbol:false,period:false,crosshair:false,viewport:false},columnRatio:50,rowRatio:50,
     cells:['primary','secondary-1','secondary-2','secondary-3'].slice(0,layout).map(cellId=>({cellId,context:cellId==='primary'?scope:`${scope}:${cellId}`,
       symbol:{ticker:'A.X'},period:{multiplier:1,timespan:'minute',text:'1m'},
-      chart:{version:3,timestamp:1,theme:'dark',locale:'zh-CN',timezone:'UTC',styles:{},indicators:[],panes:[],axes:[],overlayData:[],context:{ticker:'A.X',period:{multiplier:1,timespan:'minute'}}}}))}
+      chart:{version:4,timestamp:1,theme:'dark',locale:'zh-CN',timezone:'UTC',styles:{},indicators:[],panes:[],axes:[],drawings:[],drawingPresentation:{},context:{ticker:'A.X',period:{multiplier:1,timespan:'minute'}}}}))}
 }
 const stored=(scope='scope')=>({scope,id:'stable-id',name:'名称',revision:'opaque-revision',updatedAt:1,document:document(scope)})
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals()})

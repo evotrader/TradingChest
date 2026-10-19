@@ -88,7 +88,12 @@ export type { SeriesIdentity, HistoryBatch, SessionUpdate, DataSession, SessionP
 
 export type { TimestampLocation } from './core/locateTimestamp'
 
-export {saveLayoutV3,loadLayoutV3,deleteLayoutV3,listLayoutsV3,migrateLayoutToV3,isChartLayoutV3,captureLayout,restoreLayout} from './persistence/v3'
+export {loadLayoutV3,migrateLayoutToV3,isChartLayoutV3} from './persistence/v3'
+export {saveLayoutV4,loadLayoutV4,deleteLayoutV4,listLayoutsV4,migrateLayoutToV4,isChartLayoutV4,captureLayout,restoreLayout} from './persistence/v4'
+export type {ChartLayoutV4} from './persistence/v4'
+export {builtinDrawingCatalog} from './drawing/catalog'
+export type {DrawingToolDescriptor,DrawingParameter,DrawingCategory} from './drawing/catalog'
+export type {DrawingAnchor,DrawingCommand,DrawingCommandResult,DrawingState,DrawingPresentation,DrawingScope,DrawingIntervalFilter} from './drawing/types'
 export type {ChartLayoutV3,LayoutResult,LayoutIndicatorV3} from './persistence/v3'
 export {ChartWorkspace,isWorkspaceDocument} from './workspace/ChartWorkspace'
 export type {ChartWorkspaceOptions,WorkspaceDocument,WorkspaceCell,WorkspaceBinding,WorkspaceLayout,WorkspaceSync} from './workspace/types'
@@ -109,3 +114,6 @@ export {WorkspaceStoreError} from './workspace/store'
 export type {WorkspaceSummary,StoredWorkspace,WorkspaceWrite,WorkspaceStore,WorkspaceStoreErrorCode} from './workspace/store'
 export {createIndexedDBWorkspaceStore} from './workspace/indexedDBStore'
 export {readLegacyWorkspace} from './workspace/legacy'
+
+export {createIndexedDBDrawingPreferencesStore,defaultDrawingPreferences} from './drawing/preferences'
+export type {DrawingPreferences,DrawingPreferencesState,DrawingPreferencesStore,DrawingTemplate,DrawingStylePreset} from './drawing/preferences'

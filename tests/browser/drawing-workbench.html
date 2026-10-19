@@ -1,0 +1,14 @@
+<!doctype html><html lang="zh-CN"><meta charset="UTF-8"><body style="margin:0"><p>隔离测试合成行情；提交回调为测试替身，不是真实后端验收。</p><div id="chart" style="width:1100px;height:640px"></div><script type="module">
+import {KLineChartPro,createIndexedDBDrawingPreferencesStore} from '/src/chart.ts'
+import {makeBars} from './syntheticBars.ts'
+const bars=makeBars(2000)
+window.preferenceStore=createIndexedDBDrawingPreferencesStore({databaseName:new URL(location.href).searchParams.get('database')??'tc-drawing-workbench-test'})
+window.commits=[];window.mode='confirmed';window.states=[]
+window.pro=new KLineChartPro({container:document.querySelector('#chart'),symbol:{ticker:'TEST.X',exchange:'TEST',market:'test',priceCurrency:'USD',pricePrecision:2,tickSize:.25},period:{multiplier:1,timespan:'minute',text:'1m'},mainIndicators:['MA'],subIndicators:['VOL'],
+ drawingPreferencesStore:preferenceStore,drawingPreferencesScope:'isolated-engine-browser',onDataReady:()=>window.ready=true,onDrawingStateChange:s=>{window.states.push(s)},drawingOwner:overlay=>['brush','textAnnotation','horizontalStraightLine'].includes(overlay.name)?'backend':'local',commitDrawing:async change=>{
+  window.commits.push(structuredClone(change))
+  if(window.mode==='rejected')return {status:'rejected',message:'测试替身拒绝'}
+  if(window.mode==='uncertain')return {status:'uncertain',message:'测试替身未知结果'}
+  return {status:'confirmed',snapshot:change.after?{...change.after,backendId:change.before?.backendId??`server-${change.logicalId}`}:null}
+ },datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_symbol,_period,query)=>({bars:query.kind==='before'?bars.filter(b=>b.timestamp<query.before):bars.filter(b=>b.timestamp>=query.from&&b.timestamp<query.to),basis:'isolated-raw',hasMoreBefore:false}),subscribe:()=>{},unsubscribe:()=>{}}})
+</script></body></html>

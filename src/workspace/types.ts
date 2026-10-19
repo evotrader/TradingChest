@@ -1,5 +1,5 @@
 import type { ChartPro, Period, SymbolInfo } from '../types'
-import type { ChartLayoutV3 } from '../persistence/v3'
+import type { ChartLayoutV4 } from '../persistence/v4'
 
 export type WorkspaceLayout = 1 | 2 | 4
 export type WorkspaceSync = Record<'symbol'|'period'|'crosshair'|'viewport', boolean>
@@ -11,13 +11,14 @@ export interface WorkspaceBinding {
   captureOptions?:()=>{localDrawingIds?:string[];annotationRefs?:string[]}
 }
 export interface WorkspaceDocument {
-  version:1
+  version:2
+  sharedDrawings:import('../drawing/document').SharedDrawingDocument[]
   layout:WorkspaceLayout
   activeCellId:string
   sync:WorkspaceSync
   columnRatio:number
   rowRatio:number
-  cells:Array<WorkspaceCell & {chart:ChartLayoutV3}>
+  cells:Array<WorkspaceCell & {chart:ChartLayoutV4}>
 }
 export interface ChartWorkspaceOptions {
   container:HTMLElement

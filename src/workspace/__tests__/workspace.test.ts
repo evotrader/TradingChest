@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import {afterEach,describe,expect,it,vi} from 'vitest'
 import {ChartWorkspace} from '../ChartWorkspace'
+import {DrawingHistory} from '../../drawing/history'
+import {drawingBindings} from '../../drawing/bindings'
+import {builtinDrawingCatalog} from '../../drawing/catalog'
 import {syncCrosshair,syncViewport} from '../viewportSync'
 import type {Chart} from 'klinecharts'
 import type {ChartPro,Period} from '../../types'
@@ -106,8 +109,9 @@ describe('workspace ownership',()=>{
     const container=document.createElement('div');document.body.append(container);let release!:(value:Period[])=>void;let mounted=0,disposed=0;const chartThemes:string[]=[],chartLocales:string[]=[];
     const getPeriods=vi.fn().mockImplementationOnce(()=>new Promise(done=>release=done)).mockResolvedValue([period]);
     const w=new ChartWorkspace({container,context:'x',locale:'en-US',theme:'light',height:640,toolbar:{size:false},symbols:[{ticker:'A'}],initialSymbol:{ticker:'A'},initialPeriod:period,getPeriods,mountCell:()=>{
-      mounted++;const engine={resize:vi.fn(),getDom:()=>null,subscribeAction:vi.fn(),unsubscribeAction:vi.fn(),getIndicators:()=>[],setStyles:vi.fn()};
-      const pro={getChart:()=>engine,getIndicatorCatalog:()=>[],getSymbol:()=>({ticker:'A'}),getPeriod:()=>period,getShortcutManager:()=>({setEnabled:vi.fn()}),getDrawingHistoryState:()=>({pending:0,uncertainLogicalIds:[]}),getDrawings:()=>[],resetDrawingHistory:vi.fn(),setTheme:(value:string)=>chartThemes.push(value),setLocale:(value:string)=>chartLocales.push(value),setTimezone:vi.fn(),restoreDrawings:vi.fn()};
+      mounted++;const engine:any={resize:vi.fn(),getDom:()=>null,subscribeAction:vi.fn(),unsubscribeAction:vi.fn(),getIndicators:()=>[],setStyles:vi.fn(),getOverlays:()=>[],getDataList:()=>[],getVisibleRange:()=>({from:0,to:0}),getBarSpace:()=>({bar:8}),getStyles:()=>({}),getPaneOptions:()=>[],getYAxes:()=>[]};
+      const history=new DrawingHistory({context:()=>({symbol:{ticker:'A'},period}),apply:(_id,value)=>value});drawingBindings.set(engine,{history,validateRestore:()=>{}});
+      const pro={getTheme:()=> 'dark',getLocale:()=> 'zh-CN',getTimezone:()=> 'UTC',getDrawingTools:()=>builtinDrawingCatalog,getChart:()=>engine,getIndicatorCatalog:()=>[],getSymbol:()=>({ticker:'A'}),getPeriod:()=>period,getShortcutManager:()=>({setEnabled:vi.fn()}),getDrawingHistoryState:()=>history.getState(),getDrawings:()=>history.getDrawings(),resetDrawingHistory:()=>history.reset(),setTheme:(value:string)=>chartThemes.push(value),setLocale:(value:string)=>chartLocales.push(value),setTimezone:vi.fn(),restoreDrawings:vi.fn()};
       return {ready:Promise.resolve(pro as unknown as ChartPro),dispose:()=>disposed++};
     }});instances.push(w);
     const restoring=w.restore(doc as import('../types').WorkspaceDocument);await settle();expect(mounted).toBe(0);expect(getPeriods).toHaveBeenCalledTimes(1);

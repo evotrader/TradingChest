@@ -126,6 +126,9 @@ export interface OverlayLifecycleEvent {
 
 export interface ChartProOptions extends AnalysisOptions {
   drawingCatalog?:import('./drawing/catalog').DrawingToolDescriptor[]
+  drawingPreferences?:import('./drawing/preferences').DrawingPreferences
+  drawingPreferencesStore?:import('./drawing/preferences').DrawingPreferencesStore
+  drawingPreferencesScope?:string
   onDrawingStateChange?:(state:import('./drawing/types').DrawingState)=>void
   indicatorCatalog?:import('./indicator/catalog').IndicatorDescriptor[]
   comparisonSymbols?:SymbolInfo[]

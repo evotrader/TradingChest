@@ -957,7 +957,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           if(!state.confirmed){drawingAlignment='';return}
           const bars=widget!.getDataList(),alignment=JSON.stringify([state.epoch,state.basis,state.revision,state.replay,state.cutoff,bars.length,bars[0]?.timestamp,bars.at(-1)?.timestamp])
           // Reproject on confirmed alignment changes, never on same-bar OHLC quotes.
-          if(alignment!==drawingAlignment){drawingAlignment=alignment;drawingHistory.reproject();drawingCoordinator.project()}
+          if(alignment!==drawingAlignment){
+            drawingAlignment=alignment
+            if(drawingHistory.getDrawingIds().length)drawingHistory.reproject()
+            if(drawingCoordinator.hasSharedDrawings())drawingCoordinator.project()
+          }
         })
       },
       state: state=>{setDataState(state);setLoadError(state.error?`${state.errorCode??state.operation??'data'}: ${state.error}`:'');comparisons.mainChanged();props.onDataState?.(state)},

@@ -81,6 +81,7 @@ export class DrawingCoordinator {
     if(scope!=='chart'&&['loading','uncertain'].includes(this.getSession(scope).getState().status))throw Error('共享存储尚未确认，请先刷新核对')
   }
   getSharing(){return {canSaveAs:!!this.options.saveAs,workspace:this.sessions.workspace?.getState(),host:this.sessions.host?.getState(),reason:this.reason||undefined}}
+  hasSharedDrawings():boolean{return this.list().some(session=>session.history.getDrawingIds().length>0)}
   getDrawings():DrawingSnapshot[]{return [...this.local.getDrawings(),...this.list().flatMap(s=>s.history.getDrawings()).filter(d=>!this.local.getDrawing(d.logicalId))]}
   /** Shared values project onto each chart's main price axis, never an engine instance ID. */
   prepare(value:DrawingSnapshot):DrawingSnapshot{if(!value.presentation?.scope||value.presentation.scope==='chart')return value;const prepared=copy(value);delete prepared.yAxisId;return prepared}

@@ -9,7 +9,8 @@ try{
  for(let i=0;i<100;i++){
   const before=await page.evaluate(volume=>cleanupProbe.start(volume),volume);assert.equal(before.subscribers,2);assert.equal(before.connections,2)
   const root=page.locator('.klinecharts-pro').first()
-  if(volume){await root.getByRole('button',{name:'绘图管理',exact:true}).click();assert.ok(await root.getByRole('treeitem').count()>0);await root.getByRole('button',{name:'关闭绘图管理',exact:true}).click()}
+  // Locator clicks retain marked targets in Playwright; trusted coordinates avoid holding closed trees during GC.
+  if(volume){const click=async locator=>{const box=await locator.boundingBox();assert.ok(box);await page.mouse.click(box.x+box.width/2,box.y+box.height/2)};await click(root.getByRole('button',{name:'绘图管理',exact:true}));assert.ok(await root.getByRole('treeitem').count()>0);await click(root.getByRole('button',{name:'关闭绘图管理',exact:true}))}
   if(i%3===0){await page.evaluate(()=>drawingBench.charts[0].executeDrawingCommand({type:'tool',toolId:'textAnnotation'}));const r=await page.evaluate(()=>{const r=drawingBench.charts[0].getChart().getDom('candle_pane','main').getBoundingClientRect();return {x:r.x+r.width*.7,y:r.y+r.height*.6}});await page.mouse.click(r.x,r.y);await page.getByRole('dialog',{name:'编辑绘图文字'}).waitFor()}
   else if(i%3===1){const h=root.getByRole('button',{name:'绘图控制点 1 · 压测 0000',exact:true});const b=await h.boundingBox();await page.mouse.move(b.x+22,b.y+22);await page.mouse.down();await page.mouse.move(b.x+25,b.y+25)}
   else{const r=await root.locator('.klinecharts-pro-widget').boundingBox();await page.mouse.click(r.x+r.width*.7,r.y+r.height*.4,{button:'right'});await page.getByRole('menu',{name:'绘图操作'}).waitFor()}

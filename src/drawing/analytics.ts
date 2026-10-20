@@ -32,13 +32,33 @@ export function validVolumeBar(bar:KLineData):boolean {
 }
 const price=(bar:KLineData,source:VwapPriceSource)=>source==='close'?bar.close:source==='hl2'?bar.high/2+bar.low/2:source==='hlc3'?bar.high/3+bar.low/3+bar.close/3:bar.open/4+bar.high/4+bar.low/4+bar.close/4
 class Sum {
-  value=0
-  compensation=0
-  get total():number{return this.value-this.compensation}
+  private parts:number[]
+  private invalid=false
+  constructor(parts:number[]=[]){this.parts=[...parts]}
+  snapshot():number[]{return [...this.parts]}
+  get total():number {
+    if(this.invalid)return NaN
+    let n=this.parts.length
+    if(!n)return 0
+    let high=this.parts[--n],low=0
+    while(n){const previous=high,value=this.parts[--n];high=previous+value;low=value-(high-previous);if(low)break}
+    if(n&&((low<0&&this.parts[n-1]<0)||(low>0&&this.parts[n-1]>0))){const doubled=low*2,next=high+doubled;if(next-high===doubled)high=next}
+    return high
+  }
   add(value:number):number {
-    const previous=this.value,next=previous+value
-    this.compensation-=Math.abs(previous)>=Math.abs(value)?(previous-next)+value:(value-next)+previous
-    this.value=next;return this.total
+    if(this.invalid||!Number.isFinite(value)){this.invalid=true;return NaN}
+    let x=value,used=0
+    for(let y of this.parts){
+      if(Math.abs(x)<Math.abs(y))[x,y]=[y,x]
+      const high=x+y
+      if(!Number.isFinite(high)){this.invalid=true;return NaN}
+      const low=y-(high-x)
+      if(low)this.parts[used++]=low
+      x=high
+    }
+    this.parts.length=used
+    if(x||!used)this.parts.push(x)
+    return this.total
   }
 }
 
@@ -47,8 +67,7 @@ export class VwapIndex {
   private ranges=new Map<number,{amount:Sum;volume:Sum;bad:boolean;points:VwapPoint[]}>()
   private amounts:number[]=[0]
   private volumes:number[]=[0]
-  private amountErrors:number[]=[0]
-  private volumeErrors:number[]=[0]
+  private beforeTail?:{amount:number[];volume:number[]}
   private invalid:number[]=[0]
   private amount=new Sum()
   private volume=new Sum()
@@ -56,26 +75,24 @@ export class VwapIndex {
   update(bars:readonly KLineData[],tail=false):void {
     this.ranges.clear()
     let start=0
-    if(tail&&this.amounts.length>1&&bars.length>=this.amounts.length-1&&bars.length<=this.amounts.length){
+    if(tail&&this.beforeTail&&this.amounts.length>1&&bars.length>=this.amounts.length-1&&bars.length<=this.amounts.length){
       start=this.amounts.length-2
-      this.amounts.length=start+1;this.volumes.length=start+1;this.invalid.length=start+1;this.amountErrors.length=start+1;this.volumeErrors.length=start+1
-      this.amount=new Sum();this.amount.value=this.amounts[start]
-      this.volume=new Sum();this.volume.value=this.volumes[start]
-      this.amount.compensation=this.amountErrors[start];this.volume.compensation=this.volumeErrors[start]
-    }else{this.amounts=[0];this.volumes=[0];this.invalid=[0];this.amountErrors=[0];this.volumeErrors=[0];this.amount=new Sum();this.volume=new Sum()}
+      this.amounts.length=start+1;this.volumes.length=start+1;this.invalid.length=start+1
+      this.amount=new Sum(this.beforeTail.amount);this.volume=new Sum(this.beforeTail.volume)
+    }else{this.amounts=[0];this.volumes=[0];this.invalid=[0];this.amount=new Sum();this.volume=new Sum();this.beforeTail=undefined}
     for(let i=start;i<bars.length;i++){
+      if(i===bars.length-1)this.beforeTail={amount:this.amount.snapshot(),volume:this.volume.snapshot()}
       const bar=bars[i],valid=validVolumeBar(bar),contribution=valid?price(bar,this.source)*bar.volume!:0
       const size=valid?bar.volume!:0,amount=this.amount.add(Number.isFinite(contribution)?contribution:0),volume=this.volume.add(size)
       if(!Number.isFinite(amount)||!Number.isFinite(volume)){this.amount=new Sum();this.volume=new Sum()}
-      this.amounts.push(this.amount.value);this.volumes.push(this.volume.value)
-      this.amountErrors.push(this.amount.compensation);this.volumeErrors.push(this.volume.compensation)
+      this.amounts.push(this.amount.total);this.volumes.push(this.volume.total)
       this.invalid.push(this.invalid[i]+(!valid||!Number.isFinite(contribution)||!Number.isFinite(amount)||!Number.isFinite(volume)?1:0))
     }
   }
   at(bars:readonly KLineData[],from:number,index:number):VwapPoint {
-    const volume=(this.volumes[index+1]-this.volumes[from])+(this.volumeErrors[from]-this.volumeErrors[index+1]),amount=(this.amounts[index+1]-this.amounts[from])+(this.amountErrors[from]-this.amountErrors[index+1])
-    const amountError=Number.EPSILON*8*(Math.abs(this.amounts[index+1])+Math.abs(this.amounts[from])+Math.abs(this.amountErrors[from])+Math.abs(this.amountErrors[index+1]))
-    const volumeError=Number.EPSILON*8*(Math.abs(this.volumes[index+1])+Math.abs(this.volumes[from])+Math.abs(this.volumeErrors[from])+Math.abs(this.volumeErrors[index+1]))
+    const volume=this.volumes[index+1]-this.volumes[from],amount=this.amounts[index+1]-this.amounts[from]
+    const amountError=Number.EPSILON*8*(Math.abs(this.amounts[index+1])+Math.abs(this.amounts[from]))
+    const volumeError=Number.EPSILON*8*(Math.abs(this.volumes[index+1])+Math.abs(this.volumes[from]))
     // A compensated global prefix still cannot recover information below its own resolution.
     // Cache a stable local accumulation when cancellation cannot preserve twelve digits.
     if(from>0&&(amountError>=Math.abs(amount)*1e-12||volumeError>=Math.abs(volume)*1e-12))return this.local(bars,from,index)

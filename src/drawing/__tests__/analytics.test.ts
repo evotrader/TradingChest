@@ -6,6 +6,30 @@ describe('OHLCV drawing mathematics',()=>{
   it('retains finite contributions when valid negative prices cancel a large positive prefix',()=>{
     expect(calculateAnchoredVwap([bar(1,1e18,1),bar(2,1,1),bar(3,-1e18,1)],0,'close')[2].value).toBeCloseTo(1/3,12)
   })
+  it('retains arbitrarily layered finite residuals in prefixes, local anchors and tail replacement',()=>{
+    const prices=[1e36,1e18,1,-1e36,-1e18],data=prices.map((p,i)=>bar(i+1,p,1))
+    expect(calculateAnchoredVwap(data,0,'close').at(-1)).toMatchObject({value:.2,volume:5})
+    const local=[bar(0,1e50,1),...data]
+    expect(calculateAnchoredVwap(local,1,'close').at(-1)).toMatchObject({value:.2,volume:5})
+    const index=new VwapIndex('close');index.update(data)
+    const replaced=[...data.slice(0,-1),bar(5,-1e18,2)];index.update(replaced,true)
+    expect(index.at(replaced,0,4).value).toBe((-1e18+1)/6)
+    index.update(data,true);expect(index.at(data,0,4).value).toBe(.2)
+    const layered=[1e200,1e150,1e100,1e50,1,-1e200,-1e150,-1e100,-1e50].map((p,i)=>bar(i,p,1))
+    expect(calculateAnchoredVwap(layered,0,'close').at(-1)?.value).toBe(1/9)
+  })
+  it('matches an independent exact integer oracle across shuffled cancellation scales',()=>{
+    let seed=17
+    const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/2**32}
+    for(let sample=0;sample<100;sample++){
+      const prices=[1,...[53,101,167,251,389,521,713,901].flatMap(exponent=>[2**exponent,-2**exponent])]
+      for(let i=prices.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[prices[i],prices[j]]=[prices[j],prices[i]]}
+      const data=prices.map((p,i)=>bar(i+1,p,1)),points=calculateAnchoredVwap(data,0,'close')
+      let exact=0n
+      for(let i=0;i<data.length;i++){exact+=BigInt(prices[i]);expect(points[i].value).toBe(Number(exact)/(i+1))}
+      expect(calculateAnchoredVwap([bar(0,2**950,1),...data],1,'close').at(-1)?.value).toBe(1/data.length)
+    }
+  })
   it('weights independently calculated prices and never resets at a calendar boundary',()=>{
     const data=[bar(1,10,100),bar(86400001,20,200),bar(172800001,30,300)]
     expect(calculateAnchoredVwap(data,0,'close').map(p=>p.value)).toEqual([10,50/3,70/3])

@@ -1,6 +1,6 @@
 # Drawing documents and shared sessions
 
-The 0.10 drawing API uses `getDrawingTools()`, `getDrawingState()` and `executeDrawingCommand(command)`. The instance catalog supplies tool IDs, names, categories, parameters and shortcuts. Registering an overlay does not grant editing permission.
+The drawing API uses `getDrawingTools()`, `getDrawingState()` and `executeDrawingCommand(command)`. The instance catalog supplies tool IDs, names, categories, parameters and shortcuts. Registering an overlay does not grant editing permission.
 
 ## Confirmation and history
 
@@ -57,3 +57,36 @@ Settings use each object's own price axis and authoritative anchors. Handles and
 Regression uses loaded OHLC OLS and population residual deviation. Range tools distinguish bar counts from elapsed time. Fibonacci prices are calculated before axis projection. Position tools report price, explicit ticks and reward/risk only. Invalid log-domain values, zero risk and invalid stop directions have explicit unavailable states.
 
 Document IDs, logical drawing IDs and revisions are opaque strings; consumers must not depend on UUID formatting. First-party generation uses `crypto.getRandomValues` without requiring `randomUUID`. Existing persisted IDs and revisions are retained.
+
+## Volume drawings (0.11) {#volume-drawings}
+
+Search the tool picker for Anchored VWAP or Fixed Range Volume Profile and click real historical bars. Handles and coordinate settings edit time only; left/right moves one real bar, Shift moves ten. Endpoint prices do not enter calculations. Both tools require market anchors on the main price pane. Selected summaries appear in the chart and object manager.
+
+| Tool | Parameters and defaults | Estimate |
+| --- | --- | --- |
+| `anchoredVwap` | `source:'hlc3'` (close/hl2/hlc3/ohlc4); `algorithm:'bar-price-volume-v1'` | Cumulative `sum(source × volume) / sum(volume)` from the anchor, without session resets |
+| `fixedRangeVolumeProfile` | `rows:48`, `valueArea:0.7`, `mode:'total'`, `algorithm:'bar-range-uniform-v1'` | Inclusive timestamp interval; distribute each bar’s volume uniformly over its high-low price range according to bin overlap; flat bars enter one bin |
+
+The profile UI offers 24/48/96/192 rows and 50/60/68/70/80/90/95% value area. API rows accept integers 1–256 and valueArea finite `(0,1]`. Up/down means close>=open versus close<open allocation, not aggressor buying/selling. A flat-price interval remains a single real-price bin.
+
+POC is the highest-volume bin, ties nearest the full price-range center, then lower price. Value area expands from POC toward the larger adjacent bin, ties downward. VAH/VAL are bin boundaries. Whole-bin inclusion may exceed the target; the summary reports the actual share. This documented OHLCV estimate does not claim TradingView’s private distribution algorithm.
+
+Missing, negative or nonfinite volume and invalid OHLC make the affected calculation unavailable. Zero volume contributes nothing; zero cumulative/interval volume has no VWAP/POC. Invalid VWAP segments do not forward-fill. Nonfinite results or failed volume conservation report an error. Unprojectable log-axis prices show an on-chart linear-axis instruction.
+
+Only confirmed bars from this chart participate. Same-bar volume replacement, pagination, revision reload and context/basis changes recalculate. Unloaded anchors remain intact with a load-history instruction. Failed/revised reads mark previous results stale and use the original history retry path. Current-period timestamps determine sampling; boundaries are never split or gaps filled. Actual range/count and unknown coverage remain explicit. Replay may calculate an incomplete right interval, but never consumes unseen future bars.
+
+`getDrawingState().analytics?.[logicalId]` provides status (calculating/ready/unavailable/stale), method, optional period, requestedRange, optional actualRange, count, coverage, boundarySampled, replayPartial, reason and summary. Summaries contain VWAP/volume/source or volume/POC/VAH/VAL/actual value area/rows, without curve/bin arrays. Definitions alone persist and share; every chart independently recalculates at its own period.
+
+## Object tree and reordering
+
+Named groups collapse for the session; searching temporarily expands matches. Only viewport plus overscan rows mount. Offscreen selection remains intact. Arrow/Home/End navigation mounts before focusing, parks focus on the tree when rows unmount, and focuses a neighbour after deletion without stealing external input focus.
+
+Drag a handle before/after an eligible object, or use target/position selectors. Touch handles use the same command. Edge scrolling is automatic; Escape, cancellation and context changes cancel uncommitted drags.
+
+```ts
+await chart.executeDrawingCommand({
+  type: 'reorder', ids: ['first'], targetId: 'second', position: 'before'
+})
+```
+
+Position follows displayed order. Objects must share document, scope, pane and group; there is no implicit regrouping. Locked, migration and uncertain objects are rejected. Multiselection preserves relative order. Confirmation and undo/redo use the existing history, including older direction commands.

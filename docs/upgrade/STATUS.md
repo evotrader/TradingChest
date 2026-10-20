@@ -1,3 +1,9 @@
+# 升级历史索引
+
+本页保留历次升级的历史记录，以下旧结论仅适用于记录当时的范围。当前版本说明见 [0.11 量价绘图](./0.11.0.md)，上一版见 [0.10 绘图工作台](./0.10.0.md)。本地版本材料不表示 npm、Pages 或 GitHub Release 已发布。
+
+---
+
 # Current checkpoint — 2026-10-15, stage-three navigation accepted
 
 The read-only navigation batch is accepted in both repositories. TradingChest product f7d1bf89 passed 363 tests, full build and both Chrome fixtures. EvoTrader product 3ccefe4f passed frontend build/typecheck, the targeted 60-test rerun, original Paper 7/7 tests, full generated OpenAPI type comparison and six sandboxed-browser scenarios against the isolated real backend. Consumer main is e1de9ac6 (acceptance documentation and harnesses added; product unchanged). Synthetic inputs and calendar adapter are explicit test boundaries. The earlier intermittent widget failure and incomplete native binary build provenance remain recorded. See [STAGE3-NAVIGATION.md](./STAGE3-NAVIGATION.md).

@@ -16,6 +16,8 @@ hero:
       text: GitHub
       link: https://github.com/evotrader/TradingChest
 features:
+  - title: Volume drawings and object tree
+    details: Anchored VWAP, range volume profiles and virtualized object management with explicit current-period sampling limits.
   - title: General data contracts
     details: Explicit history boundaries, data basis, loading state and retry with your own providers.
   - title: React and browser entries

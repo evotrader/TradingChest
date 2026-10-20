@@ -1,6 +1,6 @@
 # 绘图覆盖与对标差距
 
-目录含原有 43 工具和新增 8 工具。所有工具使用同一命令、确认历史、设置和持久化路径。逐工具浏览器脚本检查创建、取消编辑、确认编辑、撤销重做、删除和恢复；Fib、通道／音叉、回归、多空头另有独立数值预期。目录覆盖不表示所有 TradingView 工具等价。
+目录含 0.10 的 51 工具及新增 2 个量价工具，共 53 项。所有工具使用同一命令、确认历史、设置和持久化路径。逐工具浏览器脚本检查创建、取消编辑、确认编辑、撤销重做、删除和恢复；Fib、通道／音叉、回归、多空头另有独立数值预期。目录覆盖不表示所有 TradingView 工具等价。
 
 | 稳定工具 ID | 名称 | 点数 |
 | --- | --- | --- |
@@ -52,6 +52,8 @@
 | highlighter | 荧光笔 | 可变 ≥2 |
 | polyline | 折线 | 可变 ≥2 |
 | priceLabel | 价格标签 | 1 |
+| anchoredVwap | 锚定 VWAP | 1 |
+| fixedRangeVolumeProfile | 固定区间成交量分布 | 2 |
 | anchoredText | 固定文字 | 1 |
 | longPosition | 多头仓位 | 3 |
 | shortPosition | 空头仓位 | 3 |
@@ -78,8 +80,18 @@
 
 ## 明确差距
 
-TradingChest 共享限于已确认价格身份的本地主图市场锚点，后端标注保留原业务权威。多空头绘图不计算账户数量、资金或杠杆。成交量分布、Anchored VWAP、更多 Gann/Fib/波浪、曲线圆弧、图片贴纸、画线报警和订单联动仍为后续候选。没有承诺逐像素外观或账户模型一致。
+TradingChest 共享限于已确认价格身份的本地主图市场锚点，后端标注保留原业务权威。多空头绘图不计算账户数量、资金或杠杆。更细周期／逐笔成交量分布、更多 Gann/Fib/波浪、曲线圆弧、图片贴纸、画线报警和订单联动仍为后续候选。没有承诺逐像素外观或账户模型一致。
 
 对标参考：[TradingView drawings](https://www.tradingview.com/charting-library-docs/latest/ui_elements/drawings/), [tool families](https://www.tradingview.com/charting-library-docs/latest/ui_elements/drawings/Drawings-List/), [position tool](https://www.tradingview.com/support/solutions/43000517002-long-position-drawing-tool/).
 
 同任务流程由安装包独立示例的 `tests/integration/drawing-comparison.mjs` 执行：两条支撑线、矩形、文字、Fib，多选改样式、分组、当前周期过滤、多图共享及保存重开。官方演示连接失败时，仅作官方文档对标，实际结果和截图由本地验收产物记录。
+
+## 0.11 同类任务对照
+
+本轮仅核对官方资料，并在 TradingChest 本地执行对应任务，没有操作 TradingView 在线产品或声称操作提速。
+
+| 任务 | 官方资料说明 | 本地交付与边界 |
+| --- | --- | --- |
+| 选择锚点并调整 VWAP | [AVWAP](https://www.tradingview.com/support/solutions/43000669764-anchored-vwap-drawing-tool/) 从用户选点开始绘制 | 图上选点、曲线命中、时间编辑、价格源及真实样本摘要；按当前周期 OHLCV 估算 |
+| 选区间并修改分布 | [FRVP](https://www.tradingview.com/support/solutions/43000480324-fixed-range-volume-profile-indicator/) 有分箱与分辨率选择规则 | 两点区间、行数、POC／价值区、单根单价；采用公开 bar-range-uniform-v1，不请求更细周期，不声称数值等价 |
+| 整理与保存绘图 | [Drawings](https://www.tradingview.com/charting-library-docs/latest/ui_elements/drawings/) 提供绘图及对象管理能力 | 分组折叠、虚拟树、搜索、拖排／键盘目标选择；原 v4／v2 保存与共享 |

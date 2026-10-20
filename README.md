@@ -15,6 +15,10 @@
   <img src="docs/public/image.png" alt="TradingChest Screenshot" width="800" />
 </p>
 
+## 0.11.0 volume drawings
+
+Anchored VWAP and fixed range volume profiles use each chart’s confirmed OHLCV, with explicit sampling and coverage limits. A virtualized object tree adds collapsible groups and confirmed drag/keyboard reordering. The catalog contains 53 tools. See [0.11 migration](docs/en-US/upgrade/0.11.0.md) and the [volume drawing contract](docs/en-US/drawings.md#volume-drawings). Local builds do not imply npm publication.
+
 ## 0.10.0 drawing workbench
 
 A unified 51-tool catalog, multiline text, precise handles and coordinates, multiselection/groups, templates/preferences and explicit local/workspace/host sharing. Backend writes retain their original confirmation authority. New layouts use ChartLayoutV4 and WorkspaceDocument v2; legacy originals are preserved during migration. See [drawing usage](docs/en-US/drawings.md), [migration](docs/en-US/upgrade/0.10.0.md) and the [standalone example](examples/drawing-workbench). This is the source contract; local artifacts do not imply publication or complete TradingView parity.
@@ -46,7 +50,7 @@ This describes the 0.9.0 source contract. Local source/tarball validation does n
 - Customizable indicator parameters
 - Lazy-loaded indicator registration for faster startup
 
-### Drawing Tools (42+)
+### Drawing Tools (53)
 
 | Category | Tools |
 |----------|-------|
@@ -57,6 +61,7 @@ This describes the 0.9.0 source contract. Local source/tarball validation does n
 | Patterns | Andrew's Pitchfork, Schiff Pitchfork, Linear Regression, Regression Channel, Gann Box |
 | Measurement | Price Range, Time Range, Combined Measurement |
 | Annotations | Text Label, Annotation Bubble, Sticky Note, Freehand Drawing |
+| Volume | Anchored VWAP, Fixed Range Volume Profile (current-period OHLCV estimates) |
 | Trading | Long / Short Position (Entry / Stop-loss / Take-profit visualization + Risk/Reward ratio) |
 
 - Hover tooltip on all tools
@@ -117,7 +122,7 @@ Candle Solid, Candle Hollow, Up Hollow, Down Hollow, OHLC, Area, **Heikin Ashi**
 ## Install
 
 ```bash
-npm install trading-chest@0.10.0 klinecharts@10.1.0
+npm install trading-chest@0.11.0 klinecharts@10.1.0
 ```
 
 ## React usage

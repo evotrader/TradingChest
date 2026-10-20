@@ -16,6 +16,8 @@ hero:
       text: GitHub
       link: https://github.com/evotrader/TradingChest
 features:
+  - title: 量价绘图与对象树
+    details: 锚定 VWAP、区间成交量分布及千对象管理，明确当前周期估算和数据范围。
   - title: 通用数据契约
     details: 显式历史边界、数据口径、读取状态与重试，接受宿主自己的数据源。
   - title: React 与现有浏览器入口

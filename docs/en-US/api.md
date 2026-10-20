@@ -345,3 +345,9 @@ ESM/CJS and declarations reuse production history validation without DOM/Solid/R
 ## Drawing documents and sharing (0.10)
 
 See [drawing documents and shared sessions](./drawings.md) for commands, v4/v2, templates/preferences, borrowed sessions, CAS and recovery of unknown transfers.
+
+## Volume drawings and absolute reordering (0.11)
+
+Optional `DrawingState.analytics: Record<string, DrawingAnalyticsState>` exposes copied summaries derived from confirmed OHLCV. Types are exported from root, chart and solid. Period may be absent before confirmation; status does not persist. See [volume drawings](./drawings.md#volume-drawings) for algorithms, replay and sampling limits.
+
+`DrawingCommand` adds `{type:'reorder', ids:string[], targetId:string, position:'before'|'after'}` alongside the existing direction branch. Execution rechecks the current document/scope/pane/group and permissions through existing confirmation history.

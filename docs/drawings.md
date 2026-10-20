@@ -1,6 +1,6 @@
 # 绘图文档与共享会话
 
-0.10 实施中的绘图入口为 `getDrawingTools()`、`getDrawingState()` 和 `executeDrawingCommand(command)`。目录包含内置工具的稳定 ID、分类、名称、参数与快捷键；实例可通过 drawingCatalog 指定目录。注册 overlay 不会自动取得用户编辑权限。
+绘图入口为 `getDrawingTools()`、`getDrawingState()` 和 `executeDrawingCommand(command)`。目录包含内置工具的稳定 ID、分类、名称、参数与快捷键；实例可通过 drawingCatalog 指定目录。注册 overlay 不会自动取得用户编辑权限。
 
 ## 确认、呈现与撤销
 
@@ -57,3 +57,36 @@ DrawingPreferencesStore.read/write 携 AbortSignal；drawingPreferencesScope 是
 回归工具使用已加载 OHLC 的 OLS 与总体残差标准差；根数测量与自然时长分别显示。Fib 参数在价格值域计算后投影，多空头只计算价格、已知 tick 和盈亏比。对数域非正派生价格、零风险或无效止损方向显示不可用原因。
 
 文档 ID、绘图逻辑 ID 和 revision 均为不透明字符串，消费者不应依赖 UUID 格式。首方生成使用浏览器 `crypto.getRandomValues`，不要求 `randomUUID`；保存原有 ID 和 revision 时不重生成。
+
+## 量价绘图（0.11） {#volume-drawings}
+
+在“全部绘图工具”中搜索“锚定 VWAP”或“固定区间成交量分布”，点击真实历史选起点／两端。控制点、键盘微调和设置页只改变时间；左右键移动一根真实 bar，Shift 移动十根；端点价格只用于几何操作，不是均价输入。仅支持主价格 pane、market 锚点。结果和不可用原因可在选中后的图内摘要或对象管理中查看。
+
+| 工具 | 参数与默认值 | 估算规则 |
+| --- | --- | --- |
+| `anchoredVwap` | `source: 'hlc3'`；可选 close、hl2、hlc3、ohlc4；`algorithm: 'bar-price-volume-v1'` | 从起点按 bar 时标累计 `sum(source × volume) / sum(volume)`，不按会话重置 |
+| `fixedRangeVolumeProfile` | `rows:48`、`valueArea:0.7`、`mode:'total'`、`algorithm:'bar-range-uniform-v1'` | 两端闭区间内，每根 bar 的量按其 high-low 与等宽价格行的重叠比例分配；平价 bar 全部落在对应行 |
+
+FRVP 设置提供 24/48/96/192 行、50/60/68/70/80/90/95% 价值区及 total/up-down。API rows 接受 1–256 整数、valueArea 接受有限 `(0,1]`。上涨量指 close>=open 的 bar 分配量，下跌量指 close<open，不等于主动买卖量。所有 bar 同价时保留真实单价一行。
+
+POC 选择成交量最大的行；并列取最靠近全价格区间中心者，再并列取低价行。价值区从 POC 向相邻量较大侧逐行扩展，相同优先低价；VAH/VAL 为行边界。整行纳入可能超过目标，摘要显示实际比例。这是公开定义的 OHLCV 估算，不保证与 TradingView 私有分布算法相同。
+
+成交量缺失、负数、非有限或 OHLC 无效时不可计算；不会当作零或跳过坏数据。零量不贡献，累计量／全区间量为零时无均价／POC。VWAP 坏段不以前值填补；有限性和分箱总量守恒失败会显示原因。log 轴不能投影派生价格时，图内提示切换线性轴。
+
+分析只使用本图已确认数据。同根 volume 替换、分页、修订重载、标的／周期／basis 切换后重算。原锚点历史未加载时保留对象并提示加载历史，不能把窗口首根当原起点；原行情读取失败或待修订时标为 stale，重试原行情读取。跨周期按当前 bar 时标采样，显示真实参与范围和根数，不拆分 bar、不补缺口，始终标明“仅按已加载数据估算，覆盖未声明”。回放尚未到右端可以显示部分区间；没有到起点则不可用。
+
+`getDrawingState().analytics?.[logicalId]` 提供 status（calculating/ready/unavailable/stale）、method、可选 period、requestedRange、可选 actualRange、count、coverage、boundarySampled、replayPartial、reason 和 summary。summary 只含均价／累计量／源，或总量／POC／VAH／VAL／实际价值区比例／行数，不返回曲线或分箱数组。状态副本可安全读取；保存和共享仍只传定义，各图按自己的周期独立计算。
+
+## 对象树与排序
+
+命名组支持折叠；搜索临时展开命中组，清空后恢复原折叠。列表只挂载 viewport 和 overscan 中的真实行，滚动外的选择仍保留。方向键、Home/End 会先挂载目标再聚焦；当前行卸载时焦点停在树容器，删除聚焦行后移到相邻行，不抢占树外输入焦点。
+
+拖动手柄放到同组对象前后，或用“排序目标／位置”选择器确认。触点使用同一手柄；边缘自动滚动，Esc、取消或上下文变化终止未提交拖动。程序调用：
+
+```ts
+await chart.executeDrawingCommand({
+  type: 'reorder', ids: ['first'], targetId: 'second', position: 'before'
+})
+```
+
+位置按树显示顺序解释。仅同文档、同 scope、同 pane、同组可排序；不隐式改组，锁定／迁移／uncertain 对象拒绝。多选相对顺序保留，确认、undo/redo 与旧 direction 命令共用原历史。

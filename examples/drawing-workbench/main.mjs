@@ -28,6 +28,16 @@ async function mount(){
  window.drawingDemo.ready=true;show('共享绘图已就绪；请通过图内工具栏和对象管理绘制与编辑')
 }
 const action=(id,fn)=>document.querySelector('#'+id).addEventListener('click',()=>Promise.resolve().then(fn).catch(e=>show(e.message)))
+action('volume',async()=>{
+ if(!mounted||!window.drawingDemo.ready)throw Error('请先等待图表就绪')
+ const chart=charts()[0],loaded=chart.getChart().getDataList(),from=loaded.at(-80),to=loaded.at(-1)
+ for(const [index,name] of ['anchoredVwap','fixedRangeVolumeProfile'].entries()){
+  const logicalId='volume-example-'+crypto.randomUUID(),anchors=[from,...(index?[to]:[])].map(bar=>({kind:'market',timestamp:bar.timestamp,value:bar.close})),parameters=index?{rows:48,valueArea:.7,mode:'total',algorithm:'bar-range-uniform-v1'}:{source:'hlc3',algorithm:'bar-price-volume-v1'}
+  const result=await chart.commitDrawing({kind:'create',logicalId,source:'programmatic',after:{logicalId,owner:'local',anchors,parameters,presentation:{groupId:'volume-example',groupName:'量价估算示例'},overlay:{id:logicalId,name,points:anchors.map(a=>({timestamp:a.timestamp,value:a.value})),paneId:'candle_pane',groupId:'drawing_tools',styles:null,extendData:null,visible:true,lock:false}}})
+  if(result.status!=='confirmed')throw Error('量价工具创建未确认')
+ }
+ show('已添加当前周期 OHLCV 估算；选择对象可查看样本范围和计算摘要')
+})
 action('save',async()=>{if(!mounted)throw Error('请先挂载');await (await registries[0].bind(resolution)).save();show('共享绘图已保存；C 需显式刷新')})
 action('verify',async()=>{if(!mounted)throw Error('请先挂载');await (await registries[0].bind(resolution)).refresh();show('原共享写入已按固定 ID 核对')})
 action('refresh',async()=>{if(!mounted)throw Error('请先挂载');await (await registries[1].bind(resolution)).refresh();show('独立实例 C 已读取保存结果')})

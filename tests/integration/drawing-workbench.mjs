@@ -36,6 +36,9 @@ export async function runDrawingWorkbenchExample(page,url,{http=false}={}){
   assert.equal(await option.evaluate(element=>element.disabled),true)
   assert.notEqual(await option.getAttribute('disabled'),null)
  }
+ await page.locator('#volume').click();await page.locator('#status').filter({hasText:'已添加当前周期 OHLCV 估算'}).waitFor()
+ await page.waitForFunction(()=>{const p=drawingDemo.charts[0],v=p.getDrawings().filter(d=>['anchoredVwap','fixedRangeVolumeProfile'].includes(d.overlay.name));return v.length===2&&v.every(d=>p.getDrawingState().analytics[d.logicalId]?.status==='ready')})
+ assert.ok(await page.evaluate(()=>{const p=drawingDemo.charts[0],d=p.getDrawings().find(d=>d.overlay.name==='anchoredVwap'),s=p.getDrawingState().analytics[d.logicalId],bars=p.getChart().getDataList().filter(b=>b.timestamp>=d.anchors[0].timestamp),total=bars.reduce((v,b)=>v+b.volume,0),amount=bars.reduce((v,b)=>v+(b.high+b.low+b.close)/3*b.volume,0);return Math.abs(s.summary.vwap-amount/total)<1e-9&&s.summary.volume===total}))
  await page.locator('#dispose').click();assert.equal(await page.evaluate(()=>drawingDemo.charts.length),0);assert.equal(await page.locator('.tc-workspace').count(),0)
- return {sharedTwoWorkspaces:true,independentRefresh:true,templateReload:true,nativeIndexedDB:true,layoutReload:true,httpAvailable:http}
+ return {sharedTwoWorkspaces:true,independentRefresh:true,templateReload:true,nativeIndexedDB:true,layoutReload:true,volumeDrawings:true,httpAvailable:http}
 }

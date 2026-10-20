@@ -385,3 +385,9 @@ ESM／CJS 和声明直接使用生产历史校验实现，不载入 DOM／Solid�
 ## 绘图文档与共享（0.10）
 
 参见[绘图文档与共享会话](./drawings.md)，包括统一命令、v4／v2、模板／偏好、会话借用、CAS 与未知迁移恢复。
+
+## 量价绘图与绝对排序（0.11）
+
+`DrawingState.analytics?: Record<string, DrawingAnalyticsState>` 按 logicalId 返回当前已确认 OHLCV 的派生摘要；类型从根、chart、solid 导出。period 未确认时可缺失，状态不进入持久化。两新工具及估算／回放／范围限制见[量价绘图](./drawings.md#volume-drawings)。
+
+`DrawingCommand` 新增 `{type:'reorder', ids:string[], targetId:string, position:'before'|'after'}`，保留旧 direction 分支；目标集合在执行时按同文档／scope／pane／group 和权限重新核对，使用原确认历史。

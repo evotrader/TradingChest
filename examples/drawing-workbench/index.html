@@ -2,7 +2,7 @@
 <style>body{font:14px system-ui;margin:16px}button,select{min-height:36px}#workspaces{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,600px),1fr))}.demo-workspace{height:900px;min-width:0}.tc-workspace{border:1px solid #999}</style>
 <h1>绘图工作台 / Drawing workbench</h1><p>隔离合成行情；不连接交易、账户或生产 API。A/B 借用同一宿主绘图会话，C 独立读取，需显式刷新。IndexedDB 可跨页面重开；HTTP 示例只在本地开发服务可用，数据仅保留至服务关闭。</p>
 <label>共享存储 <select id="store"><option value="idb">首方 IndexedDB</option><option value="http">隔离 loopback HTTP CAS</option></select></label>
-<button id="save">保存共享绘图</button><button id="refresh">刷新独立实例 C</button><button id="save-layouts">保存三个工作台</button><button id="restore-layouts">恢复已保存工作台</button><button id="dispose">释放所有者</button><button id="mount">重新挂载</button>
+<button id="volume">添加量价估算示例</button><button id="save">保存共享绘图</button><button id="refresh">刷新独立实例 C</button><button id="save-layouts">保存三个工作台</button><button id="restore-layouts">恢复已保存工作台</button><button id="dispose">释放所有者</button><button id="mount">重新挂载</button>
 <div><label>本机 HTTP 示例的一次性故障 <select id="http-fault" disabled><option value="none">无</option><option value="reject">明确拒绝</option><option value="response-lost">写入成功但响应丢失</option></select></label><button id="verify" disabled>核对原共享写入</button></div>
 <p role="status" id="status">正在初始化</p><p>打开任一图的“绘图管理”，选择“新绘图作用域：宿主共享”再绘制。模板、收藏和快捷键在各自偏好 scope 下保存。Local/workspace/host are explicit scopes; no account identifiers are inferred.</p>
 <div id="workspaces"><section><h2>A：共享会话</h2><div id="a" class="demo-workspace"></div></section><section><h2>B：借用同一会话</h2><div id="b" class="demo-workspace"></div></section><section><h2>C：独立实例（显式刷新）</h2><div id="c" class="demo-workspace"></div></section></div><script type="module" src="./main.mjs"></script></html>

@@ -3,6 +3,9 @@ import type {KLineData} from 'klinecharts'
 import {calculateAnchoredVwap,calculateVolumeProfile,VwapIndex} from '../analytics'
 const bar=(timestamp:number,price:number,volume:number):KLineData=>({timestamp,open:price,high:price,low:price,close:price,volume})
 describe('OHLCV drawing mathematics',()=>{
+  it('retains finite contributions when valid negative prices cancel a large positive prefix',()=>{
+    expect(calculateAnchoredVwap([bar(1,1e18,1),bar(2,1,1),bar(3,-1e18,1)],0,'close')[2].value).toBeCloseTo(1/3,12)
+  })
   it('weights independently calculated prices and never resets at a calendar boundary',()=>{
     const data=[bar(1,10,100),bar(86400001,20,200),bar(172800001,30,300)]
     expect(calculateAnchoredVwap(data,0,'close').map(p=>p.value)).toEqual([10,50/3,70/3])

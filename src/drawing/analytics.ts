@@ -34,7 +34,12 @@ const price=(bar:KLineData,source:VwapPriceSource)=>source==='close'?bar.close:s
 class Sum {
   value=0
   compensation=0
-  add(value:number):number {const adjusted=value-this.compensation,next=this.value+adjusted;this.compensation=(next-this.value)-adjusted;return this.value=next}
+  get total():number{return this.value-this.compensation}
+  add(value:number):number {
+    const previous=this.value,next=previous+value
+    this.compensation-=Math.abs(previous)>=Math.abs(value)?(previous-next)+value:(value-next)+previous
+    this.value=next;return this.total
+  }
 }
 
 /** Prefixes are per confirmed series/source; a replaced last candle never contributes twice. */
@@ -84,8 +89,8 @@ export class VwapIndex {
       const bar=bars[i],valid=validVolumeBar(bar),contribution=valid?price(bar,this.source)*bar.volume!:NaN
       if(!valid||!Number.isFinite(contribution))range.bad=true
       else{range.amount.add(contribution);range.volume.add(bar.volume!)}
-      const value=!range.bad&&range.volume.value>0?range.amount.value/range.volume.value:undefined
-      range.points.push({timestamp:bar.timestamp,volume:Number.isFinite(range.volume.value)?range.volume.value:0,value:value!==undefined&&Number.isFinite(value)?value:undefined})
+      const value=!range.bad&&range.volume.total>0?range.amount.total/range.volume.total:undefined
+      range.points.push({timestamp:bar.timestamp,volume:Number.isFinite(range.volume.total)?range.volume.total:0,value:value!==undefined&&Number.isFinite(value)?value:undefined})
     }
     return range.points[index-from]
   }
@@ -105,8 +110,8 @@ export function calculateVolumeProfile(bars:readonly KLineData[],from:number,to:
     const bar=bars[i];if(!validVolumeBar(bar))throw Error('区间包含缺失或无效 OHLCV，请修正数据后重试')
     low=Math.min(low,bar.low);high=Math.max(high,bar.high);total.add(bar.volume!);(bar.close>=bar.open?upTotal:downTotal).add(bar.volume!)
   }
-  if(!Number.isFinite(total.value))throw Error('成交量累计溢出')
-  if(total.value===0)throw Error('区间无成交量，无法计算 POC 和价值区')
+  if(!Number.isFinite(total.total))throw Error('成交量累计溢出')
+  if(total.total===0)throw Error('区间无成交量，无法计算 POC 和价值区')
   if(low===high)rows=1
   const width=(high-low)/rows
   if(!Number.isFinite(width)||width<0)throw Error('价格范围无法分箱')
@@ -122,7 +127,7 @@ export function calculateVolumeProfile(bars:readonly KLineData[],from:number,to:
     if(last>first+1){const middle=volume*(width/span);diff[first+1]+=middle;diff[last]-=middle}
   }
   let currentUp=0,currentDown=0
-  const tolerance=1e-9*Math.max(1,Math.abs(total.value)),actual=new Sum(),actualUp=new Sum(),actualDown=new Sum()
+  const tolerance=1e-9*Math.max(1,Math.abs(total.total)),actual=new Sum(),actualUp=new Sum(),actualDown=new Sum()
   const bins:VolumeBin[]=Array.from({length:rows},(_,i)=>{
     currentUp+=upDiff[i];currentDown+=downDiff[i]
     const clean=(value:number)=>{if(!Number.isFinite(value)||value < -tolerance)throw Error('成交量分箱发生数值错误');return Math.max(0,value)}
@@ -130,14 +135,14 @@ export function calculateVolumeProfile(bars:readonly KLineData[],from:number,to:
     actual.add(volume);actualUp.add(u);actualDown.add(d)
     return {lower:low+i*width,upper:i===rows-1?high:low+(i+1)*width,volume,up:u,down:d}
   })
-  if(Math.abs(actual.value-total.value)>tolerance||Math.abs(actualUp.value-upTotal.value)>tolerance||Math.abs(actualDown.value-downTotal.value)>tolerance)throw Error('成交量分布未通过总量守恒检查')
+  if(Math.abs(actual.total-total.total)>tolerance||Math.abs(actualUp.total-upTotal.total)>tolerance||Math.abs(actualDown.total-downTotal.total)>tolerance)throw Error('成交量分布未通过总量守恒检查')
   let pocIndex=0
   const center=(i:number)=>bins[i].lower/2+bins[i].upper/2,mid=low/2+high/2
   for(let i=1;i<rows;i++)if(bins[i].volume>bins[pocIndex].volume||bins[i].volume===bins[pocIndex].volume&&Math.abs(center(i)-mid)<Math.abs(center(pocIndex)-mid))pocIndex=i
   let a=pocIndex,b=pocIndex,covered=bins[pocIndex].volume
-  while(covered<total.value*valueArea&&(a>0||b<rows-1)){
+  while(covered<total.total*valueArea&&(a>0||b<rows-1)){
     if(b===rows-1||a>0&&bins[a-1].volume>=bins[b+1].volume)covered+=bins[--a].volume
     else covered+=bins[++b].volume
   }
-  return {bins,volume:total.value,poc:center(pocIndex),val:bins[a].lower,vah:bins[b].upper,valueArea:covered/total.value,pocIndex,vaFrom:a,vaTo:b}
+  return {bins,volume:total.total,poc:center(pocIndex),val:bins[a].lower,vah:bins[b].upper,valueArea:covered/total.total,pocIndex,vaFrom:a,vaTo:b}
 }

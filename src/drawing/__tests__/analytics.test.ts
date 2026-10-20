@@ -22,7 +22,7 @@ describe('OHLCV drawing mathematics',()=>{
     let seed=17
     const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/2**32}
     for(let sample=0;sample<100;sample++){
-      const prices=[1,...[53,101,167,251,389,521,713,901].flatMap(exponent=>[2**exponent,-2**exponent])]
+      const prices=[1,...[53,101,167,251,389,521,713,901].flatMap(exponent=>[2**exponent,-(2**exponent)])]
       for(let i=prices.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[prices[i],prices[j]]=[prices[j],prices[i]]}
       const data=prices.map((p,i)=>bar(i+1,p,1)),points=calculateAnchoredVwap(data,0,'close')
       let exact=0n

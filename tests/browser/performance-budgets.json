@@ -51,14 +51,14 @@
   },
   "analysisColdOverrides": {
     "10000x2": {
-      "limit": 350,
-      "approvedOn": "2026-10-17",
-      "source": "Operator approved the proposed analysis-only dual-chart cold budget; all other gates unchanged"
+      "limit": 375,
+      "approvedOn": "2026-10-20",
+      "source": "Operator approved TradingChest 0.11 dual-chart analysis cold ceilings of 375ms (10k) and 800ms (50k), with focused independent review and original-sample recheck; all other existing gates unchanged"
     },
     "50000x2": {
-      "limit": 750,
-      "approvedOn": "2026-10-17",
-      "source": "Operator approved the proposed analysis-only dual-chart cold budget; all other gates unchanged"
+      "limit": 800,
+      "approvedOn": "2026-10-20",
+      "source": "Operator approved TradingChest 0.11 dual-chart analysis cold ceilings of 375ms (10k) and 800ms (50k), with focused independent review and original-sample recheck; all other existing gates unchanged"
     },
     "50000": {
       "limit": 500,

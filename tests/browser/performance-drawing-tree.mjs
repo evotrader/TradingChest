@@ -1,7 +1,8 @@
 import {launchBrowser} from './support.mjs'
 import assert from 'node:assert/strict'
 import {writeFileSync} from 'node:fs'
-const browser=await launchBrowser(),result={syntheticInputs:true,objects:1002,samples:[],errors:[],limit:200,measurement:'可信搜索、折叠、定位和排序事件至后续渲染帧；检查实际对象树和命令结果。'}
+// Operator approved the 225ms tree ceiling on 2026-10-20; all 500 original events are retained.
+const browser=await launchBrowser(),result={syntheticInputs:true,objects:1002,samples:[],errors:[],limit:225,measurement:'可信搜索、折叠、定位和排序事件至后续渲染帧；检查实际对象树和命令结果。'}
 const save=()=>writeFileSync(process.argv[2],JSON.stringify(result,null,2))
 try{
  const page=await browser.newPage({viewport:{width:1280,height:1400}});page.on('pageerror',e=>result.errors.push(e.message));await page.goto(`${process.env.TC_BROWSER_BASE}/tests/browser/drawing-performance.html`);await page.waitForFunction(()=>window.ready)

@@ -3,6 +3,7 @@ import type {DrawingToolDescriptor} from './catalog'
 import {validateDrawingParameters} from './catalog'
 import {jsonSafe} from '../persistence/v2'
 import {createDrawingDatabase} from './indexedDB'
+import {shortcutCombo} from '../shortcut/combo'
 
 export interface DrawingStylePreset {styles:NonNullable<DrawingSnapshot['overlay']['styles']>;parameters?:DrawingSnapshot['parameters']}
 export interface DrawingTemplate extends DrawingStylePreset {id:string;name:string;toolId:string}
@@ -58,7 +59,7 @@ export function validateDrawingPreferences(value:DrawingPreferences,catalog?:Dra
   const combos=new Set<string>()
   for(const [toolId,combo] of Object.entries(value.shortcuts)){
     if(catalog&&!catalog.some(t=>t.toolId===toolId)||typeof combo!=='string'||!/^(?:(?:ctrl|alt|shift)\+)*[a-z0-9]$/.test(combo)||['ctrl+l','ctrl+w','ctrl+t','ctrl+n','ctrl+r','ctrl+z','ctrl+shift+z','ctrl+y','ctrl+c','ctrl+v','alt+f4'].includes(combo)||combos.has(combo))throw Error('快捷键无效、重复或被浏览器保留')
-    const canonical=combo.split('+'),key=canonical.pop();if([...['ctrl','alt','shift'].filter(mod=>canonical.includes(mod)),key].join('+')!==combo)throw Error('快捷键修饰键顺序无效或重复')
+    const canonical=combo.split('+'),key=canonical.pop();if(shortcutCombo({ctrl:canonical.includes('ctrl'),alt:canonical.includes('alt'),shift:canonical.includes('shift')},key!)!==combo)throw Error('快捷键修饰键顺序无效或重复')
     combos.add(combo)
   }
   const effective=new Set<string>();for(const tool of catalog??[]){const combo=value.shortcuts[tool.toolId]??tool.shortcut?.toLowerCase();if(combo){if(effective.has(combo))throw Error('快捷键与其它工具的实际快捷键冲突');effective.add(combo)}}

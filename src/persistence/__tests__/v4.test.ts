@@ -126,7 +126,7 @@ describe('v4 drawing persistence',()=>{
     const {chart,history,pro}=runtime(),result=migrateLayoutToV4(legacy);if(result.status!=='ok')throw Error('migration failed')
     const original={...result.value.drawings[0],logicalId:'original',overlay:{...result.value.drawings[0].overlay,id:'original'}};await history.submit('create','original',original,'programmatic')
     let binding='original';const live=drawingBindings.get(chart)!
-    live.prepareSharedReferences=async()=>({apply:()=>{binding='new';throw Error('after adoption')},rollback:()=>{binding='original'}})
+    live.prepareSharedReferences=async()=>({validateLocal:()=>{},release:()=>{},apply:()=>{binding='new';throw Error('after adoption')},rollback:()=>{binding='original'}})
     const identity={namespace:'host',symbol:{market:'equity',exchange:'X',ticker:'A.X',priceCurrency:'USD'},priceBasisKey:'raw'}
     await expect(restoreLayout(pro,{...result.value,sharedDrawingRefs:[{namespace:'host',documentId:'new',logicalId:'shared',identity}]})).rejects.toThrow('after adoption')
     expect(binding).toBe('original');expect(history.getDrawing('original')).toEqual(original);expect(history.getState().canUndo).toBe(true)

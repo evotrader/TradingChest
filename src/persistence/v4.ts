@@ -102,6 +102,8 @@ export async function restoreLayout(pro:ChartPro,layout:ChartLayoutV4):Promise<v
   binding.validateRestore('local',drawings,{axes:layout.axes})
   const applyReferences=layout.sharedDrawingRefs?.length?await binding.prepareSharedReferences?.(layout.sharedDrawingRefs):undefined
   if(layout.sharedDrawingRefs?.length&&!applyReferences)throw Error('宿主共享存储未启用，引用与当前画面已保留')
+  binding.validateRestore('local',drawings,{axes:layout.axes})
+  applyReferences?.validateLocal(drawings)
   const checkpoint=history.checkpoint(),original=captureLayout(pro),epoch=getIdentityEpoch(chart)
   const identity=()=>JSON.stringify([pro.getSymbol(),pro.getPeriod()]),savedIdentity=identity(),lease=history.beginRestore('layout')
   const current=()=>lease.isCurrent()&&pro.getChart()===chart&&getIdentityEpoch(chart)===epoch&&identity()===savedIdentity
@@ -122,7 +124,7 @@ export async function restoreLayout(pro:ChartPro,layout:ChartLayoutV4):Promise<v
       throw new AggregateError([error,rollbackError],'布局恢复失败，原绘图文档已保留；图表配置恢复失败，请重试')
     }
     throw error
-  }finally{lease.release()}
+  }finally{applyReferences?.release();lease.release()}
 }
 export function saveLayoutV4(key:string,value:Omit<ChartLayoutV4,'version'|'timestamp'>,storage:Storage=localStorage):LayoutResult<ChartLayoutV4> {
   try{const data={...value,version:4 as const,timestamp:Date.now()};if(!isChartLayoutV4(data))throw Error('布局结构无效，未覆盖已保存布局');storage.setItem(PREFIX+key,JSON.stringify(data));return {status:'ok',value:copy(data)}}catch(error){return {status:'error',code:'write',message:String(error)}}

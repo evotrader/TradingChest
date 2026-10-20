@@ -114,12 +114,12 @@ export class DrawingController {
   }
   /** Legacy methods and visible commands share the same serial history routing. */
   travel(direction:'undo'|'redo'):Promise<DrawingCommitResult|undefined>{
-    const assertContext=this.captureTravelContext(),run=this.tail.catch(()=>{}).then(()=>{assertContext();return this.travelNow(direction)});this.tail=run;return run
+    const assertContext=this.captureContext(),run=this.tail.catch(()=>{}).then(()=>{assertContext();return this.travelNow(direction)});this.tail=run;return run
   }
   rememberHistory(history:DrawingHistory):void{this.travelTarget={history,generation:history.getDocumentGeneration()}}
-  private captureTravelContext():()=>void{
+  private captureContext():()=>void{
     const generation=this.options.history.getDocumentGeneration(),epoch=this.options.coordinator?.getBindingEpoch()
-    return ()=>{if(this.disposed||this.options.history.getDocumentGeneration()!==generation||this.options.coordinator?.getBindingEpoch()!==epoch)throw new DOMException('排队期间绘图上下文已改变，已取消旧撤销或重做','AbortError')}
+    return ()=>{if(this.disposed||this.options.history.getDocumentGeneration()!==generation||this.options.coordinator?.getBindingEpoch()!==epoch)throw new DOMException('排队期间绘图上下文已改变，已取消旧操作','AbortError')}
   }
   private async travelNow(direction:'undo'|'redo'):Promise<DrawingCommitResult|undefined>{
     if(this.disposed)throw Error('绘图工作台已释放')
@@ -132,7 +132,7 @@ export class DrawingController {
   commitPreview(command:DrawingCommand,before:DrawingSnapshot[]):Promise<DrawingCommandResult>{return this.enqueue(command,before)}
   nudgePoint(id:string,index:number,dx:number,dy:number):Promise<DrawingCommandResult>{return this.enqueue({type:'move-point',ids:[id],index,dx,dy})}
   private enqueue(command:DrawingIntent,before?:DrawingSnapshot[]):Promise<DrawingCommandResult>{
-    const intent=copy(command),bases=before&&copy(before),assertContext=command.type==='undo'||command.type==='redo'?this.captureTravelContext():undefined,run=this.tail.catch(()=>{}).then(()=>this.run(intent,bases,assertContext))
+    const intent=copy(command),bases=before&&copy(before),assertContext=['preferences','preferences-retry','view'].includes(command.type)?undefined:this.captureContext(),run=this.tail.catch(()=>{}).then(()=>this.run(intent,bases,assertContext))
     this.tail=run;return run
   }
   private async run(command:DrawingIntent,before?:DrawingSnapshot[],assertContext?:()=>void):Promise<DrawingCommandResult>{

@@ -10,17 +10,23 @@ UI and programmatic actions use the same commands: tool, select, cancel, update,
 
 State scope selects the scope for new tools; historyScope identifies the current history target. Selection determines the writer, and cross-session content batches are rejected. Notifications distinguish user/history/projection origin; projection does not submit business writes. Text inputs retain native undo.
 
+Document-bound commands capture their context when queued. Changing the symbol, period or shared binding cancels pending commands for the old context, preventing a paste or edit from reaching the new document. Consecutive operations on the same document remain serialized. Global view and preference operations survive document changes.
+
 ## Coordinates and persistence
 
 DrawingSnapshot.anchors owns coordinates. Market anchors retain actual timestamps and values, including optional interpolation between two actual timestamps. Logical anchors retain an existing reference bar plus a period-bound bar offset. Viewport anchors store normalized content coordinates. Engine points are projections. Missing history or incompatible periods retain the document and report the reason instead of inventing future market timestamps.
 
 captureLayout/restoreLayout use ChartLayoutV4. drawings contains chart-local content only, drawingPresentation holds backend-reference presentation, and sharedDrawingRefs holds host document references. WorkspaceDocument v2 stores one copy of workspace drawings. Chart v1/v2/v3 and workspace v1 migrate in memory without overwriting originals. Import preflight failures preserve the original; failed restoration rolls back configuration, content, history and shared bindings.
 
+A restored local logicalId must not already belong to a current or prospective shared document, including objects that cannot currently project or are absent from the reference array. Such conflicts reject restoration; use transfer to change scopes. Failed adoption retains the original transfer history without overwriting shared content confirmed by another chart.
+
 ## Shared ownership
 
 Sharing accepts local user drawings on the main price pane with market anchors. Backend objects, indicator panes, future logical anchors and viewport anchors remain chart-local. The host implements resolveDrawingShareKey(confirmedContext), returning `{identity, documentId?}` or `{reason}`. Identity requires an opaque namespace, full market/exchange/ticker/priceCurrency and an established priceBasisKey. The library does not parse provider-specific basis, infer currency/ticks or assume raw prices.
 
 ChartWorkspace owns its workspace DrawingSessionRegistry, while charts borrow it through bindDrawingWorkspace. Host sharing requires an explicitly owned DrawingDocumentStore and host registry supplied through drawingHostSessions. Borrowers unsubscribe on disposal; the final owner disposes the registry and then the store. No store owns a feed or opens IndexedDB during SSR.
+
+bindDrawingWorkspace waits for the original feed loader to confirm the context and for the actual session binding; read failures reject. Context changes and disposal cancel only that chart's wait, leaving other borrowers' storage reads intact. Workspaces bind every accepted successor chart to the existing registry before exposing it as ready.
 
 ```ts
 const store = createIndexedDBDrawingDocumentStore()

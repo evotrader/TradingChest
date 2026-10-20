@@ -160,9 +160,28 @@ export class ChartWorkspace {
       for(const period of periods)periodSelect.add(new Option(period.text,JSON.stringify(period)))
       periodSelect.value=JSON.stringify(periods.find(p=>equalPeriod(p,runtime.cell.period)));periodSelect.disabled=false
       runtime.binding=this.options.mountCell(body,runtime.cell,runtime.controller.signal)
-      const accept=(pro:ChartPro)=>{if(runtime.controller.signal.aborted||runtime.pro===pro)return;runtime.unsubscribe?.();runtime.pro=pro;this.message(runtime.status,null);pro.getChart()?.resize();this.bindActions(runtime);pro.getShortcutManager()?.setEnabled(runtime.cell.cellId===this.active)}
-      runtime.unsubscribeReady=runtime.binding.subscribeReady?.(accept)
-      const ready=runtime.binding.ready.then(async pro=>{accept(pro);if(pro.bindDrawingWorkspace)await pro.bindDrawingWorkspace(sharedSessions,this.options.resolveDrawingShareKey)})
+      let candidate:ChartPro|undefined,accepted:Promise<void>|undefined,acceptVersion=0
+      let announce!:()=>void
+      const announced=new Promise<void>(resolve=>{announce=resolve})
+      const accept=(pro:ChartPro):Promise<void>=>{
+        if(runtime.controller.signal.aborted)return Promise.resolve()
+        if(candidate===pro)return accepted!
+        candidate=pro;const version=++acceptVersion
+        runtime.unsubscribe?.();runtime.unsubscribe=undefined;runtime.pro=undefined
+        pro.getShortcutManager()?.setEnabled(false)
+        const current=()=>!runtime.controller.signal.aborted&&version===acceptVersion&&candidate===pro
+        accepted=Promise.resolve().then(()=>pro.bindDrawingWorkspace?.(sharedSessions,this.options.resolveDrawingShareKey)).then(()=>{
+          if(!current())return
+          runtime.pro=pro;this.message(runtime.status,null);pro.getChart()?.resize();this.bindActions(runtime);pro.getShortcutManager()?.setEnabled(runtime.cell.cellId===this.active)
+        }).catch(error=>{if(current())throw error})
+        announce()
+        return accepted
+      }
+      const waitCurrent=async()=>{while(accepted){const pending=accepted;try{await pending}catch(error){if(pending===accepted)throw error}if(pending===accepted)return}}
+      runtime.unsubscribeReady=runtime.binding.subscribeReady?.(pro=>{void accept(pro).catch(error=>{if(candidate===pro&&!runtime.controller.signal.aborted)this.reason(runtime.status,error)})})
+      const initial=runtime.binding.ready.then(pro=>{if(!candidate)void accept(pro).catch(()=>{})},error=>{if(!candidate)throw error})
+      const ready=Promise.race([initial,announced]).then(waitCurrent)
+
       if(strict){const timer=setTimeout(()=>runtime.controller.abort(new DOMException(this.t('workspace_timeout'),'TimeoutError')),30000);try{await this.abortable(ready,runtime.controller.signal)}finally{clearTimeout(timer)}}
       else void ready.catch(e=>{this.reason(runtime.status,e)})
     }catch(e){if(strict){this.disposeCell(runtime);throw e}this.reason(runtime.status,e)}finally{signal?.removeEventListener('abort',cancel)}

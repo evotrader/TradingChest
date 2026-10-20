@@ -15,7 +15,7 @@ interface Options {
 type Entry={logicalId:string;before:DrawingSnapshot|null;after:DrawingSnapshot|null}
 type Transaction={changes:Entry[];operation?:string}
 type BatchRequest={kind:DrawingChange['kind'];logicalId:string;after:DrawingSnapshot|null}
-type Operation={ids?:string[];undo:()=>Promise<void>;redo:()=>Promise<void>;available?:()=>boolean}
+type Operation={ids?:string[];undo:()=>Promise<void>;redo:()=>Promise<void>;available?:()=>boolean;retain?:()=>boolean}
 export interface DrawingCheckpoint {documentGeneration?:number;operations?:Map<string,Operation>;drawings:DrawingSnapshot[];past:Transaction[];future:Transaction[]}
 const content=(value:DrawingSnapshot|null)=>{if(!value)return null;const {presentation,...rest}=value;return rest}
 const copy=<T>(value:T):T=>JSON.parse(JSON.stringify(value))
@@ -53,7 +53,7 @@ export class DrawingHistory {
   isAvailable(generation?:number):boolean{return !this.disposed&&(generation===undefined||!!this.restoreToken||generation===this.documentGeneration)}
   getDocumentGeneration():number{return this.documentGeneration}
   private discardOperation(id:string):void{this.operations.delete(id);for(const stack of [this.past,this.future])for(let i=stack.length-1;i>=0;i--)if(stack[i].operation===id)stack.splice(i,1)}
-  private pruneOperations():void{for(const [id,operation] of this.operations)if(id!==this.executingOperation&&operation.available&&!operation.available())this.discardOperation(id)}
+  private pruneOperations():void{for(const [id,operation] of this.operations)if(id!==this.executingOperation&&!operation.retain?.()&&operation.available&&!operation.available())this.discardOperation(id)}
   private dropHistory(id:string){
     for(const [key,operation] of this.operations)if(key!==this.executingOperation&&operation.ids?.includes(id))this.discardOperation(key)
     for(const stack of [this.past,this.future]){for(const entry of stack)entry.changes=entry.changes.filter(e=>e.logicalId!==id||same(content(e.before),content(e.after)));for(let i=stack.length-1;i>=0;i--)if(!stack[i].changes.length&&!stack[i].operation)stack.splice(i,1)}

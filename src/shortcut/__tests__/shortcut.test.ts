@@ -492,4 +492,15 @@ describe('KeyboardShortcutManager', () => {
       expect(handler).toHaveBeenCalled()
     })
   })
+  it.each([{altKey:true,shiftKey:true},{ctrlKey:true,altKey:true,shiftKey:true},{metaKey:true,altKey:true,shiftKey:true}])('uses the preference modifier order for DOM events %o',modifiers=>{
+    const handler=vi.fn(),el=document.createElement('div'),combo=(modifiers.ctrlKey||modifiers.metaKey?'ctrl+':'')+'alt+shift+t'
+    manager.addBinding({combo,action:'audit:combo',descriptionKey:'test'});manager.registerAction('audit:combo',handler);manager.bindTo(el)
+    el.dispatchEvent(new KeyboardEvent('keydown',{key:'T',...modifiers,bubbles:true}));expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it.each([{key:'!',code:'Digit1',digit:'1'},{key:')',code:'Digit0',digit:'0'}])('normalizes accepted shift digit shortcuts $code',({key,code,digit})=>{
+    const handler=vi.fn(),el=document.createElement('div');manager.addBinding({combo:`alt+shift+${digit}`,action:'audit:digit',descriptionKey:'test'});manager.registerAction('audit:digit',handler);manager.bindTo(el)
+    el.dispatchEvent(new KeyboardEvent('keydown',{key,code,altKey:true,shiftKey:true,bubbles:true}));expect(handler).toHaveBeenCalledOnce()
+  })
+
 })

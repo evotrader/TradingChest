@@ -6,7 +6,7 @@ export interface DrawingRestoreTarget {axes:Array<{id?:string;default?:boolean;p
 interface DrawingBinding {
   history:DrawingHistory
   captureSharedReferences?:()=>import('./session').DrawingSharedReference[]
-  prepareSharedReferences?:(references:import('./session').DrawingSharedReference[])=>Promise<{apply:()=>void;rollback:()=>void}>
+  prepareSharedReferences?:(references:import('./session').DrawingSharedReference[])=>Promise<{validateLocal:(values:DrawingSnapshot[])=>void;apply:()=>void;rollback:()=>void;release:()=>void}>
   validateRestore:(owner:DrawingOwner,values:DrawingSnapshot[],target?:DrawingRestoreTarget)=>void
 }
 const key=Symbol.for('trading-chest.drawing-binding')

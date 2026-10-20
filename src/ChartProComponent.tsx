@@ -18,7 +18,7 @@ import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, 
 import {
   init, dispose, utils, Nullable, Chart, OverlayMode, Styles,
   PaneOptions, Indicator,
-  type Overlay, type OverlayCreate, type KLineData
+  type Overlay, type OverlayCreate, type KLineData, type OverlayFigure
 } from 'klinecharts'
 
 import { deepSet } from './core/deepSet'
@@ -57,7 +57,8 @@ import {DrawingController} from './drawing/controller'
 import {DrawingPreferencesManager} from './drawing/preferences'
 import {drawingParameters,drawingContent,engineDrawingData} from './drawing/content'
 import {drawingBindings} from './drawing/bindings'
-import {validateDrawingRestore} from './drawing/restore'
+import {validateDrawingRestore,assertDrawingRestoreAuthority} from './drawing/restore'
+import {drawingFigureHit} from './drawing/hitTest'
 import {anchorsFromPoints,projectAnchors,intervalVisible,validateAnchor} from './drawing/anchors'
 import {copyDrawingCatalog} from './drawing/catalog'
 import DrawingTextEditor from './widget/drawing-editor/TextEditor'
@@ -443,11 +444,16 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     const bar=bars[Math.round(dataIndex)];if(!bar)throw Error('未来区域没有已知市场时刻，请先移动到真实历史区域')
     return {kind:'market',timestamp:bar.timestamp,value:point.value}
   }
-  const validateRestore=(_owner:import('./drawing/types').DrawingOwner,values:DrawingSnapshot[],target?:import('./drawing/bindings').DrawingRestoreTarget)=>{
+  const validateProjectionRestore=(values:DrawingSnapshot[],target?:import('./drawing/bindings').DrawingRestoreTarget)=>{
     validateDrawingRestore(values,{editable,existing:widget?.getOverlays().map(snapshotOverlay)??[],ownedIds:new Set([...drawingHistory.getDrawingIds(),...(widget?.getOverlays().filter(object=>nativeDrawingPreviews.has(object)).map(object=>object.id)??[]),...[...sharedProjectionObjects].filter(([id,object])=>object===widget?.getOverlays({id})[0]).map(([id])=>id)])})
     for(const value of values)validateDrawingTarget(value,target)
   }
+  const validateRestore=(_owner:import('./drawing/types').DrawingOwner,values:DrawingSnapshot[],target?:import('./drawing/bindings').DrawingRestoreTarget)=>{
+    assertDrawingRestoreAuthority(values,drawingCoordinator.getSharedDrawingIds())
+    validateProjectionRestore(values,target)
+  }
   const drawingPreviews=new Map<string,DrawingSnapshot>()
+  const drawingFigures=new WeakMap<Overlay,OverlayFigure[]>()
   const refreshDrawingHandles=()=>{
     if(!widget||disposed)return
     const root=(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.getBoundingClientRect(),handles:DrawingHandle[]=[],labels:Array<{id:string;x:number;y:number;text:string;side:'left'|'right'|'time'}>=[]
@@ -522,10 +528,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           }catch(error){
             // The engine can render between replacing its bars and the loader's commit.
             // Keep canonical anchors intact; the confirmed projection pass records the error.
+            if(figure==='createPointFigures')drawingFigures.delete(actual)
             return figure==='createPointFigures'?[{type:'rectText',ignoreEvent:true,attrs:{x:8,y:20,text:error instanceof Error?error.message:String(error),baseline:'top'},styles:{color:'#ef5350'}}]:[]
           }
           const axis=widget?.getYAxes({paneId:document.overlay.paneId??'candle_pane'}).find(axis=>!document.yAxisId||axis.id===document.yAxisId)
-          return draw({...args,coordinates,yAxis:axis??args.yAxis,overlay:Object.assign(Object.create(args.overlay),{points:projected})})
+          const figures=draw({...args,coordinates,yAxis:axis??args.yAxis,overlay:Object.assign(Object.create(args.overlay),{points:projected})})
+          if(figure==='createPointFigures')drawingFigures.set(actual,Array.isArray(figures)?figures:[figures])
+          return figures
         }
       }
       ownedDrawingIds.add(id);completedDrawingIds.add(id)
@@ -535,7 +544,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
   const drawingHistory=new DrawingHistory({
     locale,
-    validate:validateDrawingTarget,validateTransfer:values=>validateRestore('local',values),
+    validate:validateDrawingTarget,validateTransfer:values=>validateProjectionRestore(values),
     context:()=>({symbol:symbol(),period:period()}),apply:applyDrawing,commit:change=>props.commitDrawing?props.commitDrawing(change):Promise.resolve({status:'rejected',message:i18n('drawing_message_3',locale())}),
     onChange:state=>{if(disposed)return;setDrawingState(state);if(drawingPresentationFrame===undefined)drawingPresentationFrame=requestAnimationFrame(()=>{drawingPresentationFrame=undefined;if(!disposed){drawingController?.refresh();widget?.resize()}})},
     onConfirmed:change=>{if(change.after&&change.source!=='history')drawingController?.rememberConfirmed(change.after);const event={overlay:(change.after??change.before)!.overlay,source:change.source};if(change.kind==='create')props.onOverlayCreate?.(event);else if(change.kind==='update')props.onOverlayUpdate?.(event);else props.onOverlayDelete?.(event)},
@@ -544,20 +553,40 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   drawingCoordinator=new DrawingCoordinator(drawingHistory,{saveAs:props.createDrawingDocumentId&&props.drawingHostSessions?async(session,identity)=>{const id=await props.createDrawingDocumentId!(identity);if(!id)throw Error('宿主没有提供另存文档 ID');const target=await props.drawingHostSessions!.bind({identity,documentId:id});if(target.getState().revision!==null||target.history.getDrawingIds().length)throw Error('另存目标已存在，当前草稿已保留');return target}:undefined,owns:id=>sharedProjectionObjects.get(id)===widget?.getOverlays({id})[0]&&sharedProjectionObjects.has(id),project:(id,value)=>{if(!value&&sharedProjectionObjects.get(id)!==widget?.getOverlays({id})[0]){sharedProjectionObjects.delete(id);return;}applyDrawing(id,value);if(value){const actual=widget?.getOverlays({id})[0];if(actual)sharedProjectionObjects.set(id,actual)}else sharedProjectionObjects.delete(id)},validate:value=>{validateDrawingTarget(value);validateDrawingRestore([value],{editable,existing:widget?.getOverlays().map(snapshotOverlay)??[],ownedIds:new Set([...drawingHistory.getDrawingIds(),...(widget?.getOverlays().filter(object=>nativeDrawingPreviews.has(object)).map(object=>object.id)??[]),...[...sharedProjectionObjects].filter(([id,object])=>object===widget?.getOverlays({id})[0]).map(([id])=>id)])})},changed:()=>{if(disposed)return;const state=drawingCoordinator?.state(drawingController?.getState().selectedIds??[]);if(state){setDrawingState(state)}drawingController?.refresh()}})
   let workspaceSessions=props.drawingWorkspaceSessions,shareResolver=props.resolveDrawingShareKey,sharingEpoch=0
   let boundShareKey:string|undefined,boundWorkspace:DrawingSessionRegistry|undefined,boundHost:DrawingSessionRegistry|undefined
-  const bindSharedDrawings=async()=>{
+  let bindingTask:Promise<boolean>|undefined,bindingKey:string|undefined,bindingEpoch=-1,bindingWorkspace:DrawingSessionRegistry|undefined,bindingHost:DrawingSessionRegistry|undefined
+  let waitingWorkspaceBinding:{resolve:()=>void;reject:(error:unknown)=>void}|undefined
+  let bindingAbort:AbortController|undefined
+  const cancelSharedBinding=()=>{++sharingEpoch;bindingAbort?.abort(new DOMException('共享绑定已取消','AbortError'));bindingAbort=undefined;bindingTask=undefined;bindingKey=undefined;boundShareKey=undefined}
+  const awaitSharedRead=<T,>(task:Promise<T>,signal:AbortSignal):Promise<T>=>new Promise((resolve,reject)=>{
+    const abort=()=>reject(signal.reason)
+    if(signal.aborted){reject(signal.reason);return}
+    signal.addEventListener('abort',abort,{once:true})
+    task.then(value=>{signal.removeEventListener('abort',abort);resolve(value)},error=>{signal.removeEventListener('abort',abort);reject(error)})
+  })
+  const settleWorkspaceBinding=(error?:unknown)=>{const waiting=waitingWorkspaceBinding;waitingWorkspaceBinding=undefined;if(error)waiting?.reject(error);else waiting?.resolve()}
+  const bindSharedDrawings=async():Promise<boolean>=>{
     const context=analysis.getContext()
-    if(!context||!shareResolver){++sharingEpoch;boundShareKey=undefined;drawingCoordinator.detach();return}
+    if(!context||!shareResolver){cancelSharedBinding();drawingCoordinator.detach();return !shareResolver}
     const resolution=shareResolver(context)
-    if('reason' in resolution){++sharingEpoch;boundShareKey=undefined;drawingCoordinator.detach(resolution.reason);drawingController?.refresh();return}
-    const key=JSON.stringify([drawingShareKey(resolution.identity),resolution.documentId])
-    if(boundShareKey===key&&boundWorkspace===workspaceSessions&&boundHost===props.drawingHostSessions)return
-    const epoch=++sharingEpoch;boundShareKey=key;boundWorkspace=workspaceSessions;boundHost=props.drawingHostSessions;drawingCoordinator.detach()
-    try{
-      const [workspace,host]=await Promise.all([workspaceSessions?.bind(resolution),props.drawingHostSessions?.bind(resolution)])
-      if(disposed||epoch!==sharingEpoch)return
-      drawingCoordinator.bind(workspace,host)
-    }catch(error){if(!disposed&&epoch===sharingEpoch){boundShareKey=undefined;drawingCoordinator.reason=error instanceof Error?error.message:String(error);drawingController?.refresh()}}
+    if('reason' in resolution){cancelSharedBinding();drawingCoordinator.detach(resolution.reason);drawingController?.refresh();return true}
+    const key=JSON.stringify([drawingShareKey(resolution.identity),resolution.documentId]),workspaceRegistry=workspaceSessions,hostRegistry=props.drawingHostSessions
+    if(boundShareKey===key&&boundWorkspace===workspaceRegistry&&boundHost===hostRegistry)return true
+    if(bindingTask&&bindingEpoch===sharingEpoch&&bindingKey===key&&bindingWorkspace===workspaceRegistry&&bindingHost===hostRegistry)return bindingTask
+    cancelSharedBinding();const epoch=sharingEpoch,controller=new AbortController();bindingAbort=controller;bindingEpoch=epoch;drawingCoordinator.detach()
+    bindingKey=key;bindingWorkspace=workspaceRegistry;bindingHost=hostRegistry
+    const task=(async()=>{
+      try{
+        const [workspace,host]=await awaitSharedRead(Promise.all([workspaceRegistry?.bind(resolution),hostRegistry?.bind(resolution)]),controller.signal)
+        if(disposed||epoch!==sharingEpoch)throw new DOMException('共享上下文已改变，旧绑定已取消','AbortError')
+        drawingCoordinator.bind(workspace,host);boundShareKey=key;boundWorkspace=workspaceRegistry;boundHost=hostRegistry
+        return true
+      }catch(error){if(!disposed&&epoch===sharingEpoch){boundShareKey=undefined;drawingCoordinator.reason=error instanceof Error?error.message:String(error);drawingController?.refresh()}throw error}
+    })()
+    bindingTask=task
+    try{return await task}finally{if(bindingTask===task){bindingTask=undefined;bindingKey=undefined}}
   }
+  const refreshSharedDrawings=()=>{const waiting=waitingWorkspaceBinding;void bindSharedDrawings().then(ready=>{if(ready&&waitingWorkspaceBinding===waiting)settleWorkspaceBinding()},error=>{if(waitingWorkspaceBinding===waiting)settleWorkspaceBinding(error)})}
+
   const commitDrawing=(change:Pick<DrawingChange,'kind'|'logicalId'|'after'|'source'>)=>{
     if(!widget)return Promise.reject(Error(i18n('chart_not_ready',locale())))
     try{if(change.after)validateDrawingTarget(change.after)}catch(error){return Promise.reject(error)}
@@ -600,7 +629,12 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
   const drawingBounds=(value:DrawingSnapshot)=>{const points=projectDrawingPoints(value),size=drawingSize(value),pixels=points.map((point,index)=>{const anchor=value.anchors?.[index];return anchor?.kind==='viewport'?{x:anchor.x*size.width,y:anchor.y*size.height}:drawingToPixel(point,value)});return {left:Math.min(...pixels.map(p=>p.x)),right:Math.max(...pixels.map(p=>p.x)),top:Math.min(...pixels.map(p=>p.y)),bottom:Math.max(...pixels.map(p=>p.y))}}
   const drawingIsVisible=(value:DrawingSnapshot)=>value.overlay.visible&&!drawingController.getViewState().hidden&&intervalVisible(value.presentation?.intervals,period())&&!!widget?.getOverlays({id:value.logicalId})[0]?.visible
-  const drawingNear=(paneId:string,x:number,y:number)=>drawingCoordinator.getDrawings().find(value=>{if((value.overlay.paneId??'candle_pane')!==paneId||!drawingIsVisible(value))return false;try{const b=drawingBounds(value);return x>=b.left-10&&x<=b.right+10&&y>=b.top-10&&y<=b.bottom+10}catch{return false}})
+  const drawingNear=(paneId:string,x:number,y:number,event:'onPressedMoveStart'|'onRightClick'='onPressedMoveStart')=>{
+    for(const overlay of (widget?.getOverlays({paneId})??[]).slice().reverse()){
+      const value=drawingCoordinator.getDrawing(overlay.id)
+      if(value&&drawingIsVisible(value)&&drawingFigureHit({x,y},drawingFigures.get(overlay)??[],widget!.getStyles().overlay,overlay.styles,event))return value
+    }
+  }
   const cancelSelectionBox=()=>{boxDrag=undefined;setSelectionBox(undefined)}
   const drawingPointerStart=(event:PointerEvent)=>{
     drawingPointerDown(event);setDrawingMenu(undefined);if(temporaryPan()){lockTemporaryPan();return}
@@ -624,7 +658,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     const pane=widget?.getDom(drag.paneId,'main')?.getBoundingClientRect(),root=(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.getBoundingClientRect();if(pane&&root){const left=box.x+root.left-pane.left,top=box.y+root.top-pane.top,values=drawingCoordinator.getDrawings().filter(value=>{if((value.overlay.paneId??'candle_pane')!==drag.paneId||!drawingIsVisible(value))return false;try{const b=drawingBounds(value);return b.right>=left&&b.left<=left+box.width&&b.bottom>=top&&b.top<=top+box.height}catch{return false}});void drawingController.execute({type:'select',ids:values.map(value=>value.logicalId)});setSnapHint(`${locale()==='en-US'?'Selected':'已选择'} ${values.length}${values.some(value=>value.overlay.lock)?locale()==='en-US'?' · Includes locked drawings':' · 含锁定对象，请先解锁或仅选择可操作对象':''}`)}
     event.preventDefault();event.stopPropagation()
   }
-  const drawingContext=(event:MouseEvent)=>{event.preventDefault();const pane=drawingPaneAt(event.clientX,event.clientY);if(!pane)return;const x=event.clientX-pane.rect.left,y=event.clientY-pane.rect.top,near=drawingNear(pane.paneId,x,y);showDrawingMenu(activeDrawingId?widget?.getOverlays({id:activeDrawingId})[0]:near?widget?.getOverlays({id:near.logicalId})[0]:undefined,x,y);event.stopPropagation()}
+  const drawingContext=(event:MouseEvent)=>{event.preventDefault();const pane=drawingPaneAt(event.clientX,event.clientY);if(!pane)return;const x=event.clientX-pane.rect.left,y=event.clientY-pane.rect.top,near=drawingNear(pane.paneId,x,y,'onRightClick');showDrawingMenu(activeDrawingId?widget?.getOverlays({id:activeDrawingId})[0]:near?widget?.getOverlays({id:near.logicalId})[0]:undefined,x,y);event.stopPropagation()}
 
   let activeDrawingId: string | null = null
   const cancelDrawing = () => {
@@ -793,7 +827,14 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     getDrawingTools:()=>copyDrawingCatalog(drawingCatalog),
     getDrawingState:()=>drawingController.getState(),
     executeDrawingCommand:command=>drawingController.execute(command),
-    bindDrawingWorkspace:async(registry,resolve)=>{workspaceSessions=registry;if(resolve)shareResolver=resolve;await bindSharedDrawings()},
+    bindDrawingWorkspace:async(registry,resolve)=>{
+      settleWorkspaceBinding(new DOMException('共享绑定请求已被替换','AbortError'))
+      workspaceSessions=registry;if(resolve)shareResolver=resolve
+      if(!analysis.getContext()&&shareResolver){
+        const error=dataState()?.error;if(error)throw Error(error)
+        await new Promise<void>((resolve,reject)=>{waitingWorkspaceBinding={resolve,reject}})
+      }else await bindSharedDrawings()
+    },
     getDrawings:()=>drawingCoordinator.getDrawings(),
     getDrawingHistoryState:()=>drawingController.getHistoryState(),
     restoreDrawings:(owner,values)=>{validateRestore(owner,values);drawingHistory.reconcile(owner,values)},
@@ -945,15 +986,16 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       const workspace=await workspaceSessions?.bind(resolution)
       const host=await props.drawingHostSessions.bind({identity:resolution.identity,documentId:references[0].documentId})
       if(disposed||epoch!==sharingEpoch)throw Error('共享上下文已改变，请重试恢复')
-      const old=drawingCoordinator.checkpointBinding();let applied=false
-      return {apply:()=>{if(disposed||epoch!==sharingEpoch)throw Error('共享上下文已改变，不能采用旧引用');applied=true;drawingCoordinator.bind(workspace,host);drawingCoordinator.acceptReferences(references);if(references.some(r=>!host.history.getDrawing(r.logicalId)))drawingCoordinator.reason='部分共享引用已缺失，请刷新原文档；不会用旧内容复活'},rollback:()=>{if(applied&&!disposed&&epoch===sharingEpoch)drawingCoordinator.rollbackBinding(old)}}
+      const old=drawingCoordinator.checkpointBinding();let applied=false,releaseRetention:(()=>void)|undefined
+      const validateLocal=(values:DrawingSnapshot[])=>assertDrawingRestoreAuthority(values,[...workspace?.history.getDrawingIds()??[],...host.history.getDrawingIds()])
+      return {validateLocal,apply:()=>{if(disposed||epoch!==sharingEpoch)throw Error('共享上下文已改变，不能采用旧引用');validateLocal(drawingHistory.getDrawings());releaseRetention=drawingCoordinator.retainBinding(old);applied=true;drawingCoordinator.bind(workspace,host);drawingCoordinator.acceptReferences(references);if(references.some(r=>!host.history.getDrawing(r.logicalId)))drawingCoordinator.reason='部分共享引用已缺失，请刷新原文档；不会用旧内容复活'},rollback:()=>{if(applied&&!disposed&&epoch===sharingEpoch)drawingCoordinator.rollbackBinding(old)},release:()=>releaseRetention?.()}
     }})
     let drawingAlignment=''
     if (widget) loader = new EngineDataLoader(widget, props.datafeed, {
       committed:state=>{
         const old=analysis.getContext()?.token;analysis.sync(state)
         untrack(()=>{
-          if(old!==analysis.getContext()?.token)void bindSharedDrawings()
+          if(old!==analysis.getContext()?.token)refreshSharedDrawings()
           if(!state.confirmed){drawingAlignment='';return}
           const bars=widget!.getDataList(),alignment=JSON.stringify([state.epoch,state.basis,state.revision,state.replay,state.cutoff,bars.length,bars[0]?.timestamp,bars.at(-1)?.timestamp])
           // Reproject on confirmed alignment changes, never on same-bar OHLC quotes.
@@ -964,10 +1006,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           }
         })
       },
-      state: state=>{setDataState(state);setLoadError(state.error?`${state.errorCode??state.operation??'data'}: ${state.error}`:'');comparisons.mainChanged();props.onDataState?.(state)},
+      state: state=>{if(state.error)settleWorkspaceBinding(Error(state.error));setDataState(state);setLoadError(state.error?`${state.errorCode??state.operation??'data'}: ${state.error}`:'');comparisons.mainChanged();props.onDataState?.(state)},
       loading: active => {setLoading(active);setLoadingVisible(active)},
-      ready: identity => {setLoadError('');void bindSharedDrawings();if(!resuming())props.onDataReady?.(identity)},
-      error: error => {setLoadError(error.message);props.onError?.(error)},
+      ready: identity => {setLoadError('');refreshSharedDrawings();if(!resuming())props.onDataReady?.(identity)},
+      error: error => {settleWorkspaceBinding(Error(error.message));setLoadError(error.message);props.onError?.(error)},
       price: bar => props.onPriceUpdate?.(bar.close,bar.timestamp)
     })
 
@@ -983,7 +1025,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         for(const name of props.mainIndicators){if(!widget?.getIndicators({name,paneId:'candle_pane'}).length)await addIndicator({name,placement:'main'})}
         for(const name of props.subIndicators){if(!widget?.getIndicators({name}).some(i=>i.paneId!=='candle_pane'))await addIndicator({name,placement:'sub'})}
         if(!disposed){refreshIndicators();setEngineReady(true)}
-      })().catch(error=>{if(!disposed){setLoadError(i18n('indicator_initialization_retry',locale()));setLoadingVisible(false);props.onError?.({type:'indicator-init',message:i18n('indicator_initialization_failed',locale()),raw:error})}}).finally(()=>{initializing=false})
+      })().catch(error=>{settleWorkspaceBinding(error);if(!disposed){setLoadError(i18n('indicator_initialization_retry',locale()));setLoadingVisible(false);props.onError?.({type:'indicator-init',message:i18n('indicator_initialization_failed',locale()),raw:error})}}).finally(()=>{initializing=false})
     }
     retryInitialization()
     for(const action of ['onZoom','onScroll','onVisibleRangeChange','onPaneDrag'] as const)widget?.subscribeAction(action,refreshDrawingHandles)
@@ -1007,6 +1049,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   onCleanup(() => {
     disposed = true
+    settleWorkspaceBinding(new DOMException('图表已关闭，共享绑定已取消','AbortError'));cancelSharedBinding()
     handleDrag=undefined;nativeDrawingDrag=undefined;temporaryPanGesture=undefined;drawingPreviews.clear()
     if(drawingPresentationFrame!==undefined)cancelAnimationFrame(drawingPresentationFrame)
     ++indicatorGeneration
@@ -1055,7 +1098,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   createEffect((prev?: PrevSymbolPeriod) => {
     const s = symbol(), p = period()
     if(!engineReady())return undefined
-    if (prev) untrack(()=>{analysis.clear();++indicatorGeneration;++factoryGeneration;comparisons.clear();cancelDrawing();++sharingEpoch;boundShareKey=undefined;drawingCoordinator.detach();const retained=JSON.stringify(prev.symbol)===JSON.stringify(s)?drawingHistory.getDrawings().filter(d=>d.owner==='local'):[];drawingHistory.reset(true);if(retained.length)drawingHistory.reconcile('local',retained);setSelectedOverlay(null);props.onDataReset?.(s)})
+    if (prev) untrack(()=>{settleWorkspaceBinding(new DOMException('图表身份已改变，共享绑定已取消','AbortError'));analysis.clear();++indicatorGeneration;++factoryGeneration;comparisons.clear();cancelDrawing();cancelSharedBinding();drawingCoordinator.detach();const retained=JSON.stringify(prev.symbol)===JSON.stringify(s)?drawingHistory.getDrawings().filter(d=>d.owner==='local'):[];drawingHistory.reset(true);if(retained.length)drawingHistory.reconcile('local',retained);setSelectedOverlay(null);props.onDataReset?.(s)})
     setLoadError('')
     loader?.activate(s,p)
     return {symbol:s,period:p}
@@ -1310,7 +1353,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           <Show when={state().lastRead}>{read=><span> · {i18n('data_last_read',locale())}: {read().query.kind==='before'?i18n('data_before',locale()):i18n('data_range',locale())} · {i18n('data_observed',locale())}: {read().metadata?.sourceTimestamp===undefined?i18n('data_unknown',locale()):new Date(read().metadata!.sourceTimestamp!).toISOString()} · {i18n('data_delay',locale())}: {read().metadata?.delayMs===undefined?i18n('data_unknown',locale()):`${read().metadata!.delayMs}ms`}</span>}</Show>
           <Show when={state().revisionRequired}><button onClick={()=>void loader?.reload(true).catch(()=>{})}>{i18n('data_revision',locale())}</button></Show>
         </div>}</Show>
-        <For each={Object.entries(drawingState().projectionErrors??{})}>{([id,message])=><div role="alert" class="klinecharts-pro-data-error">{id}: {message} <button onClick={()=>drawingHistory.reproject()}>{i18n('retry',locale())}</button></div>}</For>
+        <For each={Object.entries(drawingState().projectionErrors??{})}>{([id,message])=><div role="alert" class="klinecharts-pro-data-error">{id}: {message} <button onClick={()=>{drawingHistory.reproject();drawingCoordinator.project()}}>{i18n('retry',locale())}</button></div>}</For>
         <Show when={workbenchState()?.lastResult?.message}><div role="alert" class="klinecharts-pro-data-error">{workbenchState()?.lastResult?.message}</div></Show>
         <Show when={loadError()}><div role="alert" class="klinecharts-pro-data-error">{loadError()} <button onClick={() => {!engineReady() ? retryInitialization?.() : replayEngine ? stopReplay() : void loader?.retry().catch(()=>{})}}>{i18n('retry',locale())}</button></div></Show>
       </div>

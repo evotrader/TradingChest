@@ -51,6 +51,9 @@ export function intervalVisible(filter:DrawingIntervalFilter|undefined,current:P
   const rank=['second','minute','hour','day','week','month','year']
   const a=rank.indexOf(current.timespan),b=rank.indexOf(filter.period.timespan)
   if(a<0||b<0)return false
-  const comparison=a===b?current.multiplier-filter.period.multiplier:a-b
+  const fixed=[1,60,3600,86400,604800]
+  // Calendar months/years form a separate semantic family; no guessed month length.
+  const comparison=a<5&&b<5?current.multiplier*fixed[a]-filter.period.multiplier*fixed[b]
+    :a>=5&&b>=5?current.multiplier*(a===6?12:1)-filter.period.multiplier*(b===6?12:1):a-b
   return filter.kind==='higher'?comparison>=0:comparison<=0
 }

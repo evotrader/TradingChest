@@ -38,6 +38,17 @@ describe('workspace ownership',()=>{
     expect(root.style.height).toBe('100%');expect(grid.style.gridTemplateRows).toContain('240px')
     expect(mounts).toHaveLength(4)
   })
+  it('binds every successor and ignores an older initial ready result',async()=>{
+    let emit!:(pro:ChartPro)=>void,resolveInitial!:(pro:ChartPro)=>void,releaseBinding!:()=>void
+    const initial=new Promise<ChartPro>(resolve=>resolveInitial=resolve),bindingGate=new Promise<void>(resolve=>releaseBinding=resolve)
+    const make=(bind:()=>Promise<void>)=>({bindDrawingWorkspace:vi.fn(bind),getChart:()=>({resize:()=>{},subscribeAction:()=>{},unsubscribeAction:()=>{},getDom:()=>null}),getShortcutManager:()=>({setEnabled:()=>{}})}) as unknown as ChartPro
+    const old=make(async()=>{}),next=make(async()=>bindingGate)
+    const {workspace}=setup({mountCell:()=>({ready:initial,subscribeReady:accept=>{emit=accept;return()=>{}},dispose:()=>{}})})
+    await settle();emit(next);await settle();expect(workspace.getCells()[0].chart).toBeUndefined();expect(next.bindDrawingWorkspace).toHaveBeenCalledOnce()
+    resolveInitial(old);await settle();expect(old.bindDrawingWorkspace).not.toHaveBeenCalled();releaseBinding();await settle();expect(workspace.getCells()[0].chart).toBe(next)
+    const third=make(async()=>{});emit(third);await settle();expect(workspace.getCells()[0].chart).toBe(third);expect(third.bindDrawingWorkspace).toHaveBeenCalledOnce()
+    expect((third.bindDrawingWorkspace as any).mock.calls[0][0]).toBe((next.bindDrawingWorkspace as any).mock.calls[0][0])
+  })
   it('hides each toolbar group without disabling its programmatic operation',async()=>{
     const onLayoutChange=vi.fn(),{workspace,container}=setup({toolbar:{layout:false,sync:false,storage:false,size:false},onLayoutChange});await settle()
     const groups=[...container.querySelectorAll<HTMLElement>('[data-toolbar-group]')]

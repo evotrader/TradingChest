@@ -53,20 +53,26 @@ export class DrawingCoordinator {
   private scope:DrawingScope='chart'
   private disposed=false
   private bindingEpoch=0
+  private historyBinding={}
+  private retainedBindings=new Set<object>()
   private origin:'user'|'history'|'projection'='projection'
   reason='请等待行情与共享价格口径确认'
   constructor(readonly local:DrawingHistory,private options:{project:(id:string,value:DrawingSnapshot|null)=>void;changed:()=>void;saveAs?:(session:DrawingSession,identity:DrawingSession['identity'])=>Promise<DrawingSession>;owns?:(id:string)=>boolean;validate:(value:DrawingSnapshot)=>void}){}
   bind(workspace?:DrawingSession,host?:DrawingSession):void {
+    this.attach(workspace,host,{})
+  }
+  private attach(workspace:DrawingSession|undefined,host:DrawingSession|undefined,historyBinding:object):void {
     if(workspace&&host){const ids=new Set(workspace.history.getDrawingIds());if(host.history.getDrawingIds().some(id=>ids.has(id)))throw Error('工作台与宿主共享文档含同 ID 绘图，请先核对未完成迁移')}
-    this.detach();this.sessions={workspace,host};this.reason=workspace||host?'':'宿主未启用绘图共享'
+    this.detach();this.historyBinding=historyBinding;this.sessions={workspace,host};this.reason=workspace||host?'':'宿主未启用绘图共享'
     for(const session of this.list())this.unsubscribers.push(session.subscribe((origin,ids)=>{this.origin=origin;if(session.scope==='host'&&origin!=='projection')this.retainedReferences=this.retainedReferences.filter(r=>!ids.includes(r.logicalId)||!!session.history.getDrawing(r.logicalId));this.project(ids)}))
     this.project()
   }
   detach(reason='共享上下文正在切换'):void{
     ++this.bindingEpoch
+    this.historyBinding={}
     for(const unsubscribe of this.unsubscribers)unsubscribe();this.unsubscribers=[]
     for(const id of this.projected)if(this.options.owns?.(id)??true)this.options.project(id,null)
-    this.projected.clear();this.retainedReferences=[];this.sessions={};this.scope='chart';this.reason=reason;this.options.changed()
+    this.projected.clear();this.errors={};this.retainedReferences=[];this.sessions={};this.scope='chart';this.reason=reason;this.options.changed()
   }
   private list():DrawingSession[]{return [...new Set(Object.values(this.sessions).filter((v):v is DrawingSession=>!!v))]}
   getOrigin(){return this.origin}
@@ -82,6 +88,7 @@ export class DrawingCoordinator {
   }
   getSharing(){return {canSaveAs:!!this.options.saveAs,workspace:this.sessions.workspace?.getState(),host:this.sessions.host?.getState(),reason:this.reason||undefined}}
   hasSharedDrawings():boolean{return this.list().some(session=>session.history.getDrawingIds().length>0)}
+  getSharedDrawingIds():string[]{return this.list().flatMap(session=>session.history.getDrawingIds())}
   getDrawings():DrawingSnapshot[]{return [...this.local.getDrawings(),...this.list().flatMap(s=>s.history.getDrawings()).filter(d=>!this.local.getDrawing(d.logicalId))]}
   /** Shared values project onto each chart's main price axis, never an engine instance ID. */
   prepare(value:DrawingSnapshot):DrawingSnapshot{if(!value.presentation?.scope||value.presentation.scope==='chart')return value;const prepared=copy(value);delete prepared.yAxisId;return prepared}
@@ -127,18 +134,19 @@ this.options.changed()
     const sourceSession=sessionOf(source),targetSession=sessionOf(target)
     const assertBinding=()=>{if(this.disposed||this.bindingEpoch!==binding)throw Error('共享绑定已改变，原迁移责任已保留，请回到原身份核对')}
     try{await moveDrawingDocuments(source,target,values,ids,sourceSession,targetSession,assertBinding)}finally{if(this.currentBinding(binding))this.project()}
-    this.recordTransfer(source,target,originals,values,ids,sourceSession,targetSession,binding)
+    this.recordTransfer(source,target,originals,values,ids,sourceSession,targetSession)
     if(sourceSession?.scope==='host')this.retainedReferences=this.retainedReferences.filter(r=>!ids.includes(r.logicalId))
     this.scope=scope;this.project();this.options.changed()
   }
-  private recordTransfer(source:DrawingHistory,target:DrawingHistory,originals:DrawingSnapshot[],values:DrawingSnapshot[],ids:string[],sourceSession:DrawingSession|undefined,targetSession:DrawingSession|undefined,binding:number):void{
+  private recordTransfer(source:DrawingHistory,target:DrawingHistory,originals:DrawingSnapshot[],values:DrawingSnapshot[],ids:string[],sourceSession:DrawingSession|undefined,targetSession:DrawingSession|undefined):void{
     const sourceRef=new WeakRef(source),targetRef=new WeakRef(target),sourceSessionRef=sourceSession?new WeakRef(sourceSession):undefined,targetSessionRef=targetSession?new WeakRef(targetSession):undefined
     const sourceGeneration=source.getDocumentGeneration(),targetGeneration=target.getDocumentGeneration(),coordinatorRef=source===this.local||target===this.local?new WeakRef(this):undefined
-    const available=()=>!!sourceRef.deref()?.isAvailable(sourceGeneration)&&!!targetRef.deref()?.isAvailable(targetGeneration)&&(!coordinatorRef||coordinatorRef.deref()?.currentBinding(binding)===true)
+    const historyBinding=this.historyBinding
+    const available=()=>!!sourceRef.deref()?.isAvailable(sourceGeneration)&&!!targetRef.deref()?.isAvailable(targetGeneration)&&(!coordinatorRef||coordinatorRef.deref()?.currentHistoryBinding(historyBinding)===true)
     const check=()=>{if(!available())throw Error('原绘图文档已关闭或替换，对应转移历史已失效')}
     const projectionRef=new WeakRef(this)
-    const run=async(undo:boolean)=>{check();const from=(undo?targetRef:sourceRef).deref()!,to=(undo?sourceRef:targetRef).deref()!;try{await moveDrawingDocuments(from,to,undo?originals:values,ids,(undo?targetSessionRef:sourceSessionRef)?.deref(),(undo?sourceSessionRef:targetSessionRef)?.deref(),check,targetRef.deref())}finally{const coordinator=projectionRef.deref();if(coordinator?.currentBinding(binding))coordinator.project()}}
-    target.recordOperation({ids:[...ids],available,undo:()=>run(true),redo:()=>run(false)})
+    const run=async(undo:boolean)=>{check();const from=(undo?targetRef:sourceRef).deref()!,to=(undo?sourceRef:targetRef).deref()!;try{await moveDrawingDocuments(from,to,undo?originals:values,ids,(undo?targetSessionRef:sourceSessionRef)?.deref(),(undo?sourceSessionRef:targetSessionRef)?.deref(),check,targetRef.deref())}finally{const coordinator=projectionRef.deref();if(coordinator?.currentHistoryBinding(historyBinding))coordinator.project()}}
+    target.recordOperation({ids:[...ids],available,retain:()=>coordinatorRef?.deref()?.retainedBindings.has(historyBinding)===true,undo:()=>run(true),redo:()=>run(false)})
   }
   async saveAs():Promise<void>{
     if(!this.options.saveAs)throw Error('宿主尚未提供另存文档 ID，请先配置创建目标')
@@ -169,7 +177,7 @@ this.options.changed()
       destination.preflightTransfer(record.drawings)
       for(const value of record.drawings){const existing=destination.getDrawing(value.logicalId);if(!existing||existing.migration)destination.transferRecord(value.logicalId,value,lease.token)}
       if(!this.currentBinding(epoch))throw Error('共享上下文已改变，恢复记录已保留')
-      if(needsHistory)this.recordTransfer(host.history,destination,record.originals,record.drawings,ids,host,scope==='workspace'?this.getSession(scope):undefined,epoch)
+      if(needsHistory)this.recordTransfer(host.history,destination,record.originals,record.drawings,ids,host,scope==='workspace'?this.getSession(scope):undefined)
     // The target and its undo operation are confirmed before cleanup can become uncertain.
     await host.persistCandidate(host.history.getDrawings(),host.getRecoveries().filter(r=>r.id!==id))
       if(!this.currentBinding(epoch))throw Error('恢复记录清理期间共享绑定已改变，后继上下文不会被修改')
@@ -177,8 +185,13 @@ this.options.changed()
     }finally{lease.release();if(this.currentBinding(epoch))this.project()}
   }
   currentBinding(epoch:number):boolean{return !this.disposed&&this.bindingEpoch===epoch}
-  checkpointBinding(){return {workspace:this.sessions.workspace,host:this.sessions.host,references:copy(this.retainedReferences),scope:this.scope,reason:this.reason}}
-  rollbackBinding(value:ReturnType<DrawingCoordinator['checkpointBinding']>):void{this.bind(value.workspace,value.host);this.retainedReferences=copy(value.references);this.scope=value.scope;this.reason=value.reason;this.options.changed()}
+  private currentHistoryBinding(value:object):boolean{return !this.disposed&&this.historyBinding===value}
+  checkpointBinding(){return {workspace:this.sessions.workspace,host:this.sessions.host,references:copy(this.retainedReferences),scope:this.scope,reason:this.reason,historyBinding:this.historyBinding}}
+  retainBinding(value:ReturnType<DrawingCoordinator['checkpointBinding']>):()=>void {
+    if(!this.currentHistoryBinding(value.historyBinding))throw Error('原共享绑定已改变，不能保留旧恢复事务')
+    this.retainedBindings.add(value.historyBinding);return ()=>{this.retainedBindings.delete(value.historyBinding)}
+  }
+  rollbackBinding(value:ReturnType<DrawingCoordinator['checkpointBinding']>):void{this.attach(value.workspace,value.host,value.historyBinding);this.retainedReferences=copy(value.references);this.scope=value.scope;this.reason=value.reason;this.options.changed()}
   acceptReferences(references:DrawingSharedReference[]):void{this.retainedReferences=copy(references);this.options.changed()}
   references():DrawingSharedReference[]{
     const session=this.sessions.host;if(!session)return copy(this.retainedReferences)
@@ -187,5 +200,5 @@ this.options.changed()
     for(const value of session.history.getDrawings())values.set(value.logicalId,{namespace:session.identity.namespace,documentId:state.documentId!,logicalId:value.logicalId,identity:copy(session.identity)})
     return copy([...values.values()])
   }
-  dispose():void{this.detach();this.disposed=true}
+  dispose():void{this.detach();this.disposed=true;this.retainedBindings.clear()}
 }

@@ -1,4 +1,5 @@
 import defaultBindings, { ShortcutBinding } from './defaultBindings'
+import {shortcutCombo} from './combo'
 
 /**
  * 快捷键管理器
@@ -58,11 +59,6 @@ export class KeyboardShortcutManager {
    * 将键盘事件转换为 combo 字符串
    */
   private eventToCombo(e: KeyboardEvent): string {
-    const parts: string[] = []
-    if (e.ctrlKey || e.metaKey) parts.push('ctrl')
-    if (e.shiftKey) parts.push('shift')
-    if (e.altKey) parts.push('alt')
-
     const key = e.key.toLowerCase()
     // 标准化特殊键名
     const keyMap: Record<string, string> = {
@@ -75,13 +71,13 @@ export class KeyboardShortcutManager {
       '-': 'minus',
       '=': 'plus'  // = 键通常和 + 在同一位置
     }
-    const normalizedKey = keyMap[key] ?? key
+    const digit=e.code.match(/^Digit([0-9])$/)?.[1]
+    const normalizedKey = digit ?? keyMap[key] ?? key
 
     // 跳过修饰键本身
     if (['control', 'shift', 'alt', 'meta'].includes(normalizedKey)) return ''
 
-    parts.push(normalizedKey)
-    return parts.join('+')
+    return shortcutCombo({ctrl:e.ctrlKey||e.metaKey,alt:e.altKey,shift:e.shiftKey},normalizedKey)
   }
 
   /**

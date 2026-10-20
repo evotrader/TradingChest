@@ -10,17 +10,23 @@
 
 状态中的 scope 是新工具作用域，historyScope 是当前撤销目标；选中对象决定操作会话。跨会话批量内容操作明确拒绝。通知 origin 为 user、history 或 projection；投影不提交业务写。输入框继续使用浏览器原生撤销。
 
+与绘图文档绑定的命令在入队时记录上下文。排队期间切换标的、周期或共享绑定会取消旧命令，避免把粘贴或编辑应用到新文档；同文档内的连续操作仍按顺序执行。全局视图和偏好操作不受文档切换影响。
+
 ## 坐标与布局
 
 DrawingSnapshot.anchors 是坐标权威：market 保存真实时标／值（连续笔迹可带相邻真实时标比例）；logical 保存已存在参考 bar 和原周期根数偏移；viewport 保存内容区百分比。engine points 只是投影，不用数组下标或伪造未来开市时间替代市场锚点。缺少参考历史、周期不兼容或不可定位时保留对象，并显示原因。
 
 captureLayout／restoreLayout 使用 ChartLayoutV4：drawings 仅保存本图 local 内容，drawingPresentation 保存后端引用的呈现，sharedDrawingRefs 保存 host 文档引用。WorkspaceDocument v2 单份保存 workspace 共享内容。旧图表 v1／v2／v3 和工作台 v1 纯读取迁移；未解析坐标或未知工具失败保留原存储。恢复先预检，失败回滚图表配置、文档、历史和共享绑定。
 
+恢复的本图 logicalId 不能已属于当前或准备采用的共享文档，即使共享对象暂时无法投影或未出现在引用数组中。此类冲突会拒绝恢复；作用域迁移使用 transfer 命令。失败回滚保留原迁移撤销历史，不覆盖其它图表已确认的共享内容。
+
 ## 共享与所有者
 
 共享限主价格窗格、market 锚点、owner=local 的用户绘图；backend、指标副图、未来逻辑锚点和视口锚点保留本图。`resolveDrawingShareKey(confirmedContext)` 必须由宿主给出 `{identity, documentId?}` 或 `{reason}`：identity 含不透明 namespace、完整 market/exchange/ticker/priceCurrency 和明确 priceBasisKey。库不解析 provider 的私有 basis，也不补猜币种、tick 或复权方式。
 
 ChartWorkspace 自有 workspace DrawingSessionRegistry，图表通过 bindDrawingWorkspace 借用；工作台释放所有投影后关闭自有 registry。宿主共享需要显式自有 DrawingDocumentStore 与 host registry，通过 drawingHostSessions 借给图表；图表销毁只退订，最终所有者调用 registry.dispose，再关闭 store。store 不拥有行情；SSR 不打开 IndexedDB。
+
+bindDrawingWorkspace 等待原行情加载器确认上下文及实际会话绑定，读取失败会拒绝。切换上下文或销毁会取消本图的等待，不取消其它借用者的存储读取。工作台每次接受后继图表实例都会重新接入原 registry；绑定完成前不会将该实例作为就绪图表公开。
 
 ```ts
 const store = createIndexedDBDrawingDocumentStore()

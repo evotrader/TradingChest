@@ -1,4 +1,6 @@
 import arrow from './arrow'
+import anchoredVwap from './anchoredVwap'
+import fixedRangeVolumeProfile from './fixedRangeVolumeProfile'
 import workbenchTools from './workbenchTools'
 
 import circle from './circle'
@@ -37,6 +39,7 @@ import tradeMarker from './tradeMarker'
 import alertLine from '../alert/AlertLine'
 
 const overlays = [
+  anchoredVwap,fixedRangeVolumeProfile,
   ...workbenchTools,
   arrow,
   circle, rect, triangle, parallelogram,

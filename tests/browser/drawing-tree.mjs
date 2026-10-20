@@ -1,0 +1,57 @@
+import {launchBrowser} from './support.mjs'
+import assert from 'node:assert/strict'
+import {writeFileSync} from 'node:fs'
+const browser=await launchBrowser(),results=[],errors=[]
+let page
+try{
+ page=await browser.newPage({viewport:{width:1280,height:1100}});page.on('pageerror',e=>errors.push(e.message))
+ await page.goto(`${process.env.TC_BROWSER_BASE}/tests/browser/volume-drawing.html`);await page.waitForFunction(()=>window.ready)
+ await page.evaluate(()=>{
+   const bars=pro.getChart().getDataList(),a=bars[bars.length-100],b=bars[bars.length-80]
+   pro.restoreDrawings('local',Array.from({length:1000},(_,i)=>({logicalId:`bench-${i}`,owner:'local',presentation:{order:i,name:`对象 ${String(i).padStart(4,'0')}`,groupId:`group-${Math.floor(i/100)}`,groupName:`分组 ${Math.floor(i/100)}`},anchors:[{kind:'market',timestamp:a.timestamp,value:a.close},{kind:'market',timestamp:b.timestamp,value:b.close}],overlay:{id:`bench-${i}`,name:'segment',paneId:'candle_pane',groupId:'drawing_tools',points:[{timestamp:a.timestamp,value:a.close},{timestamp:b.timestamp,value:b.close}],styles:null,extendData:null,visible:true,lock:false}})))
+ })
+ await page.getByRole('button',{name:'绘图管理',exact:true}).click()
+ const manager=page.getByRole('complementary',{name:'绘图管理'}),tree=manager.getByRole('tree',{name:'绘图对象',exact:true})
+ assert.ok(await tree.getByRole('treeitem').count()<30)
+ assert.equal(await page.evaluate(()=>pro.getDrawingState().objects.length),1000)
+ await manager.locator('[data-drawing-id="bench-999"] .tc-drawing-object-name').click()
+ await manager.getByLabel('排序目标',{exact:true}).selectOption('bench-997');await manager.getByLabel('排序位置',{exact:true}).selectOption('after');await manager.getByRole('button',{name:'应用排序',exact:true}).click()
+ await page.waitForFunction(()=>{const objects=pro.getDrawings();return objects.find(d=>d.logicalId==='bench-999').presentation.order<objects.find(d=>d.logicalId==='bench-997').presentation.order})
+ await page.getByRole('button',{name:'撤销绘图',exact:true}).click()
+ await page.waitForFunction(()=>pro.getDrawings().find(d=>d.logicalId==='bench-999').presentation.order===999)
+ await page.getByRole('button',{name:'重做绘图',exact:true}).click()
+ await page.waitForFunction(()=>pro.getDrawings().find(d=>d.logicalId==='bench-999').presentation.order<997)
+ results.push({scenario:'1000-owned-objects-bounded-dom-and-keyboard-reorder-history',passed:true})
+ await tree.scrollIntoViewIfNeeded()
+ const source=manager.getByRole('button',{name:'拖动排序 对象 0998',exact:true}),target=manager.locator('[data-drawing-id="bench-996"]')
+ const a=await source.boundingBox(),b=await target.boundingBox();assert.ok(a&&b)
+ await page.mouse.move(a.x+a.width/2,a.y+a.height/2);await page.mouse.down();await page.mouse.move(b.x+80,b.y+b.height-5,{steps:8});await page.mouse.up()
+ await page.waitForFunction(()=>pro.getDrawings().find(d=>d.logicalId==='bench-998').presentation.order<996)
+ results.push({scenario:'real-pointer-reorder-shares-confirmed-command',passed:true})
+ await manager.getByRole('button',{name:'折叠组 分组 9',exact:true}).click()
+ await manager.getByLabel('搜索绘图对象',{exact:true}).fill('对象 0998')
+ await manager.locator('[data-drawing-id="bench-998"] .tc-drawing-object-name').waitFor()
+ await manager.getByLabel('搜索绘图对象',{exact:true}).fill('')
+ await manager.getByRole('button',{name:'展开组 分组 9',exact:true}).waitFor()
+ await manager.getByRole('button',{name:'展开组 分组 9',exact:true}).click()
+ const name=manager.locator('[data-drawing-id="bench-997"] .tc-drawing-object-name');await name.focus();await name.press('End')
+ await manager.locator('[data-drawing-id="bench-0"] .tc-drawing-object-name').waitFor()
+ assert.ok(await tree.getByRole('treeitem').count()<30)
+ const focused=await page.evaluate(()=>document.activeElement.closest('[data-drawing-id]')?.dataset.drawingId)
+ assert.equal(focused,'bench-0')
+ assert.ok((await page.evaluate(()=>pro.getDrawingState().selectedIds)).includes('bench-999'))
+ results.push({scenario:'search-temporary-expansion-and-keyboard-mount-before-focus',passed:true})
+ await tree.evaluate(element=>element.scrollTop=0)
+ await page.waitForFunction(()=>document.activeElement?.classList.contains('tc-drawing-tree-viewport'))
+ await tree.press('ArrowUp')
+ await page.waitForFunction(()=>document.activeElement?.closest('[data-drawing-id]')?.dataset.drawingId==='bench-1')
+ await page.evaluate(()=>pro.executeDrawingCommand({type:'delete',ids:['bench-1']}))
+ await page.waitForFunction(()=>document.activeElement?.closest('[data-drawing-id]')?.dataset.drawingId==='bench-0')
+ await manager.getByLabel('搜索绘图对象',{exact:true}).focus()
+ await page.evaluate(()=>pro.executeDrawingCommand({type:'delete',ids:['bench-0']}))
+ assert.equal(await manager.getByLabel('搜索绘图对象',{exact:true}).evaluate(element=>element===document.activeElement),true)
+ results.push({scenario:'virtual-unmount-parks-focus-deletion-focuses-neighbour-without-stealing-external-focus',passed:true})
+ await page.screenshot({path:`${process.env.TC_BROWSER_EVIDENCE}/drawing-tree.png`})
+ await page.evaluate(()=>pro.dispose());assert.deepEqual(errors,[])
+}catch(error){if(page)await page.screenshot({path:`${process.env.TC_BROWSER_EVIDENCE}/failure.png`});throw error}
+finally{writeFileSync(process.argv[2],JSON.stringify({syntheticInputs:true,results,errors},null,2));await browser.close()}

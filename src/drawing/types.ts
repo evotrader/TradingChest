@@ -58,6 +58,7 @@ export type DrawingCommand=
   | {type:'group';ids:string[];name:string}
   | {type:'ungroup';ids:string[]}
   | {type:'reorder';ids:string[];direction:'front'|'back'|'up'|'down'}
+  | {type:'reorder';ids:string[];targetId:string;position:'before'|'after'}
   | {type:'presentation';ids:string[];patch:Partial<DrawingPresentation>}
   | {type:'view';hidden?:boolean;preventDragging?:boolean;magnet?:import('./snap').DrawingMagnetMode}
   | {type:'preferences';patch:Partial<import('./preferences').DrawingPreferences>}
@@ -66,6 +67,7 @@ export type DrawingCommand=
   | {type:'undo'}
   | {type:'redo'}
 export interface DrawingState {
+  analytics?:Record<string,import('./analytics').DrawingAnalyticsState>
   origin?:'user'|'history'|'projection'
   toolId:string|null
   step:number

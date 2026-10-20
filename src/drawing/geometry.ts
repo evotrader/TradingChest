@@ -2,6 +2,7 @@ import type {KLineData,Point,Coordinate} from 'klinecharts'
 import type {DrawingSnapshot} from './types'
 import type {Period} from '../types'
 import {anchorsFromPoints} from './anchors'
+import {isVolumeDrawing} from './analytics'
 
 /** Locate a market instant geometrically without changing its canonical timestamp. */
 export function marketIndex(timestamp:number,bars:KLineData[]):number {
@@ -35,7 +36,7 @@ export function translatedDrawing(before:DrawingSnapshot,dx:number,dy:number,geo
     after.anchors=before.anchors.map(anchor=>({...anchor,x:Math.max(0,Math.min(1,anchor.x+dx/size.width)),y:Math.max(0,Math.min(1,anchor.y+dy/size.height))}))
     after.overlay.points=geometry.project(after);return after
   }
-  after.overlay.points=geometry.project(before).map(point=>{const pixel=geometry.toPixel(point,before);return geometry.fromPixel({x:pixel.x+dx,y:pixel.y+dy},before)})
+  after.overlay.points=geometry.project(before).map(point=>{const pixel=geometry.toPixel(point,before),next=geometry.fromPixel({x:pixel.x+dx,y:pixel.y+(isVolumeDrawing(before.overlay.name)?0:dy)},before);if(isVolumeDrawing(before.overlay.name)){const index=Math.round(next.dataIndex??marketIndex(next.timestamp!,geometry.bars)),bar=geometry.bars[index];if(!bar)throw Error('量价绘图只能移动到已加载历史');return {timestamp:bar.timestamp,dataIndex:index,value:point.value}}return next})
   after.anchors=anchorsFromPoints(after.overlay.points,geometry.bars,geometry.period,'interaction')
   return after
 }

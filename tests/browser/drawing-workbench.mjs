@@ -8,7 +8,7 @@ try{
  page.on('pageerror',error=>errors.push(error.message))
  await page.goto(`${process.env.TC_BROWSER_BASE??'http://127.0.0.1:4173'}/tests/browser/drawing-workbench.html?database=tc-drawing-browser-${Date.now()}`)
  await page.waitForFunction(()=>window.ready)
- assert.equal(await page.evaluate(()=>pro.getDrawingTools().length),51)
+ assert.equal(await page.evaluate(()=>pro.getDrawingTools().length),53)
  await page.getByRole('button',{name:'全部绘图工具',exact:true}).click()
  await page.getByRole('textbox',{name:'搜索绘图工具',exact:true}).fill('画笔')
  await page.locator('.tc-drawing-tool-picker button[title="Alt+B"]').click()

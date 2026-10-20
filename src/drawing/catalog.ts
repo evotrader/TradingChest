@@ -1,4 +1,4 @@
-export type DrawingCategory='lines'|'channels'|'geometry'|'fibonacci'|'waves'|'measurement'|'annotations'|'positions'
+export type DrawingCategory='lines'|'channels'|'geometry'|'fibonacci'|'waves'|'measurement'|'annotations'|'positions'|'volume'
 export interface DrawingParameter {key:string;label:string;kind:'number'|'text'|'boolean'|'levels';min?:number;max?:number;choices?:string[];defaultValue:number|string|boolean|number[]}
 export interface DrawingToolDescriptor {
   toolId:string
@@ -24,10 +24,15 @@ const groups:Array<[DrawingCategory,Array<[string,string,string,number,string?]>
   ['waves',[['xabcd','XABCD 形态','XABCD pattern',5],['abcd','ABCD 形态','ABCD pattern',4],['threeWaves','三浪','Three waves',4],['fiveWaves','五浪','Five waves',6],['eightWaves','八浪','Eight waves',9],['anyWaves','任意波浪','Any waves',2]]],
   ['measurement',[['priceRange','价格范围','Price range',2],['dateRange','日期范围','Date range',2],['dateAndPriceRange','日期和价格范围','Date and price range',2,'Shift+M']]],
   ['annotations',[['textAnnotation','文字','Text',1],['callout','气泡标注','Callout',2],['note','便签','Note',1],['brush','画笔','Brush',2,'Alt+B'],['highlighter','荧光笔','Highlighter',2],['polyline','折线','Polyline',2],['priceLabel','价格标签','Price label',1],['anchoredText','固定文字','Anchored text',1]]],
-  ['positions',[['longPosition','多头仓位','Long position',3],['shortPosition','空头仓位','Short position',3]]]
+  ['positions',[['longPosition','多头仓位','Long position',3],['shortPosition','空头仓位','Short position',3]]],
+  ['volume',[['anchoredVwap','锚定 VWAP','Anchored VWAP',1],['fixedRangeVolumeProfile','固定区间成交量分布','Fixed range volume profile',2]]]
 ]
 export const builtinDrawingCatalog:DrawingToolDescriptor[]=groups.flatMap(([category,items])=>items.map(([toolId,zh,en,points,shortcut])=>{
   const text=['textAnnotation','callout','note','anchoredText'].includes(toolId),variable=['polyline','anyWaves'].includes(toolId)
+  if(category==='volume')return {toolId,overlayName:toolId,labels:{'zh-CN':zh,'en-US':en},category,icon:toolId,shortcut,mode:'points',minPoints:points,maxPoints:points,settings:['style','coordinates','visibility','parameters'],parameters:toolId==='anchoredVwap'?[
+    {key:'source',label:'价格源',kind:'text',choices:['close','hl2','hlc3','ohlc4'],defaultValue:'hlc3'},
+    {key:'algorithm',label:'估算算法',kind:'text',choices:['bar-price-volume-v1'],defaultValue:'bar-price-volume-v1'}
+  ]:[{key:'rows',label:'分箱行数',kind:'number',min:1,max:256,choices:['24','48','96','192'],defaultValue:48},{key:'valueArea',label:'价值区比例',kind:'number',min:.000001,max:1,choices:['0.5','0.6','0.68','0.7','0.8','0.9','0.95'],defaultValue:.7},{key:'mode',label:'成交量显示',kind:'text',choices:['total','up-down'],defaultValue:'total'},{key:'algorithm',label:'估算算法',kind:'text',choices:['bar-range-uniform-v1'],defaultValue:'bar-range-uniform-v1'}]} as DrawingToolDescriptor
   return {toolId,overlayName:toolId,labels:{'zh-CN':zh,'en-US':en},category,icon:toolId,shortcut,
     mode:['brush','highlighter'].includes(toolId)?'continuous':text?'text':variable?'variable':'points',minPoints:points,maxPoints:variable||['brush','highlighter'].includes(toolId)?null:points,
     settings:['style',...(text?['text' as const]:[]),'coordinates','visibility',...(category==='fibonacci'||category==='channels'?['parameters' as const]:[])],
@@ -47,8 +52,8 @@ export function validateDrawingParameters(tool:DrawingToolDescriptor,parameters:
     if(!spec)throw Error(`工具 ${tool.toolId} 不支持参数 ${key}`)
     if(spec.kind==='number'&&(typeof value!=='number'||!Number.isFinite(value)||(spec.min!==undefined&&value<spec.min)||(spec.max!==undefined&&value>spec.max)))throw Error(`参数 ${spec.label} 无效`)
     if(spec.kind==='levels'&&(!Array.isArray(value)||!value.length||value.length>64||value.some(v=>typeof v!=='number'||!Number.isFinite(v))))throw Error(`参数 ${spec.label} 无效`)
-    if(key==='segments'&&!Number.isInteger(value))throw Error('弧段数必须是整数')
+    if((key==='segments'||tool.toolId==='fixedRangeVolumeProfile'&&key==='rows')&&!Number.isInteger(value))throw Error('行数或弧段数必须是整数')
     if(spec.kind==='text'&&typeof value!=='string'||spec.kind==='boolean'&&typeof value!=='boolean')throw Error(`参数 ${spec.label} 无效`)
-    if(spec.choices&&!spec.choices.includes(String(value)))throw Error(`参数 ${spec.label} 不在允许选项内`)
+    if(spec.kind==='text'&&spec.choices&&!spec.choices.includes(String(value)))throw Error(`参数 ${spec.label} 不在允许选项内`)
   }
 }

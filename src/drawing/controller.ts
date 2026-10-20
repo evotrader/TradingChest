@@ -22,6 +22,7 @@ interface Options {
   coordinates?:(snapshot:DrawingSnapshot,patch:Extract<DrawingCommand,{type:'update'}>['patch'])=>DrawingSnapshot
   changed?:(state:DrawingState)=>void
   selected?:(ids:string[])=>void
+  analytics?:(drawings:DrawingSnapshot[])=>DrawingState['analytics']
 }
 const copy=<T>(value:T):T=>structuredClone(value)
 export function mergeDrawingStyles(before:DrawingSnapshot['overlay']['styles'],patch:NonNullable<DrawingSnapshot['overlay']['styles']>):NonNullable<DrawingSnapshot['overlay']['styles']>{
@@ -59,7 +60,7 @@ export class DrawingController {
     const objects=this.drawings(),groups=new Map<string,{id:string;name:string;paneId:string}>()
     for(const object of objects)if(object.presentation?.groupId)groups.set(object.presentation.groupId,{id:object.presentation.groupId,name:object.presentation.groupName??object.presentation.groupId,paneId:object.overlay.paneId??'candle_pane'})
     const remembered=this.rememberedHistory(),history=this.getHistoryState()
-    return {origin:this.options.coordinator?.getOrigin()??'user',toolId:this.toolId,step:this.step,continuous:this.continuous,selectedIds:[...this.selectedIds],scope:this.options.coordinator?.getScope()??'chart',historyScope:remembered?this.options.coordinator?.scopeOf(remembered)??'chart':this.selectedIds.length?(objects.find(d=>d.logicalId===this.selectedIds[0])?.presentation?.scope??'chart'):this.options.coordinator?.getScope()??'chart',sharing:this.options.coordinator?.getSharing(),objects,groups:[...groups.values()],magnet:this.magnet,hidden:this.hidden,preventDragging:this.preventDragging,history,preferences:this.options.preferences?.getState(),lastResult:this.lastResult?copy(this.lastResult):undefined}
+    return {analytics:this.options.analytics?.(objects),origin:this.options.coordinator?.getOrigin()??'user',toolId:this.toolId,step:this.step,continuous:this.continuous,selectedIds:[...this.selectedIds],scope:this.options.coordinator?.getScope()??'chart',historyScope:remembered?this.options.coordinator?.scopeOf(remembered)??'chart':this.selectedIds.length?(objects.find(d=>d.logicalId===this.selectedIds[0])?.presentation?.scope??'chart'):this.options.coordinator?.getScope()??'chart',sharing:this.options.coordinator?.getSharing(),objects,groups:[...groups.values()],magnet:this.magnet,hidden:this.hidden,preventDragging:this.preventDragging,history,preferences:this.options.preferences?.getState(),lastResult:this.lastResult?copy(this.lastResult):undefined}
   }
   getSelectedIds():string[]{return [...this.selectedIds]}
   getHistoryState():DrawingHistoryState{
@@ -234,14 +235,33 @@ export class DrawingController {
         const groupId=command.type==='group'?`group-${createOpaqueId()}`:undefined
         const all=this.history().getDrawings().sort((a,b)=>(a.presentation?.order??0)-(b.presentation?.order??0))
         const reordered=all.map(o=>o.logicalId)
+        let absoluteOrders:Map<string,number>|undefined
         if(command.type==='reorder'){
           const chosen=new Set(command.ids),selected=reordered.filter(id=>chosen.has(id)),rest=reordered.filter(id=>!chosen.has(id))
-          if(command.direction==='front')reordered.splice(0,reordered.length,...rest,...selected)
+          if('targetId' in command){
+            if(!objects.length||chosen.has(command.targetId)||!['before','after'].includes(command.position))throw Error('排序目标无效，请选择另一个对象')
+            const target=this.targets([command.targetId],true)[0]
+            const group=(v:DrawingSnapshot)=>JSON.stringify([v.presentation?.scope??'chart',v.overlay.paneId??'candle_pane',v.presentation?.groupId??null])
+            if(!all.some(v=>v.logicalId===target.logicalId)||objects.some(v=>group(v)!==group(target)||v.overlay.lock))throw Error('只能在同一会话、窗格和组内对未锁定对象排序')
+            const position=rest.indexOf(command.targetId)+(command.position==='before'?1:0)
+            reordered.splice(0,reordered.length,...rest.slice(0,position),...selected,...rest.slice(position))
+            const lookup=new Map(all.map(o=>[o.logicalId,o.presentation?.order??0]))
+            const left=position?lookup.get(rest[position-1])!:undefined,right=position<rest.length?lookup.get(rest[position])!:undefined
+            const step=left!==undefined&&right!==undefined?(right-left)/(selected.length+1):1
+            const start=left??(right??0)-selected.length-1
+            absoluteOrders=new Map(selected.map((id,i)=>[id,start+step*(i+1)]))
+            const unique=new Set([...rest.map(id=>lookup.get(id)!),...absoluteOrders.values()])
+            if(!(step>0)||unique.size!==all.length||[...absoluteOrders.values()].some(v=>!Number.isFinite(v))){
+              absoluteOrders=new Map(reordered.map((id,i)=>[id,i]))
+            }
+            for(const before of all)if(absoluteOrders.has(before.logicalId)&&absoluteOrders.get(before.logicalId)!==before.presentation?.order)this.targets([before.logicalId],true)
+          }
+          else if(command.direction==='front')reordered.splice(0,reordered.length,...rest,...selected)
           else if(command.direction==='back')reordered.splice(0,reordered.length,...selected,...rest)
           else if(command.direction==='up'){for(let i=reordered.length-2;i>=0;i--)if(chosen.has(reordered[i])&&!chosen.has(reordered[i+1]))[reordered[i],reordered[i+1]]=[reordered[i+1],reordered[i]]}
           else for(let i=1;i<reordered.length;i++)if(chosen.has(reordered[i])&&!chosen.has(reordered[i-1]))[reordered[i],reordered[i-1]]=[reordered[i-1],reordered[i]]
         }
-        const affected=command.type==='reorder'?all:objects
+        const affected=command.type==='reorder'?absoluteOrders?all.filter(o=>absoluteOrders!.has(o.logicalId)&&absoluteOrders!.get(o.logicalId)!==o.presentation?.order):all:objects
         return affected.map(before=>{
           if(command.type==='delete')return {before,after:null}
           let after=copy(before)
@@ -273,7 +293,7 @@ export class DrawingController {
             if(command.type==='presentation')patch=command.patch
             if(command.type==='group'){if(!command.name.trim())throw Error('请输入组名');patch={groupId,groupName:command.name.trim()}}
             if(command.type==='ungroup')patch={groupId:undefined,groupName:undefined}
-            if(command.type==='reorder')patch={order:reordered.indexOf(before.logicalId)}
+            if(command.type==='reorder')patch={order:absoluteOrders?.get(before.logicalId)??reordered.indexOf(before.logicalId)}
             if(patch.scope&&patch.scope!==(before.presentation?.scope??'chart'))throw Error('共享作用域需要已确认的共享会话')
             after.presentation={...after.presentation,...patch}
           }

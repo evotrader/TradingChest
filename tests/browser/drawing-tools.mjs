@@ -39,6 +39,6 @@ try{
   const remaining=await page.evaluate(()=>pro.getChart().getOverlays().map(o=>o.id));assert.deepEqual(remaining,[])
   results.push({toolId:descriptor.toolId,owner:original.owner,anchors:original.anchors.length,create:true,cancelEdit:true,confirmedEdit:true,undoRedo:true,delete:true,v4:true});console.log('tool',descriptor.toolId,'PASS')
  }
- assert.equal(results.length,51);assert.deepEqual(errors,[])
+ assert.equal(results.length,53);assert.deepEqual(errors,[])
  const evidence={passed:true,scope:'isolated-native-engine-all-catalog-tools',results,errors};if(process.argv[2])writeFileSync(process.argv[2],JSON.stringify(evidence,null,2));await page.evaluate(()=>{pro.dispose();preferenceStore.dispose()});console.log(JSON.stringify(evidence))
 }finally{await browser.close()}

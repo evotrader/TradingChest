@@ -48,6 +48,8 @@ export function arcCoordinates([a,b,c]:Coordinate[]):Coordinate[]{
 }
 interface Geometry {coordinates?:Coordinate[];reason?:string}
 const cache=new WeakMap<Chart,Map<string,{key:string;geometry:Geometry}>>()
+/** Internal lifecycle probe; not exported by the public package entries. */
+export const hasCurveGeometry=(chart:Chart):boolean=>cache.has(chart)
 export function clearCurveGeometry(chart:Chart,id?:string):void{if(id===undefined)cache.delete(chart);else cache.get(chart)?.delete(id)}
 export function curveGeometry(args:OverlayCreateFiguresCallbackParams<unknown>):Geometry{
  const {chart,overlay,coordinates,bounding,xAxis,yAxis}=args

@@ -44,9 +44,9 @@
   },
   "analysisUpdateOverrides": {
     "50000": {
-      "limit": 80,
-      "approvedOn": "2026-10-17",
-      "source": "Operator approved the 80ms ceiling only for 50k single-chart analysis updates and rechecking the complete original samples without resampling; all other gates unchanged"
+      "limit": 85,
+      "approvedOn": "2026-10-21",
+      "source": "Operator accepted the nine exact TradingChest 0.12 budget changes after implementation R3; 50k single-chart analysis update p95 85ms. Recheck the complete original formal samples without resampling; all other existing gates unchanged."
     }
   },
   "analysisColdOverrides": {

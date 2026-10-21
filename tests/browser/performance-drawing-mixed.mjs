@@ -1,6 +1,7 @@
 import {launchBrowser} from './support.mjs'
 import assert from 'node:assert/strict'
 import {writeFileSync} from 'node:fs'
+import {mixedLimits} from './drawing-refinement-limits.mjs'
 const diagnostic=process.env.TC_MIXED_DIAGNOSTIC==='1',rounds=diagnostic?1:10,browser=await launchBrowser(),result={syntheticInputs:true,mode:diagnostic?'diagnostic':'formal',workload:{curve:200,doubleCurve:200,arc:200,ordinary:400,avwap:1,bands:3,frvp:1,rows:192,levelExtent:'pane-right'},cases:{},gates:[],errors:[],measurement:'真实控制点事件至几何更新和后续帧；自有处理/绘制CPU、同根更新和对象树。非物理屏幕延迟。'}
 const stats=xs=>{assert.ok(xs.length&&xs.every(Number.isFinite));const sorted=[...xs].sort((a,b)=>a-b);return {n:xs.length,p50:sorted[Math.ceil(xs.length*.5)-1],p95:sorted[Math.ceil(xs.length*.95)-1]}},save=()=>writeFileSync(process.argv[2],JSON.stringify(result,null,2)+'\n')
 try{
@@ -28,7 +29,7 @@ try{
    const tree=await page.evaluate(()=>drawingBench.tree);assert.equal(tree.length,20);const cleanup=await page.evaluate(()=>drawingBench.dispose());assert.deepEqual(cleanup,{subscriptions:0,dom:0});samples.push({round:round+1,target,...mounted,moves,updates,tree,cleanup});save()
   }
   const summary={cpu:stats(samples.flatMap(s=>s.moves.map(m=>m.cpu))),latency:stats(samples.flatMap(s=>s.moves.map(m=>m.latency))),updates:stats(samples.flatMap(s=>s.updates.map(m=>m.latency))),tree:stats(samples.flatMap(s=>s.tree))};Object.assign(result.cases[key],summary)
-  for(const [metric,limit]of [['cpu',50],['latency',120],['updates',120],['tree',200]])result.gates.push({key,metric,p95:summary[metric].p95,limit,passed:summary[metric].p95<=limit})
+  for(const [metric,limit]of Object.entries(mixedLimits(count)))result.gates.push({key,metric,p95:summary[metric].p95,limit,passed:summary[metric].p95<=limit})
   assert.equal(summary.cpu.n,rounds*100);assert.equal(summary.latency.n,rounds*100);assert.equal(summary.updates.n,rounds*100);assert.equal(summary.tree.n,rounds*20);console.log(key,JSON.stringify(summary));save()
  }
  assert.deepEqual(result.errors,[]);result.passed=result.gates.length===8&&result.gates.every(g=>g.passed);save();assert.ok(result.passed,JSON.stringify(result.gates.filter(g=>!g.passed)))

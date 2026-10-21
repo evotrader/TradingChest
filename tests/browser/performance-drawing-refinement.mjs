@@ -1,7 +1,8 @@
 import {launchBrowser} from './support.mjs'
 import assert from 'node:assert/strict'
-import {readFileSync,writeFileSync} from 'node:fs'
-const budgets=JSON.parse(readFileSync(new URL('./drawing-refinement-budgets.json',import.meta.url))),baseline=process.env.TC_DR_BASELINE==='1',diagnostic=!!process.env.TC_DR_DIAGNOSTIC
+import {writeFileSync} from 'node:fs'
+import {refinementBudgets as budgets,refinementLimits} from './drawing-refinement-limits.mjs'
+const baseline=process.env.TC_DR_BASELINE==='1',diagnostic=!!process.env.TC_DR_DIAGNOSTIC
 const actions=baseline?['reorder']:diagnostic?process.env.TC_DR_DIAGNOSTIC.split(','):budgets.actions,histories=baseline?[10000]:diagnostic?(process.env.TC_DR_DIAGNOSTIC_HISTORY?process.env.TC_DR_DIAGNOSTIC_HISTORY.split(',').map(Number):[10000]):budgets.history,rounds=baseline||diagnostic?1:budgets.rounds
 assert.ok(actions.every(action=>budgets.actions.includes(action)))
 assert.ok(histories.every(history=>budgets.history.includes(history)))
@@ -95,8 +96,8 @@ try{
    if(action==='delete')assert.equal(delta('delete'),1002)
    if(action==='restore'||action==='reorder')assert.equal(delta('update'),0)
   }catch(error){await page.evaluate(()=>window.finishDR?.()).catch(()=>{});const actual=await page.evaluate(()=>window.drSample).catch(()=>undefined);sample={...sample,...actual,history,action,round,error:error.stack}}
-  finally{sample.cleanup=await page.evaluate(()=>drawingBench.dispose()).catch(error=>({error:error.message}));sample.passed=!sample.error&&sample.cleanup.subscriptions===0&&sample.cleanup.dom===0&&Number.isFinite(sample.latency)&&sample.latency<=(action==='restore'?budgets.maximumRestoreLatency:budgets.maximumLatency)&&sample.maximumLongTask<=budgets.maximumLongTask;result.samples.push(sample);save();console.log(JSON.stringify({history,action,round,latency:sample.latency,longtask:sample.maximumLongTask,passed:sample.passed,error:sample.error?.split('\n')[0]}))}
+  finally{sample.cleanup=await page.evaluate(()=>drawingBench.dispose()).catch(error=>({error:error.message}));const limit=refinementLimits(history,action);sample.passed=!sample.error&&sample.cleanup.subscriptions===0&&sample.cleanup.dom===0&&Number.isFinite(sample.latency)&&sample.latency<=limit.latency&&sample.maximumLongTask<=limit.longTask;result.samples.push(sample);save();console.log(JSON.stringify({history,action,round,latency:sample.latency,longtask:sample.maximumLongTask,passed:sample.passed,error:sample.error?.split('\n')[0]}))}
  }
- for(const history of histories)for(const action of actions){const samples=result.samples.filter(s=>s.history===history&&s.action===action),limit=action==='restore'?budgets.maximumRestoreLatency:budgets.maximumLatency;result.gates.push({history,action,n:samples.length,maximum:Math.max(...samples.map(s=>s.latency??Infinity)),maximumLongTask:Math.max(...samples.map(s=>s.maximumLongTask??Infinity)),limit,longTaskLimit:budgets.maximumLongTask,passed:samples.length===rounds&&samples.every(s=>s.passed)})}
+ for(const history of histories)for(const action of actions){const samples=result.samples.filter(s=>s.history===history&&s.action===action),limit=refinementLimits(history,action);result.gates.push({history,action,n:samples.length,maximum:Math.max(...samples.map(s=>s.latency??Infinity)),maximumLongTask:Math.max(...samples.map(s=>s.maximumLongTask??Infinity)),limit:limit.latency,longTaskLimit:limit.longTask,passed:samples.length===rounds&&samples.every(s=>s.passed)})}
  result.passed=result.errors.length===0&&result.gates.every(g=>g.passed)&&result.samples.length===histories.length*actions.length*rounds;save();assert.ok(result.passed,'Reviewed maximum-latency gates failed')
 }finally{save();await browser.close()}

@@ -43,4 +43,24 @@ export async function volumeRefinement(page,results){
  const rectangle=profile.figures.filter(f=>f.type==='rect').map(f=>f.attrs);assert.ok(rectangle.every(r=>r.x>=0&&r.x+r.width<=profile.width))
  await manager.getByRole('button',{name:'关闭绘图管理',exact:true}).click()
  results.push({scenario:'trusted-profile-display-settings-color-and-unchanged-math',passed:true})
+ await seed('anchoredVwap')
+ const handleBefore=await page.evaluate(async()=>{
+  const chart=pro.getChart(),axis=chart.getYAxes({paneId:'candle_pane'})[0],range={...axis.getRange()},last=chart.getDataList().at(-1),drawing=pro.getDrawings()[0]
+  chart.overrideYAxis({id:axis.id,paneId:'candle_pane',createRange:()=>({...range})})
+  drawing.anchors=[{kind:'market',timestamp:last.timestamp,value:last.close}];drawing.overlay.points=[{timestamp:last.timestamp,value:last.close}];pro.restoreDrawings('local',[drawing]);await pro.executeDrawingCommand({type:'select',ids:[drawing.logicalId]})
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(r))))
+  const pane=chart.getDom('candle_pane','main').getBoundingClientRect(),handle=document.querySelector('button[aria-label^="绘图控制点 1 · "]').getBoundingClientRect()
+  return {range:axis.getRange(),close:last.close,y:handle.y+handle.height/2-pane.y,anchor:pro.getDrawings()[0].anchors[0]}
+ })
+ const handleAfter=await page.evaluate(async()=>{
+  const chart=pro.getChart(),bars=chart.getDataList().map(bar=>({...bar})),last=bars.at(-1);last.close=Math.abs(last.high-last.close)>Math.abs(last.close-last.low)?last.high:last.low;window.fixtureBars=bars
+  await pro.applySnapshot({symbol:pro.getSymbol(),period:pro.getPeriod(),bars,basis:'isolated-raw'})
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(r))))
+  const axis=chart.getYAxes({paneId:'candle_pane'})[0],pane=chart.getDom('candle_pane','main').getBoundingClientRect(),handle=document.querySelector('button[aria-label^="绘图控制点 1 · "]').getBoundingClientRect(),margin=Math.min(22,pane.height/2)
+  return {range:axis.getRange(),close:last.close,y:handle.y+handle.height/2-pane.y,expected:Math.max(margin,Math.min(pane.height-margin,axis.convertToPixel(last.close))),anchor:pro.getDrawings()[0].anchors[0],vwap:pro.getDrawingState().analytics['refinement-volume'].summary.vwap}
+ })
+ assert.deepEqual(handleAfter.range,handleBefore.range);assert.notEqual(handleAfter.close,handleBefore.close);assert.equal(handleAfter.vwap,handleAfter.close);assert.deepEqual(handleAfter.anchor,handleBefore.anchor)
+ assert.ok(Math.abs(handleAfter.expected-handleBefore.y)>.1,JSON.stringify({handleBefore,handleAfter}));assert.ok(Math.abs(handleAfter.y-handleAfter.expected)<.1,JSON.stringify({handleBefore,handleAfter}))
+ await page.evaluate(()=>{const chart=pro.getChart();chart.overrideYAxis({id:chart.getYAxes({paneId:'candle_pane'})[0].id,paneId:'candle_pane',createRange:({defaultRange})=>defaultRange});chart.resize()})
+ results.push({scenario:'confirmed-same-bar-price-refreshes-time-handle-with-fixed-axis-and-canonical-anchor',passed:true})
 }

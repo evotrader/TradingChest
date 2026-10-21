@@ -24,6 +24,7 @@ interface Options {
   owner:(snapshot:DrawingSnapshot)=>DrawingSnapshot['owner']
   coordinates?:(snapshot:DrawingSnapshot,patch:Extract<DrawingCommand,{type:'update'}>['patch'])=>DrawingSnapshot
   changed?:(state:DrawingState)=>void
+  invalidated?:(read:()=>DrawingState)=>void
   selected?:(ids:string[])=>void
   analytics?:(drawings:DrawingSnapshot[])=>DrawingState['analytics']
 }
@@ -78,6 +79,7 @@ export class DrawingController {
     const selected=this.selectedIds.filter(id=>ids.has(id))
     if(selected.length!==this.selectedIds.length){this.selectedIds=selected;this.options.selected?.([...selected])}
     this.options.changed?.(this.getState())
+    this.options.invalidated?.(()=>this.getState())
   }
   setStep(step:number):void{if(this.step===step)return;this.step=step;this.refresh()}
   rememberConfirmed(value:DrawingSnapshot):void{
@@ -94,13 +96,14 @@ export class DrawingController {
   }
   private targets(ids:string[],write=false,allowLocked=false,allowMigration=false):DrawingSnapshot[]{
     if(new Set(ids).size!==ids.length)throw Error('绘图选择包含重复对象')
+    const uncertain=write?new Set(this.history().getState().uncertainLogicalIds):undefined
     return ids.map(id=>{
       const object=this.options.coordinator?.getDrawing(id)??this.options.history.getDrawing(id)
       if(!object)throw Error(`绘图 ${id} 不存在，请刷新对象列表`)
       if(!this.options.editable(object))throw Error(`绘图 ${id} 由宿主管理，不能编辑`)
       if(write&&object.migration&&!allowMigration)throw Error('绘图转移结果待核对，请先刷新共享文档并完成原目标转移')
       if(write&&object.overlay.lock&&!allowLocked)throw Error(`绘图 ${object.presentation?.name??id} 已锁定，请先解锁`)
-      if(write&&this.history().getState().uncertainLogicalIds.includes(id))throw Error(`绘图 ${id} 的提交结果待确认，请刷新`)
+      if(uncertain?.has(id))throw Error(`绘图 ${id} 的提交结果待确认，请刷新`)
       return object
     })
   }
@@ -245,7 +248,7 @@ export class DrawingController {
         if((command.type==='move'||command.type==='nudge-selection')&&new Set(objects.map(o=>o.overlay.paneId??'candle_pane')).size>1)throw Error('不能整体移动不同窗格中的绘图')
         if(command.type==='group'&&(new Set(objects.map(o=>o.overlay.paneId??'candle_pane')).size>1||new Set(objects.map(o=>o.presentation?.scope??'chart')).size>1))throw Error('只能对同一会话和窗格中的绘图分组')
         const groupId=command.type==='group'?`group-${createOpaqueId()}`:undefined
-        const all=this.history().getDrawings().sort((a,b)=>(a.presentation?.order??0)-(b.presentation?.order??0))
+        const all=command.type==='reorder'?this.history().getDrawings().sort((a,b)=>(a.presentation?.order??0)-(b.presentation?.order??0)):[]
         const reordered=all.map(o=>o.logicalId)
         let absoluteOrders:Map<string,number>|undefined
         if(command.type==='reorder'){

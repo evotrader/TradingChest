@@ -65,7 +65,7 @@ try{
   window.fixtureBars=regressionBars;await pro.applySnapshot({symbol:pro.getSymbol(),period:pro.getPeriod(),bars:regressionBars,basis:'isolated-raw'})
   chart.scrollToRealTime(0);await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
   for(const name of ['regressionTrend','regressionChannel']){
-    const id=`log-${name}`,points=[{timestamp:regressionBars[0].timestamp,value:5},{timestamp:regressionBars[3].timestamp,value:1}],snapshot={logicalId:id,owner:'local',yAxisId:axisId,parameters:{source:'close',extend:name==='regressionTrend',deviations:2},anchors:points.map(p=>({kind:'market',...p})),overlay:{id,name,paneId:'candle_pane',groupId:'drawing_tools',points,visible:true,lock:false,extendData:null,styles:null}}
+    const id=`log-${name}`,points=[{timestamp:regressionBars[0].timestamp,value:5},{timestamp:regressionBars[3].timestamp,value:1}],snapshot={logicalId:id,owner:'local',yAxisId:axisId,parameters:{source:'close',extend:name==='regressionTrend',...(name==='regressionChannel'?{deviations:2}:{})},anchors:points.map(p=>({kind:'market',...p})),overlay:{id,name,paneId:'candle_pane',groupId:'drawing_tools',points,visible:true,lock:false,extendData:null,styles:null}}
     pro.restoreDrawings('local',[snapshot]);const overlay=chart.getOverlays({id})[0];if(!overlay)throw Error(JSON.stringify({name,state:pro.getDrawingHistoryState()}));const figures=await capture(overlay);result.push({name,figures:JSON.stringify(figures)})
   }
   return result

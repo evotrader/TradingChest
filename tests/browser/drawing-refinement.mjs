@@ -111,6 +111,18 @@ try {
  assert.equal(await bar.getByRole('combobox',{name:'线宽',exact:true}).inputValue(),'2.5');await bar.getByRole('button',{name:'绘图设置',exact:true}).click();assert.equal(await manager.getByRole('combobox',{name:'线宽',exact:true}).inputValue(),'2.5')
  await manager.getByRole('button',{name:'取消修改',exact:true}).click();await manager.getByRole('button',{name:'关闭绘图管理',exact:true}).click()
  results.push({scenario:'review-nonpreset-style-current-values-single-entry-and-cancel',passed:true})
+ await page.evaluate(async()=>{
+  const chart=pro.getChart(),before=pro.getDrawings()[0],native=chart.getOverlays({id:before.logicalId})[0],styles=structuredClone(native.styles)
+  chart.overrideOverlay({id:before.logicalId,points:before.overlay.points.map(point=>({...point,value:point.value+20}))})
+  const result=await pro.executeDrawingCommand({type:'update',ids:[before.logicalId],patch:{overlay:{styles:{line:{color:'#f44336'},polygon:{color:'#2196f3'}}}}})
+  if(result.status!=='completed'||chart.getOverlays({id:before.logicalId})[0]!==native)throw Error('样式更新没有保留已确认的原生对象身份')
+  if(native.points.some((point,index)=>point.value!==before.anchors[index].value))throw Error('样式更新未恢复权威锚点投影')
+  await pro.executeDrawingCommand({type:'undo'})
+  if(JSON.stringify(native.styles)!==JSON.stringify(styles)||native.styles.polygon?.color==='#2196f3')throw Error('撤销没有清除新增样式字段')
+  await pro.executeDrawingCommand({type:'redo'})
+  if(native.styles.line.color!=='#f44336'||native.styles.polygon.color!=='#2196f3')throw Error('重做没有恢复完整样式')
+ })
+ results.push({scenario:'native-style-identity-canonical-geometry-and-removed-fields-undo',passed:true})
  assert.deepEqual(errors,[])
  const evidence={passed:true,scope:'isolated-native-engine',results,errors}
  if(process.argv[2])writeFileSync(process.argv[2],JSON.stringify(evidence,null,2))

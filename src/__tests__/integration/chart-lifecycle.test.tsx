@@ -8,6 +8,12 @@ import type { ChartComponentApi as ChartPro } from '../../ChartProComponent'
 import type { HistoryQuery, HistoryResult } from '../../types'
 
 const mock = vi.hoisted(() => ({ chart: null as any, loadMore: null as any }))
+const resizeObservers=new Set<ResizeObserver>()
+vi.stubGlobal('ResizeObserver',class {
+  observe(){resizeObservers.add(this as unknown as ResizeObserver)}
+  unobserve(){}
+  disconnect(){resizeObservers.delete(this as unknown as ResizeObserver)}
+})
 vi.mock('klinecharts', async importOriginal => {
   const actual = await importOriginal<any>()
   return { ...actual, init: () => mock.chart, dispose: vi.fn() }
@@ -46,7 +52,7 @@ function mount(history = vi.fn((_symbol:any,_period:any,query:HistoryQuery)=>Pro
     getStyles: () => ({}), getDataList: () => data, getDom: () => null,
     getVisibleRange:()=>({from:0,to:data.length}),getBarSpace:()=>({bar:6}),
     getPaneOptions:(id:string)=>id==='candle_pane'?{id}:undefined,
-    getSize:()=>({width:600,height:300}),getYAxes:()=>[{id:'price',name:'normal',convertToPixel:(v:number)=>v}],
+    getSize:()=>({width:600,height:300}),getYAxes:()=>[{id:'price',name:'normal',getRange:()=>({from:0,to:20}),convertToPixel:(v:number)=>v}],
     convertToPixel:(point:any)=>({x:point.dataIndex??data.findIndex(row=>row.timestamp===point.timestamp),y:point.value}),
     getIndicators:()=>[],getOverlays:vi.fn(()=>[]),
     setDataLoader:(value:any)=>{loader=value;mock.loadMore=(timestamp:number)=>request('forward',timestamp)},
@@ -77,8 +83,10 @@ describe('chart lifecycle isolation', () => {
   })
   it('ignores queued live ticks after unmount', async () => {
     const host = mount(); await tick()
+    expect(resizeObservers.size).toBe(1)
     const callback = host.feed.subscribe.mock.calls[0][2]
     host.unmount(); callback(bars[0])
+    expect(resizeObservers.size).toBe(0)
     expect(host.chart.barData).not.toHaveBeenCalled()
     expect(host.price).not.toHaveBeenCalled()
   })

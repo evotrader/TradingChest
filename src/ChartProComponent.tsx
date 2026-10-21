@@ -13,10 +13,10 @@ import {createOpaqueId} from './ids'
  * limitations under the License.
  */
 
-import { createSignal, createMemo, createEffect, onMount, Show, onCleanup, startTransition, Component, ErrorBoundary,untrack,For } from 'solid-js'
+import { createSignal, createMemo, createEffect, onMount, Show, onCleanup, startTransition, Component, ErrorBoundary,untrack,For,batch } from 'solid-js'
 
 import {
-  init, dispose, utils, Nullable, Chart, OverlayMode, Styles,
+  init, dispose, utils, Nullable, Chart, OverlayMode, Styles,getOverlayClass,
   PaneOptions, Indicator,
   type Overlay, type OverlayCreate, type KLineData, type OverlayFigure
 } from 'klinecharts'
@@ -406,6 +406,25 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   let drawingController:DrawingController
   let drawingCoordinator:DrawingCoordinator
   const [workbenchState,setWorkbenchState]=createSignal<import('./drawing/types').DrawingState>()
+  let workbenchFrame:number|undefined
+  const presentWorkbench=()=>{
+    if(drawingController.getHistoryState().pending===0){
+      if(workbenchFrame!==undefined)cancelAnimationFrame(workbenchFrame)
+      workbenchFrame=undefined
+      const latest=drawingController.getState()
+      batch(()=>{setWorkbenchState(latest);setDrawingState(latest.history)})
+      if(handleLayoutFrame===undefined)handleLayoutFrame=requestAnimationFrame(()=>{handleLayoutFrame=undefined;refreshDrawingHandles()})
+      return
+    }
+    if(workbenchFrame!==undefined)return
+    workbenchFrame=requestAnimationFrame(()=>{
+      workbenchFrame=undefined
+      if(disposed)return
+      const latest=drawingController.getState()
+      batch(()=>{setWorkbenchState(latest);setDrawingState(latest.history)})
+      refreshDrawingHandles()
+    })
+  }
   const editable=(overlay:OverlayLifecycleEvent['overlay'])=>drawingCatalog.some(t=>t.overlayName===overlay.name)&&overlay.name!=='alertLine'&&!overlay.id?.startsWith('alert_')&&(props.isDrawingEditable?.(overlay)??true)
   const validateDrawingTarget=(value:DrawingSnapshot,target?:import('./drawing/bindings').DrawingRestoreTarget)=>{
     if(widget&&!target&&value.overlay.paneId&&!widget.getPaneOptions(value.overlay.paneId))throw Error(i18n('drawing_pane_missing',locale()))
@@ -486,20 +505,35 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     const margin=Math.min(22,size.height/2),y=Number.isFinite(pixel.y)?pixel.y!:size.height/2
     return {x:pixel.x!,y:Math.max(margin,Math.min(size.height-margin,y))}
   }
+  let handleGeometryKey='',drawingProjectionData=''
   const refreshDrawingHandles=()=>{
     if(!widget||disposed)return
+    const selected=(drawingController?.getSelectedIds()??[]).flatMap(id=>{const value=drawingPreviews.get(id)??drawingCoordinator.getDrawing(id);return value&&drawingIsVisible(value)?[value]:[]})
+    const panes=[...new Set(selected.map(value=>value.overlay.paneId??'candle_pane'))]
+    const geometryKey=JSON.stringify([drawingProjectionData,locale(),symbol().pricePrecision,period(),drawingController?.getViewState(),widget.getVisibleRange(),widget.getSize(),panes.map(paneId=>[paneId,widget!.getSize(paneId,'main'),widget!.getYAxes({paneId}).map(axis=>[axis.id,axis.name,axis.reverse,axis.getRange()])]),selected.map(value=>[value.logicalId,value.overlay.name,value.overlay.points,value.anchors,value.yAxisId,value.overlay.lock,value.presentation?.name])])
+    if(geometryKey===handleGeometryKey)return
     const root=(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.getBoundingClientRect(),handles:DrawingHandle[]=[],labels:Array<{id:string;x:number;y:number;text:string;side:'left'|'right'|'time'}>=[]
     if(!root)return
-    for(const id of drawingController?.getSelectedIds()??[]){const value=drawingPreviews.get(id)??drawingCoordinator.getDrawing(id);if(!value||!drawingIsVisible(value))continue
-      const pane=widget.getDom(value.overlay.paneId??'candle_pane','main')?.getBoundingClientRect();if(!pane)continue
-      try{const points=projectDrawingPoints(value),size=drawingSize(value);points.forEach((point,index)=>{const anchor=value.anchors?.[index],pixel=anchor?.kind==='viewport'?{x:anchor.x*size.width,y:anchor.y*size.height}:drawingHandlePixel(point,value,size);if(pixel.x<0||pixel.y<0||pixel.x>pane.width||pixel.y>pane.height)return;const axis=widget!.getYAxes({paneId:value.overlay.paneId??'candle_pane'}).find(axis=>!value.yAxisId||axis.id===value.yAxisId);if(point.value!==undefined&&!isVolumeDrawing(value.overlay.name))labels.push({id:`${id}:y:${index}`,x:pane.left-root.left+(axis?.position==='left'?0:pane.width),y:pane.top-root.top+pixel.y,text:`${Number(point.value).toFixed(symbol().pricePrecision??2)} · ${axis?.id===widget!.getYAxes({paneId:value.overlay.paneId??'candle_pane'})[0]?.id?'':axis?.id??''}`,side:axis?.position==='left'?'left':'right'});const timePane=widget!.getDom('x_axis_pane','main')?.getBoundingClientRect();if(timePane){const label=anchor?.kind==='logical'?`${locale()==='en-US'?'Following bars':'后续根数'} ${anchor.offsetBars.toFixed(2)}`:anchor?.kind==='market'?`${new Date(anchor.timestamp).toISOString()}${anchor.interpolation?` + ${(anchor.interpolation.fraction*100).toFixed(1)}% ${locale()==='en-US'?'of reference interval':'参考时段'}`:''}`:undefined;if(label)labels.push({id:`${id}:x:${index}`,x:pane.left-root.left+pixel.x,y:timePane.top-root.top,text:label,side:'time'})}handles.push({id,index,x:pane.left-root.left+pixel.x,y:pane.top-root.top+pixel.y,label:`${locale()==='en-US'?'Drawing point':'绘图控制点'} ${index+1} · ${value.presentation?.name??(isVolumeDrawing(value.overlay.name)?drawingCatalog.find(t=>t.overlayName===value.overlay.name)?.labels[locale()==='en-US'?'en-US':'zh-CN']??value.overlay.name:value.overlay.name)}`,timeOnly:isVolumeDrawing(value.overlay.name),locked:value.overlay.lock||drawingController.getViewState().preventDragging})})}catch{}
+    const timePane=widget.getDom('x_axis_pane','main')?.getBoundingClientRect()
+    const paneInfo=new Map(panes.map(paneId=>[paneId,{rect:widget!.getDom(paneId,'main')?.getBoundingClientRect(),axes:widget!.getYAxes({paneId}),size:widget!.getSize(paneId,'main')!}]))
+    for(const value of selected){
+      const id=value.logicalId,info=paneInfo.get(value.overlay.paneId??'candle_pane')!,pane=info.rect,axis=value.yAxisId?info.axes.find(axis=>axis.id===value.yAxisId):info.axes[0]
+      if(!pane)continue
+      try{const points=projectDrawingPoints(value),size=info.size;points.forEach((point,index)=>{
+        const anchor=value.anchors?.[index],pixel=anchor?.kind==='viewport'?{x:anchor.x*size.width,y:anchor.y*size.height}:drawingHandlePixel(point,value,size)
+        if(pixel.x<0||pixel.y<0||pixel.x>pane.width||pixel.y>pane.height)return
+        if(point.value!==undefined&&!isVolumeDrawing(value.overlay.name))labels.push({id:`${id}:y:${index}`,x:pane.left-root.left+(axis?.position==='left'?0:pane.width),y:pane.top-root.top+pixel.y,text:`${Number(point.value).toFixed(symbol().pricePrecision??2)} · ${axis?.id===info.axes[0]?.id?'':axis?.id??''}`,side:axis?.position==='left'?'left':'right'})
+        if(timePane){const label=anchor?.kind==='logical'?`${locale()==='en-US'?'Following bars':'后续根数'} ${anchor.offsetBars.toFixed(2)}`:anchor?.kind==='market'?`${new Date(anchor.timestamp).toISOString()}${anchor.interpolation?` + ${(anchor.interpolation.fraction*100).toFixed(1)}% ${locale()==='en-US'?'of reference interval':'参考时段'}`:''}`:undefined;if(label)labels.push({id:`${id}:x:${index}`,x:pane.left-root.left+pixel.x,y:timePane.top-root.top,text:label,side:'time'})}
+        handles.push({id,index,x:pane.left-root.left+pixel.x,y:pane.top-root.top+pixel.y,label:`${locale()==='en-US'?'Drawing point':'绘图控制点'} ${index+1} · ${value.presentation?.name??(isVolumeDrawing(value.overlay.name)?drawingCatalog.find(t=>t.overlayName===value.overlay.name)?.labels[locale()==='en-US'?'en-US':'zh-CN']??value.overlay.name:value.overlay.name)}`,timeOnly:isVolumeDrawing(value.overlay.name),locked:value.overlay.lock||drawingController.getViewState().preventDragging})
+      })}catch{}
     }
-    if(!handleDrag)setDrawingHandles(handles);setDrawingAxisLabels(labels)
-    const selected=selectedOverlay(),first=selected&&handles.find(handle=>handle.id===selected.id&&handle.index===0)
-    if(first){const x=Math.max(0,Math.min(root.width-240,first.x)),y=Math.max(10,Math.min(root.height-48,first.y>=74?first.y-64:first.y+32));if(x!==selected.x||y!==selected.y)setSelectedOverlay({...selected,x,y})}
+    if(!handleDrag){setDrawingHandles(handles);handleGeometryKey=geometryKey}setDrawingAxisLabels(labels)
+    const overlay=selectedOverlay(),first=overlay&&handles.find(handle=>handle.id===overlay.id&&handle.index===0)
+    if(first){const x=Math.max(0,Math.min(root.width-240,first.x)),y=Math.max(10,Math.min(root.height-48,first.y>=74?first.y-64:first.y+32));if(x!==overlay.x||y!==overlay.y)setSelectedOverlay({...overlay,x,y})}
   }
-  let handleLayoutFrame:number|undefined
+  let handleLayoutFrame:number|undefined,handleResizeObserver:ResizeObserver|undefined
   const refreshDrawingHandleLayout=()=>{
+    handleGeometryKey=''
     refreshDrawingHandles()
     if(handleLayoutFrame===undefined)handleLayoutFrame=requestAnimationFrame(()=>{handleLayoutFrame=undefined;refreshDrawingHandles()})
   }
@@ -540,7 +574,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     // Foreign overlays can use native removal handlers; recheck their current membership.
     return current&&(projectedDrawingObjects.get(id)===current||nativeDrawingPreviews.has(current))?current:widget.getOverlays({id})[0]
   }
-  const projectedDrawingDefinitions=new Map<string,{key:string;presentation:string}>()
+  const projectedDrawingDefinitions=new Map<string,{key:string;shapeKey:string;presentation:string;document:DrawingSnapshot}>()
+  const templateStyles=new WeakMap<object,Overlay['styles']>()
   const applyDrawing=(id:string,value:DrawingSnapshot|null):DrawingSnapshot|null=>{
     if(!widget)throw Error(i18n('chart_not_ready',locale()))
     if(value?.overlay.paneId&&!widget.getPaneOptions(value.overlay.paneId))throw Error(i18n('drawing_pane_missing',locale()))
@@ -555,13 +590,28 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       const remove=()=>{if(owned)widget!.removeOverlay({id});clearCurveGeometry(widget!,id);projectedDrawingObjects.delete(id);projectedDrawingDefinitions.delete(id);ownedDrawingIds.delete(id);completedDrawingIds.delete(id)}
       if(!value){remove();if(selected)setSelectedOverlay(null);return null}
       const overlay=value.overlay
-      const key=JSON.stringify([overlay,value.anchors,value.yAxisId,value.parameters]),presentation=JSON.stringify(value.presentation??null)
+      const {styles,...shape}=overlay
+      const shapeKey=JSON.stringify([shape,value.anchors,value.yAxisId,value.parameters]),key=JSON.stringify([shapeKey,styles]),presentation=JSON.stringify(value.presentation??null)
       const previous=projectedDrawingDefinitions.get(id)
       if(current&&previous?.key===key&&previous.presentation!==presentation){
         // Presentation does not change canonical geometry or the figure wrapper's inputs.
         const view=drawingController?.getViewState()
         widget.overrideOverlay({id,zLevel:value.presentation?.order??0,fixedZLevel:true,visible:overlay.visible&&!view?.hidden&&intervalVisible(value.presentation?.intervals,period()),lock:overlay.lock||view?.preventDragging||temporaryPan()})
-        projectedDrawingDefinitions.set(id,{key,presentation})
+        projectedDrawingDefinitions.set(id,{key,shapeKey,presentation,document:value})
+        if(selected)markSelectedOverlay(current,false)
+        return value
+      }
+      if(current&&previous?.shapeKey===shapeKey&&previous.key!==key){
+        // Reset the public style value before override's merge, including fields removed by undo.
+        const Template=getOverlayClass(overlay.name)
+        if(!Template)throw Error('绘图模板不存在，无法更新样式')
+        if(!templateStyles.has(Template))templateStyles.set(Template,structuredClone(new Template().styles))
+        const oldStyles=current.styles,view=drawingController?.getViewState()
+        const points=projectDrawingPoints(value)
+        points.forEach((point,index)=>{if(value.anchors?.[index]?.kind!=='viewport')drawingToPixel(point,value)})
+        current.styles=structuredClone(templateStyles.get(Template)??null)
+        try{widget.overrideOverlay({id,points,styles:styles??{},zLevel:value.presentation?.order??0,fixedZLevel:true,visible:overlay.visible&&!view?.hidden&&intervalVisible(value.presentation?.intervals,period()),lock:overlay.lock||view?.preventDragging||temporaryPan()})}catch(error){current.styles=oldStyles;throw error}
+        projectedDrawingDefinitions.set(id,{key,shapeKey,presentation,document:value})
         if(selected)markSelectedOverlay(current,false)
         return value
       }
@@ -573,13 +623,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       const actual=engineDrawing(id)
       if(created!==id||!actual||(overlay.paneId&&actual.paneId!==overlay.paneId))throw Error(i18n('drawing_render_failure',locale()))
       projectedDrawingObjects.set(id,actual)
-      projectedDrawingDefinitions.set(id,{key,presentation})
+      projectedDrawingDefinitions.set(id,{key,shapeKey,presentation,document:value})
       if(temporaryPan())temporaryPanLocks.set(id,{overlay:actual,lock:overlay.lock||!!state?.preventDragging})
       actual.needDefaultPointFigure=false;actual.needDefaultYAxisFigure=false;actual.needDefaultXAxisFigure=false
       for(const figure of ['createPointFigures','createYAxisFigures','createXAxisFigures'] as const){
         const draw=actual[figure];if(!draw)continue
         actual[figure]=args=>{
-          const document=drawingPreviews.get(id)??value
+          const document=drawingPreviews.get(id)??projectedDrawingDefinitions.get(id)?.document??value
           let projected:Overlay['points'],coordinates:Array<{x:number;y:number}>
           try{
             // Native timestamp lookup rounds between bars; only exact, unchanged inputs are equivalent.
@@ -710,7 +760,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     for(const paneId of panes){const rect=widget?.getDom(paneId,'main')?.getBoundingClientRect();if(rect&&x>=rect.left&&x<=rect.right&&y>=rect.top&&y<=rect.bottom)return {paneId,rect}}
   }
   const drawingBounds=(value:DrawingSnapshot)=>{const points=projectDrawingPoints(value),size=drawingSize(value),pixels=points.map((point,index)=>{const anchor=value.anchors?.[index];return anchor?.kind==='viewport'?{x:anchor.x*size.width,y:anchor.y*size.height}:drawingToPixel(point,value)});return {left:Math.min(...pixels.map(p=>p.x)),right:Math.max(...pixels.map(p=>p.x)),top:Math.min(...pixels.map(p=>p.y)),bottom:Math.max(...pixels.map(p=>p.y))}}
-  const drawingIsVisible=(value:DrawingSnapshot)=>value.overlay.visible&&!drawingController.getViewState().hidden&&intervalVisible(value.presentation?.intervals,period())&&!!widget?.getOverlays({id:value.logicalId})[0]?.visible
+  const drawingIsVisible=(value:DrawingSnapshot)=>value.overlay.visible&&!drawingController.getViewState().hidden&&intervalVisible(value.presentation?.intervals,period())&&!!engineDrawing(value.logicalId)?.visible
   const drawingNear=(paneId:string,x:number,y:number,event:'onPressedMoveStart'|'onRightClick'='onPressedMoveStart')=>{
     for(const overlay of (widget?.getOverlays({paneId})??[]).slice().reverse()){
       const value=drawingCoordinator.getDrawing(overlay.id)
@@ -901,7 +951,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     owner:value=>props.drawingOwner?.(value.overlay)??'local',
     coordinates:(value,patch)=>{if(!widget)throw Error('图表尚未就绪');if(patch.anchors)return {...value,overlay:{...value.overlay,points:projectDrawingPoints(value)}};return {...value,anchors:anchorsFromPoints(value.overlay.points,widget.getDataList(),period(),'interaction')}},
     project:()=>{drawingHistory.reproject();drawingCoordinator.project()},
-    changed:state=>{setWorkbenchState(state);setDrawingState(state.history);props.onDrawingStateChange?.(state);props.onDrawingHistoryChange?.(state.history);queueMicrotask(refreshDrawingHandles)},
+    invalidated:read=>{presentWorkbench();const state=props.onDrawingStateChange?read():undefined;props.onDrawingStateChange?.(state!);props.onDrawingHistoryChange?.(state?.history??drawingController.getHistoryState())},
     selected:ids=>{const next=new Set(ids),changed=[...new Set([...curveSelectedIds,...ids])].filter(id=>curveSelectedIds.has(id)!==next.has(id));curveSelectedIds.clear();for(const id of ids)curveSelectedIds.add(id);for(const id of changed){const overlay=engineDrawing(id);if(overlay&&projectedDrawingObjects.get(id)===overlay&&isCurveDrawing(overlay.name))widget?.overrideOverlay({id,styles:{}})}props.onDrawingSelect?.(ids.length===1?ids[0]:null)}
   })
 
@@ -1103,6 +1153,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if(widget)drawingAnalyticsRuntimes.set(widget,drawingAnalytics)
     if (widget) loader = new EngineDataLoader(widget, props.datafeed, {
       committed:state=>{
+        drawingProjectionData=JSON.stringify([state.epoch,state.revision,state.confirmed,state.replay,state.cutoff])
+        if(drawingController.getSelectedIds().length&&handleLayoutFrame===undefined)handleLayoutFrame=requestAnimationFrame(()=>{handleLayoutFrame=undefined;refreshDrawingHandles()})
         const old=analysis.getContext()?.token;analysis.sync(state)
         setDrawingContextEpoch(state.epoch)
         const analyticsChanged=drawingAnalytics.sync(state,loader?.getConfirmedBars()??[])
@@ -1142,6 +1194,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     }
     retryInitialization()
     for(const action of ['onZoom','onScroll','onVisibleRangeChange','onPaneDrag'] as const)widget?.subscribeAction(action,refreshDrawingHandleLayout)
+    handleResizeObserver=new ResizeObserver(refreshDrawingHandleLayout)
+    handleResizeObserver.observe(widgetRef!)
     widget?.subscribeAction('onIndicatorTooltipFeatureClick', (event) => {
       const data = event as {indicator: Indicator; feature: {id:string}; paneId:string}
       const indicator = data.indicator
@@ -1165,6 +1219,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     settleWorkspaceBinding(new DOMException('图表已关闭，共享绑定已取消','AbortError'));cancelSharedBinding()
     handleDrag=undefined;nativeDrawingDrag=undefined;temporaryPanGesture=undefined;drawingPreviews.clear()
     if(drawingPresentationFrame!==undefined)cancelAnimationFrame(drawingPresentationFrame)
+    if(workbenchFrame!==undefined)cancelAnimationFrame(workbenchFrame)
     ++indicatorGeneration
     if(comparisonResizeFrame!==undefined)cancelAnimationFrame(comparisonResizeFrame)
     analysis.dispose()
@@ -1172,6 +1227,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     ++factoryGeneration;comparisons.dispose()
     if(widget)drawingBindings.delete(widget)
     if(handleLayoutFrame!==undefined)cancelAnimationFrame(handleLayoutFrame)
+    handleResizeObserver?.disconnect()
     for(const action of ['onZoom','onScroll','onVisibleRangeChange','onPaneDrag'] as const)widget?.unsubscribeAction(action,refreshDrawingHandleLayout)
     ++sharingEpoch;drawingCoordinator.dispose();drawingPreferences.dispose();drawingController.dispose();drawingHistory.dispose()
     projectedDrawingDefinitions.clear();projectedDrawingObjects.clear();curveSelectedIds.clear();if(widget)clearCurveGeometry(widget)

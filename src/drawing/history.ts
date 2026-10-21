@@ -31,13 +31,16 @@ function copyCanonical<T>(value:T):T {
   }
   return result as T
 }
-const ordered=(value:any):any=>Array.isArray(value)?value.map(ordered):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,ordered(v)])):value
-const same=(a:unknown,b:unknown):boolean=>{
+/** Compare values after the JSON boundary without sorting or serializing large point arrays. */
+const same=(a:any,b:any):boolean=>{
   if(a===b)return true
-  if(a&&b&&typeof a==='object'&&typeof b==='object'&&'overlay' in a&&'overlay' in b&&('presentation' in a||'presentation' in b)){
-    return same((a as DrawingSnapshot).presentation,(b as DrawingSnapshot).presentation)&&same(content(a as DrawingSnapshot),content(b as DrawingSnapshot))
-  }
-  return JSON.stringify(a)===JSON.stringify(b)||JSON.stringify(ordered(a))===JSON.stringify(ordered(b))
+  if(a===null||b===null||typeof a!=='object'||typeof b!=='object')return false
+  if(Array.isArray(a)||Array.isArray(b))return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every((value,index)=>same(value,b[index]))
+  const keys=Object.keys(a),other=Object.keys(b)
+  if(keys.length!==other.length)return false
+  // Style and presentation changes should not traverse unchanged brush geometry first.
+  for(const key of ['presentation','styles','overlay'])if((key in a||key in b)&&(!Object.hasOwn(a,key)||!Object.hasOwn(b,key)||!same(a[key],b[key])))return false
+  return keys.every(key=>Object.hasOwn(b,key)&&(['presentation','styles','overlay'].includes(key)||same(a[key],b[key])))
 }
 const yieldDrawingTask=()=>new Promise<void>(resolve=>{
   const channel=new MessageChannel()
@@ -140,7 +143,7 @@ export class DrawingHistory {
   }
   private notify(entry:Entry,source:DrawingSource,context:DrawingChange['context']){
     if(same(content(entry.before),content(entry.after)))return
-    try{this.options.onConfirmed?.({...copy(entry),kind:entry.before?(entry.after?'update':'delete'):'create',source,context})}
+    try{this.options.onConfirmed?.({...copyCanonical(entry),kind:entry.before?(entry.after?'update':'delete'):'create',source,context})}
     catch(reason){this.error=`${this.text('drawing_notification_failed')}${reason instanceof Error?reason.message:String(reason)}`;this.emit()}
   }
   private apply(id:string,state:DrawingSnapshot|null):DrawingSnapshot|null {

@@ -28,8 +28,10 @@ const OverlayPropertyBar:Component<OverlayPropertyBarProps>=props=>{
  const [palette,setPalette]=createSignal<DrawingStyleControl>(),[notice,setNotice]=createSignal(''),[template,setTemplate]=createSignal(''),[narrow,setNarrow]=createSignal(false),[layout,setLayout]=createSignal({width:700,height:600,barHeight:154})
  let element:HTMLDivElement|undefined,trigger:HTMLButtonElement|undefined
  const ids=()=>props.objects.map(object=>object.logicalId)
+ const selectionKey=createMemo(()=>ids().join('\0'))
+ const hasObjects=createMemo(()=>props.objects.length>0)
  const closePalette=()=>{setPalette(undefined);trigger?.focus()}
- createEffect(()=>{ids().join('\0');setPalette(undefined);setNotice('')})
+ createEffect(()=>{selectionKey();setPalette(undefined);setNotice('')})
  const showResult=(result:DrawingCommandResult)=>setNotice(result.status==='completed'?'':[result.message,`${result.status}: ${result.items.filter(item=>item.status==='confirmed').length}/${result.items.length}`,...result.items.filter(item=>item.status!=='confirmed').map(item=>`${props.objects.find(object=>object.logicalId===item.logicalId)?.presentation?.name??item.logicalId}: ${item.status} ${item.message??''}`)].filter(Boolean).join(' · '))
  const send=async(command:DrawingCommand)=>showResult(await props.execute(command))
  const changeStyle=async(control:DrawingStyleControl,value:string|number,target:HTMLElement|undefined)=>{
@@ -39,7 +41,7 @@ const OverlayPropertyBar:Component<OverlayPropertyBarProps>=props=>{
  }
  const compatible=createMemo(()=>props.templates.filter(template=>props.objects.length===1&&template.toolId===props.catalog.find(tool=>tool.overlayName===props.objects[0].overlay.name)?.toolId))
  createEffect(()=>{
-   if(!props.objects.length)return
+   if(!hasObjects())return
    let canceled=false,observer:ResizeObserver|undefined
    queueMicrotask(()=>{const parent=element?.parentElement;if(canceled||!parent)return;const measure=()=>{setNarrow(parent.clientWidth<700);setLayout({width:parent.clientWidth,height:parent.clientHeight,barHeight:element?.clientHeight??154})};observer=new ResizeObserver(measure);measure();observer.observe(parent);if(element)observer.observe(element)})
    onCleanup(()=>{canceled=true;observer?.disconnect()})

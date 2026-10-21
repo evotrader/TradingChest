@@ -403,4 +403,6 @@ import type {
 
 根、`chart`和`solid`入口导出上述类型；React沿原`onDrawingStateChange`透传状态，不增加专属样式或数据源接口。`DrawingToolDescriptor.styleControls?: DrawingStyleControl[]`声明真实能力；未声明沿旧描边／线宽／线型，空数组不提供快捷样式。`DrawingParameter.kind`新增`color`，仅接受六／八位hex或transparent。未知、重复控件及未声明／无效参数明确拒绝，保留原定义。
 
+样式读取按实际标准 figure 组解析，不依赖第三方工具名称。设置页和浮动条使用相同默认值，草稿取消不写入默认字段。共同样式模板只转换已保存字段；多组具有不同值时保留各组定义，缺少字段不会用默认线宽或线型覆盖目标。批处理和历史操作在每项写入前重新检查当前宿主可编辑状态；中途失效保留已确认项并返回逐项结果。
+
 `DrawingAnalyticsState.bands?: VwapBandsSummary`在启用AVWAP带时提供mode、固定method、最多三组有限上下界和可选reason。旧定义不开启带，原summary.vwap和FRVP数学保持。新参数、公式、曲线点击顺序和第三方注册顺序见[绘图精修](./drawings.md#drawing-refinement)。文档仍为v4/workspace v2/shared v1/preferences v1；只保存定义，不保存派生缓存。

@@ -1,6 +1,6 @@
 import DrawingObjectTree from './DrawingObjectTree'
 import {parameterLabel,parameterChoice} from '../../drawing/parameterLabels'
-import {styleControls,styleControlOptions,drawingStylePatch,drawingStyleValue} from '../../drawing/styleControls'
+import {styleControls,styleControlOptions,drawingStylePatch} from '../../drawing/styleControls'
 import {ColorPalette} from '../overlay-property-bar/ColorPalette'
 import type {DrawingStyleControl} from '../../drawing/catalog'
 import {isVolumeDrawing} from '../../drawing/analytics'
@@ -18,6 +18,7 @@ export interface DrawingWorkbenchProps {
   period:Period
   periods:Period[]
   tickSize?:number
+  styleValue:(object:DrawingSnapshot,control:DrawingStyleControl)=>string|number|undefined
   rotation:{read:(object:DrawingSnapshot)=>number;apply:(object:DrawingSnapshot,degrees:number)=>DrawingSnapshot}
   page?:'objects'|'settings'|'templates'
   requestVersion?:number
@@ -126,7 +127,7 @@ const DrawingWorkbench:Component<DrawingWorkbenchProps>=props=>{
         <Show when={styleControls(descriptor()).length}><fieldset><legend>{t('样式','Style')}</legend>
           <For each={styleControls(descriptor())}>{control=>{
             const label=()=>({stroke:t('描边颜色','Stroke color'),fill:t('填充颜色','Fill color'),lineWidth:t('线宽','Line width'),lineStyle:t('线型','Line style'),textColor:t('文字颜色','Text color'),fontSize:t('字号','Font size')})[control]
-            return <label>{label()}<Show when={['stroke','fill','textColor'].includes(control)} fallback={<select aria-label={label()} value={drawingStyleValue(d(),control)??(control==='lineStyle'?'solid':control==='fontSize'?12:1)} onChange={event=>draftStyle(control,control==='lineStyle'?event.currentTarget.value:Number(event.currentTarget.value))}><For each={styleControlOptions(control,drawingStyleValue(d(),control))}>{value=><option value={value}>{value==='solid'?t('实线','Solid'):value==='dashed'?t('虚线','Dashed'):value==='dotted'?t('点线','Dotted'):value}</option>}</For></select>}><button type="button" aria-label={label()} aria-expanded={palette()===control} onClick={event=>{colorTrigger=event.currentTarget;setParameterPalette(undefined);setPalette(palette()===control?undefined:control);if(palette())focusColor()}}>{drawingStyleValue(d(),control)??t('默认','Default')}</button><Show when={palette()===control}><ColorPalette locale={props.locale} label={label()} value={String(drawingStyleValue(d(),control)??'')} transparent={control==='fill'} choose={color=>{draftStyle(control,color);closeColor()}} close={closeColor}/></Show></Show></label>
+            return <label>{label()}<Show when={['stroke','fill','textColor'].includes(control)} fallback={<select aria-label={label()} value={props.styleValue(d(),control)??''} onChange={event=>draftStyle(control,control==='lineStyle'?event.currentTarget.value:Number(event.currentTarget.value))}><Show when={props.styleValue(d(),control)===undefined}><option value="" disabled>{t('混合或未设置','Mixed or unset')}</option></Show><For each={styleControlOptions(control,props.styleValue(d(),control))}>{value=><option value={value}>{value==='solid'?t('实线','Solid'):value==='dashed'?t('虚线','Dashed'):value==='dotted'?t('点线','Dotted'):value}</option>}</For></select>}><button type="button" aria-label={label()} aria-expanded={palette()===control} onClick={event=>{colorTrigger=event.currentTarget;setParameterPalette(undefined);setPalette(palette()===control?undefined:control);if(palette())focusColor()}}>{props.styleValue(d(),control)??t('混合或未设置','Mixed or unset')}</button><Show when={palette()===control}><ColorPalette locale={props.locale} label={label()} value={String(props.styleValue(d(),control)??'')} transparent={control==='fill'} choose={color=>{draftStyle(control,color);closeColor()}} close={closeColor}/></Show></Show></label>
           }}</For>
         </fieldset></Show>
         <Show when={descriptor()?.settings.includes('text')}><fieldset><legend>{t('文字','Text')}</legend><textarea rows={4} aria-label={t('标注正文','Drawing text')} value={text()} onInput={event=>setText(event.currentTarget.value)}/><label>{t('字体','Font')}<select value={d().overlay.styles?.text?.family??'sans-serif'} onChange={event=>style('text','family',event.currentTarget.value)}><For each={['sans-serif','serif','monospace']}>{value=><option value={value}>{value}</option>}</For></select></label><label>{t('对齐','Alignment')}<select value={String(d().parameters?.textAlign??'left')} onChange={event=>setDraft({...d(),parameters:{...d().parameters,textAlign:event.currentTarget.value}})}><For each={['left','center','right']}>{value=><option value={value}>{value}</option>}</For></select></label></fieldset></Show>

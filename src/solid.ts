@@ -1,4 +1,5 @@
 export type {DrawingAnalyticsState,DrawingAnalyticsMethod,VwapPriceSource,VwapBandMode,VwapBandBoundary,VwapBandsSummary} from './drawing/analytics'
+export type {DrawingStyleControl,DrawingToolDescriptor} from './drawing/catalog'
 // Analytical widgets (state-first; no domain recomputation)
 export { WidgetState } from './widget/shared/WidgetState'
 export {

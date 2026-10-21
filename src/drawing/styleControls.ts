@@ -2,6 +2,10 @@ import type {DrawingStyleControl,DrawingToolDescriptor} from './catalog'
 import type {DrawingSnapshot,DrawingState} from './types'
 
 type Styles=NonNullable<DrawingSnapshot['overlay']['styles']>
+/** Internal figure role; it does not change engine events or serialized definitions. */
+export const drawingStyleAuxiliary=Symbol.for('trading-chest:drawing-style-auxiliary')
+/** Some analytical figures project a standard input field into a different rendered group. */
+export const drawingStyleInput=Symbol.for('trading-chest:drawing-style-input')
 export const styleControls=(tool:DrawingToolDescriptor|undefined):DrawingStyleControl[]=>!tool?.settings.includes('style')?[]:[...(tool.styleControls??['stroke','lineWidth','lineStyle'])]
 export function commonStyleControls(tools:Array<DrawingToolDescriptor|undefined>):DrawingStyleControl[]{
   return tools.length?styleControls(tools[0]).filter(control=>tools.every(tool=>styleControls(tool).includes(control))):[]
@@ -33,27 +37,57 @@ export function commonStylePatch(styles:Styles,controls:DrawingStyleControl[]):S
   }
   return result
 }
-export function templateStylePatch(styles:Styles,sourceName:string,controls:DrawingStyleControl[]):Styles{
+export function templateStylePatch(styles:Styles,controls:DrawingStyleControl[]):Styles{
   const result:any={}
-  const source={overlay:{name:sourceName,styles}} as DrawingSnapshot
   for(const control of controls){
-    if(!Object.keys(commonStylePatch(styles,[control])).length)continue
-    const value=drawingStyleValue(source,control)
-    if(value===undefined)continue
-    for(const [group,fields] of Object.entries(drawingStylePatch(control,value)))result[group]={...result[group],...(fields as object)}
+    const explicit=commonStylePatch(styles,[control])
+    const semantics=Object.entries(styles).flatMap(([group,fields])=>{const value=styleSemantic(group,fields,control);return value?[value]:[]})
+    const partial=Object.entries(explicit).some(([group,fields])=>!Object.hasOwn(fields as object,styleFields(group,control)[0]))
+    const single=!partial&&semantics.length&&semantics.every(value=>value.key===semantics[0].key)?semantics[0]:undefined
+    let patch:any=single?drawingStylePatch(control,single.value):explicit
+    if(single&&control==='lineStyle')for(const [group,fields] of Object.entries(patch)){
+      const key=['line','arc'].includes(group)?'dashedValue':'borderDashedValue'
+      if(single.dash===undefined)delete (fields as any)[key]
+      else (fields as any)[key]=structuredClone(single.dash)
+    }
+    // Partial groups constrain expansion too: an absent primary field must not hide an explicit dash.
+    if(single&&Object.entries(explicit).some(([group,fields])=>Object.entries(fields as object).some(([key,value])=>JSON.stringify(patch[group]?.[key])!==JSON.stringify(value))))patch=explicit
+    for(const [group,fields] of Object.entries(patch))result[group]={...result[group],...(fields as object)}
   }
   return result
 }
-const shapeGroup=(name:string)=>['circle','fibonacciCircle'].includes(name)?'circle':['rect','triangle','parallelogram','ellipse','rotatedRect','gannBox'].includes(name)?'polygon':undefined
-export function drawingStyleValue(drawing:DrawingSnapshot,control:DrawingStyleControl,resolved:Styles={}):string|number|undefined{
+export type DrawingStyleFigure={type:string;styles?:unknown;ignoreEvent?:unknown;[drawingStyleAuxiliary]?:boolean;[drawingStyleInput]?:Partial<Record<DrawingStyleControl,{group:string;fields:object}>>}
+type Semantic={value:string|number;key:string;dash?:unknown}
+function styleFields(group:string,control:DrawingStyleControl):string[]{
+  const shape=['polygon','rect','circle'].includes(group),line=['line','arc'].includes(group)
+  if(control==='stroke')return shape?['borderColor']:line?['color']:[]
+  if(control==='fill')return shape?['color']:group==='text'?['backgroundColor']:[]
+  if(control==='lineWidth')return shape?['borderSize']:line?['size']:[]
+  if(control==='lineStyle')return shape?['borderStyle','borderDashedValue']:line?['style','dashedValue']:[]
+  return group==='text'?[control==='textColor'?'color':'size']:[]
+}
+function styleSemantic(group:string,fields:any,control:DrawingStyleControl):Semantic|undefined{
+  const keys=styleFields(group,control);if(!keys.length)return
+  const value=fields?.[keys[0]]
+  if(typeof value!=='string'&&(typeof value!=='number'||!Number.isFinite(value)))return
+  if(control==='lineStyle'){
+    const dash=fields?.[keys[1]]
+    return {value:value==='dashed'&&Array.isArray(dash)&&dash[0]===1?'dotted':value,key:JSON.stringify([value,value==='dashed'?dash:undefined]),dash}
+  }
+  return {value,key:JSON.stringify(value)}
+}
+export function drawingStyleValue(drawing:DrawingSnapshot,control:DrawingStyleControl,resolved:Styles={},figures?:DrawingStyleFigure[]):string|number|undefined{
   const styles:any={...resolved};for(const [group,fields] of Object.entries(drawing.overlay.styles??{}))styles[group]={...styles[group],...(fields as object)}
-  const group=shapeGroup(drawing.overlay.name),line=group?styles[group]:styles.line
-  if(control==='stroke')return group?line?.borderColor:line?.color
-  if(control==='fill')return group?line?.color:['textAnnotation','note','anchoredText','priceLabel','callout'].includes(drawing.overlay.name)?styles.text?.backgroundColor:styles.polygon?.color
-  if(control==='lineWidth')return (group?line?.borderSize:line?.size)??1
-  if(control==='lineStyle'){const style=group?line?.borderStyle:line?.style,dash=group?line?.borderDashedValue:line?.dashedValue;return style==='dashed'&&dash?.[0]===1?'dotted':style??'solid'}
-  if(control==='textColor')return styles.text?.color
-  if(control==='fontSize')return styles.text?.size??12
+  const entries=figures?.length?figures.map(figure=>{
+    const input=figure[drawingStyleInput]?.[control],group=input?.group??(figure.type==='rectText'?'text':figure.type)
+    const fields={...styles[group],...(input?.fields??figure.styles as object),...(drawing.overlay.styles as any)?.[group]},mode=(figure.styles as any)?.style??styles[group]?.style,shape=['polygon','rect','circle'].includes(group)
+    const painted=!figure[drawingStyleAuxiliary]&&(!!input||!(shape&&['stroke','lineWidth','lineStyle'].includes(control)&&mode==='fill')&&!(control==='fill'&&(figure.type==='text'||(shape||figure.type==='rectText')&&mode==='stroke')))
+    return {group,fields,painted,fixed:!input&&styleFields(group,control).some(key=>Object.hasOwn(figure.styles as object??{},key))}
+  }):Object.entries(styles).map(([group,fields])=>({group,fields,painted:true,fixed:false}))
+  const relevant=entries.filter(entry=>entry.painted&&styleFields(entry.group,control).length),inherited=relevant.filter(entry=>!entry.fixed)
+  // Fixed auxiliary styles do not describe the editable field. Noninteractive fills/text remain relevant.
+  const values=(inherited.length?inherited:relevant).flatMap(entry=>{const value=styleSemantic(entry.group,entry.fields,control);return value?[value]:[]})
+  return values.length&&values.every(value=>value.key===values[0].key)?values[0].value:undefined
 }
 export function selectionWriteReason(state:DrawingState|undefined,objects:DrawingSnapshot[],editable:(drawing:DrawingSnapshot)=>boolean,allowLocked=false,locale='zh-CN'):string|undefined{
   const t=(zh:string,en:string)=>locale==='en-US'?en:zh

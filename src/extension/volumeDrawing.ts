@@ -3,6 +3,7 @@ import {drawingAnalyticsRuntimes} from '../drawing/analyticsRuntime'
 import {canProjectAxisValue} from './numerics'
 import {vwapBandOptions} from '../drawing/vwapBands'
 import {drawingParameters} from '../drawing/content'
+import {drawingStyleInput,type DrawingStyleFigure} from '../drawing/styleControls'
 
 export function volumeDrawingFigures(args:OverlayCreateFiguresCallbackParams<unknown>):OverlayFigure[]{
   const {chart,overlay,coordinates,bounding,xAxis,yAxis}=args
@@ -10,7 +11,7 @@ export function volumeDrawingFigures(args:OverlayCreateFiguresCallbackParams<unk
   const runtime=drawingAnalyticsRuntimes.get(chart)
   const message=(text:string):OverlayFigure[]=>[{type:'rectText',ignoreEvent:true,attrs:{x:Math.max(4,coordinates[0].x),y:Math.max(20,Math.min(bounding.height-20,coordinates[0].y)),text,baseline:'bottom'},styles:{color:'#d97706'}}]
   if(!runtime||!xAxis||!yAxis)return message('行情尚未确认')
-  const result=runtime.forOverlay(overlay),state=result.state,figures:OverlayFigure[]=[]
+  const result=runtime.forOverlay(overlay),state=result.state,figures:Array<OverlayFigure&DrawingStyleFigure>=[]
   if(state.status==='calculating')return message(state.reason??'正在计算')
   if(!state.summary&&!result.point)return message(state.reason??'当前无法计算')
   const y=(value:number)=>{if(!canProjectAxisValue(yAxis,value))throw Error('当前价格轴无法显示此结果，请切换线性轴或使用正值区间');return yAxis.convertToPixel(value)}
@@ -55,13 +56,14 @@ export function volumeDrawingFigures(args:OverlayCreateFiguresCallbackParams<unk
       const profile=result.profile,parameters=drawingParameters(overlay.extendData)??{},anchorX=Math.min(...coordinates.map(p=>p.x)),last=Math.max(...coordinates.map(p=>p.x)),side=parameters.profileSide??'left',fraction=Number(parameters.profileWidth??.3),extent=parameters.levelExtent??'profile'
       if(!['left','right'].includes(String(side))||!Number.isFinite(fraction)||fraction<=0||fraction>1||!['profile','range','pane-right'].includes(String(extent)))throw Error('成交量分布显示参数无效')
       const width=Math.min(bounding.width,Math.max(24,Math.max(last-anchorX,chart.getBarSpace().bar)*fraction)),first=Math.max(0,Math.min(side==='right'?last-width:anchorX,bounding.width-width)),maximum=Math.max(...profile.bins.map(bin=>bin.volume))
+      const primaryColor=overlay.styles?.line?.color??'#1677ff',styleInput={stroke:{group:'line',fields:{color:primaryColor}}}
       for(let i=0;i<profile.bins.length;i++){
         const bin=profile.bins[i],a=y(bin.lower),b=y(bin.upper),top=Math.min(a,b),height=Math.max(2,Math.abs(a-b)),barWidth=bin.volume/maximum*width,left=side==='right'?first+width-barWidth:first
-        const color=i>=profile.vaFrom&&i<=profile.vaTo?(overlay.styles?.line?.color??'#1677ff'):'#94a3b8'
+        const color=i>=profile.vaFrom&&i<=profile.vaTo?primaryColor:'#94a3b8'
         if(drawingParametersMode(overlay.extendData)==='up-down'){
           const upWidth=bin.volume?barWidth*bin.up/bin.volume:0
-          figures.push({type:'rect',attrs:[{x:left,y:top-(height-Math.abs(a-b))/2,width:upWidth,height}],styles:{style:'fill',color:'#16a34a'}},{type:'rect',attrs:[{x:left+upWidth,y:top-(height-Math.abs(a-b))/2,width:barWidth-upWidth,height}],styles:{style:'fill',color:'#dc2626'}})
-        }else figures.push({type:'rect',attrs:{x:left,y:top-(height-Math.abs(a-b))/2,width:barWidth,height},styles:{style:'fill',color}})
+          figures.push({type:'rect',[drawingStyleInput]:styleInput,attrs:[{x:left,y:top-(height-Math.abs(a-b))/2,width:upWidth,height}],styles:{style:'fill',color:'#16a34a'}},{type:'rect',[drawingStyleInput]:styleInput,attrs:[{x:left+upWidth,y:top-(height-Math.abs(a-b))/2,width:barWidth-upWidth,height}],styles:{style:'fill',color:'#dc2626'}})
+        }else figures.push({type:'rect',[drawingStyleInput]:styleInput,attrs:{x:left,y:top-(height-Math.abs(a-b))/2,width:barWidth,height},styles:{style:'fill',color}})
       }
       const lineFrom=extent==='range'?Math.max(0,Math.min(bounding.width,anchorX)):first,lineTo=extent==='profile'?first+width:extent==='range'?Math.max(0,Math.min(bounding.width,last)):bounding.width
       const labels=new Map<number,{names:string[];color:string}>()

@@ -5,6 +5,7 @@
  */
 
 import { OverlayTemplate } from 'klinecharts'
+import {drawingStyleAuxiliary} from '../drawing/styleControls'
 
 const callout: OverlayTemplate = {
   name: 'callout',
@@ -24,6 +25,7 @@ const callout: OverlayTemplate = {
         },
         {
           type: 'circle',
+          [drawingStyleAuxiliary]: true,
           ignoreEvent: true,
           attrs: {
             x: coordinates[0].x,

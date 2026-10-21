@@ -1,7 +1,7 @@
 import {commonStyleControls,templateStylePatch} from './styleControls'
 import {createOpaqueId} from '../ids'
 import {copyDrawingCatalog,validateDrawingParameters,type DrawingToolDescriptor} from './catalog'
-import type {DrawingHistory} from './history'
+import type {DrawingHistory,DrawingWriteGuard} from './history'
 import type {DrawingCoordinator} from './coordinator'
 import type {DrawingPreferencesManager,DrawingStylePreset,DrawingTemplate} from './preferences'
 import type {DrawingCommand,DrawingCommandResult,DrawingSnapshot,DrawingState,DrawingPresentation,DrawingCommitResult,DrawingHistoryState} from './types'
@@ -107,7 +107,16 @@ export class DrawingController {
       return object
     })
   }
-  private async batch(build:()=>Array<{before?:DrawingSnapshot;after:DrawingSnapshot|null}>):Promise<DrawingCommandResult>{
+  private writeGuard(history:DrawingHistory,allowLocked=false):DrawingWriteGuard{
+    const assertContext=this.captureContext()
+    return (before,after)=>{
+      assertContext();this.options.coordinator?.assertWritable(history)
+      const object=before??after
+      if(object&&!this.options.editable(object))throw Error(`绘图 ${object.logicalId} 由宿主管理，不能编辑`)
+      if(before?.overlay.lock&&!allowLocked)throw Error(`绘图 ${before.presentation?.name??before.logicalId} 已锁定，请先解锁`)
+    }
+  }
+  private async batch(build:()=>Array<{before?:DrawingSnapshot;after:DrawingSnapshot|null}>,allowLocked=false):Promise<DrawingCommandResult>{
     const history=this.history(true);this.rememberHistory(history)
     return history.submitBatch(()=>{
       for(const before of this.previewBases??[])if(JSON.stringify(this.options.coordinator?.getDrawing(before.logicalId)??this.options.history.getDrawing(before.logicalId))!==JSON.stringify(before))throw Error('绘图已被更新，本次手势已取消，请重新操作')
@@ -116,7 +125,7 @@ export class DrawingController {
       if(this.options.validateBatch)this.options.validateBatch(proposed)
       else for(const value of proposed)this.options.validate(value)
       return values.map(v=>({kind:v.before?v.after?'update' as const:'delete' as const:'create' as const,logicalId:(v.before??v.after)!.logicalId,after:v.after}))
-    },'programmatic')
+    },'programmatic',this.writeGuard(history,allowLocked))
   }
   execute(command:DrawingCommand):Promise<DrawingCommandResult>{
     return this.enqueue(command)
@@ -136,7 +145,7 @@ export class DrawingController {
     const history=this.rememberedHistory()??this.history(true)
     this.options.coordinator?.assertWritable(history)
     this.rememberHistory(history)
-    try{return await history[direction]()}finally{this.refresh()}
+    try{return await history[direction](this.writeGuard(history,true))}finally{this.refresh()}
   }
   commitPreview(command:DrawingCommand,before:DrawingSnapshot[]):Promise<DrawingCommandResult>{return this.enqueue(command,before)}
   nudgePoint(id:string,index:number,dx:number,dy:number):Promise<DrawingCommandResult>{return this.enqueue({type:'move-point',ids:[id],index,dx,dy})}
@@ -199,7 +208,7 @@ export class DrawingController {
             const targets=this.targets(command.ids??this.selectedIds,true),tools=targets.map(before=>this.catalog.find(t=>t.overlayName===before.overlay.name))
             const controls=commonStyleControls([...tools,this.catalog.find(tool=>tool.toolId===template!.toolId)])
             if(command.styleOnly&&!controls.length)throw Error('所选工具和模板没有共同样式能力')
-            const styles=command.styleOnly?templateStylePatch(template!.styles,this.catalog.find(tool=>tool.toolId===template!.toolId)!.overlayName,controls):template!.styles
+            const styles=command.styleOnly?templateStylePatch(template!.styles,controls):template!.styles
             return targets.map((before,index)=>{
               const tool=tools[index]!
               if(tool.toolId!==template!.toolId&&!command.styleOnly)throw Error('不同工具只能显式应用共同样式')
@@ -241,10 +250,11 @@ export class DrawingController {
         })
         this.selectedIds=result.items.filter(i=>i.status==='confirmed').map(i=>i.logicalId);this.options.selected?.([...this.selectedIds])
       }else{
-        result=await this.batch(()=>{
         const presentation=['presentation','group','ungroup','reorder'].includes(command.type)
         const unlock=command.type==='update'&&Object.keys(command.patch).length===1&&command.patch.overlay&&Object.keys(command.patch.overlay).every(k=>k==='lock'||k==='visible')
-        const objects=this.targets(command.ids,true,!!unlock||presentation)
+        const allowLocked=!!unlock||presentation&&!(command.type==='reorder'&&'targetId' in command)
+        result=await this.batch(()=>{
+        const objects=this.targets(command.ids,true,allowLocked)
         if((command.type==='move'||command.type==='nudge-selection')&&new Set(objects.map(o=>o.overlay.paneId??'candle_pane')).size>1)throw Error('不能整体移动不同窗格中的绘图')
         if(command.type==='group'&&(new Set(objects.map(o=>o.overlay.paneId??'candle_pane')).size>1||new Set(objects.map(o=>o.presentation?.scope??'chart')).size>1))throw Error('只能对同一会话和窗格中的绘图分组')
         const groupId=command.type==='group'?`group-${createOpaqueId()}`:undefined
@@ -316,7 +326,7 @@ export class DrawingController {
           }
           return {before,after}
         })
-        })
+        },allowLocked)
       }
     }catch(error){result={status:'rejected',items:[],message:error instanceof Error?error.message:String(error)}}
     this.executionIds=undefined;this.previewBases=undefined;this.lastResult=result;this.refresh();return copy(result)

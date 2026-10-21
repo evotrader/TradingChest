@@ -59,6 +59,14 @@ if(typeof chart.registerIndicatorDefinition!=='function'||!Array.isArray(chart.b
 import { KLineChartPro,registerIndicatorDefinition,builtinIndicatorCatalog,type DatafeedRequestContext,type ChartPro,type IndicatorDescriptor,type IndicatorParameterSchema,type IndicatorHandle,type AnalysisContext,type AnalysisLayerSpec,type AnalysisLayerHandle,type AnalysisEvent,type AnalysisLabelPoint,type HistoryQuery,type HistoryResult,type Datafeed,type WorkspaceStore,type WorkspaceWrite,type StoredWorkspace,createIndexedDBWorkspaceStore,ChartWorkspace } from 'trading-chest/chart';
 import type {AnalysisLayerSpec as RootLayer,IndicatorDescriptor as RootDescriptor} from 'trading-chest';
 import { MetricSeries } from 'trading-chest/solid';
+import type {DrawingStyleControl as RootStyle,DrawingToolDescriptor as RootTool,VwapBandMode as RootMode,VwapBandBoundary as RootBoundary,VwapBandsSummary as RootBands} from 'trading-chest';
+import type {DrawingStyleControl as ChartStyle,DrawingToolDescriptor as ChartTool,VwapBandMode as ChartMode,VwapBandBoundary as ChartBoundary,VwapBandsSummary as ChartBands} from 'trading-chest/chart';
+import type {DrawingStyleControl as SolidStyle,DrawingToolDescriptor as SolidTool,VwapBandMode as SolidMode,VwapBandBoundary as SolidBoundary,VwapBandsSummary as SolidBands} from 'trading-chest/solid';
+const publicStyle:RootStyle='stroke';const chartStyle:ChartStyle=publicStyle;const solidStyle:SolidStyle=chartStyle;void solidStyle;
+declare const publicTool:RootTool;const chartTool:ChartTool=publicTool;const solidTool:SolidTool=chartTool;void solidTool;
+const bandMode:RootMode='none';const chartMode:ChartMode=bandMode;const solidMode:SolidMode=chartMode;void solidMode;
+declare const boundary:RootBoundary;const chartBoundary:ChartBoundary=boundary;const solidBoundary:SolidBoundary=chartBoundary;void solidBoundary;
+declare const bands:RootBands;const chartBands:ChartBands=bands;const solidBands:SolidBands=chartBands;void solidBands;
 void KLineChartPro; void MetricSeries; void registerIndicatorDefinition; void builtinIndicatorCatalog;
 let context:DatafeedRequestContext|undefined;void context;
 const query:HistoryQuery={kind:'before',before:Date.now(),countBack:500};void query;
@@ -195,8 +203,16 @@ console.log('Legacy browser UMD and CSS paths PASS');
       const catalog=[...sub.builtinIndicatorCatalog,...['PACKED/lazy','PACKED/layout-lazy'].map(name=>({name,label:'Lazy from root',category:'custom',placements:['main'],parameters:{items:[]}}))]
       const host=document.createElement('div');host.style.cssText='height:700px;width:1000px';document.body.append(host)
       let ready,readyCount=0;const loaded=new Promise(resolve=>ready=resolve)
-      const other=new sub.KLineChartPro({container:host,indicatorCatalog:catalog,symbol:{ticker:'PACKED'},period:chart.getPeriod(),mainIndicators:[],subIndicators:[],onDataReady:()=>{readyCount++;ready()},datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>query.kind==='before'?{bars:window.analysisDemo.bars.filter(bar=>bar.timestamp<query.before),hasMoreBefore:false}:{bars:window.analysisDemo.bars.filter(bar=>bar.timestamp>=query.from&&bar.timestamp<query.to)},subscribe:()=>{},unsubscribe:()=>{}}})
+      const other=new sub.KLineChartPro({container:host,locale:'zh-CN',indicatorCatalog:catalog,symbol:{ticker:'PACKED'},period:chart.getPeriod(),mainIndicators:[],subIndicators:[],onDataReady:()=>{readyCount++;ready()},datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>query.kind==='before'?{bars:window.analysisDemo.bars.filter(bar=>bar.timestamp<query.before),hasMoreBefore:false}:{bars:window.analysisDemo.bars.filter(bar=>bar.timestamp>=query.from&&bar.timestamp<query.to)},subscribe:()=>{},unsubscribe:()=>{}}})
       await loaded;const handle=await other.addIndicator({name:'PACKED/lazy',placement:'main'});other.removeIndicator(handle.id)
+      const anchors=window.analysisDemo.bars.slice(-6,-4).map(bar=>({kind:'market',timestamp:bar.timestamp,value:bar.close})),id='packed-default-callout'
+      other.restoreDrawings('local',[{logicalId:id,owner:'local',anchors,overlay:{id,name:'callout',paneId:'candle_pane',groupId:'drawing_tools',points:anchors.map(({timestamp,value})=>({timestamp,value})),styles:null,extendData:'Packed mixed defaults',visible:true,lock:false}}])
+      await other.executeDrawingCommand({type:'select',ids:[id]});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))
+      const settings=[...host.querySelectorAll('button')].find(button=>button.textContent==='绘图设置')
+      if(!settings)throw Error('Packed mixed drawing settings were not rendered')
+      settings.click();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))
+      if(host.querySelector('.tc-drawing-workbench button[aria-label="填充颜色"]')?.textContent!=='rgba(22, 119, 255, 0.15)')throw Error('Mixed entrypoints split drawing style roles/defaults')
+      host.querySelector('button[aria-label="关闭绘图管理"]').click();other.restoreDrawings('local',[])
       other.addAnalysisLayer(other.getAnalysisContext(),{id:'mixed',label:'Mixed entrypoints',type:'line',placement:'sub',valueType:'scalar',data:[{timestamp:window.analysisDemo.bars[0].timestamp,value:1}]})
       const fromRoot=root.captureLayout(other),fromChart=sub.captureLayout(other)
       if(fromRoot.indicators.some(i=>i.name==='TC_ANALYSIS')||fromChart.indicators.some(i=>i.name==='TC_ANALYSIS'))throw Error('Mixed entrypoint capture serialized runtime layers')
@@ -220,7 +236,7 @@ console.log('Legacy browser UMD and CSS paths PASS');
       for(const ticker of ['PACKED.OTHER','PACKED']){const previous=readyCount;other.setSymbol({ticker});for(let i=0;i<1000&&readyCount===previous;i++)await new Promise(resolve=>setTimeout(resolve,1));if(readyCount===previous)throw Error('Packed identity switch did not complete')}
       releaseLayout()
       if(!await restoring||other.getChart().getIndicators({id:'packed-stale-layout'}).length)throw Error('Mixed entrypoint restore crossed an identity epoch')
-      other.dispose();host.remove();return {sharedDefinitions:true,lazyAcrossEntries:true,runtimeExcluded:true,runtimeRetained:true,runtimeDrawingRejected:true,staleLayoutCancelled:true}
+      other.dispose();host.remove();return {sharedDefinitions:true,lazyAcrossEntries:true,runtimeExcluded:true,runtimeRetained:true,runtimeDrawingRejected:true,staleLayoutCancelled:true,sharedDrawingStyleRoles:true}
     })
     console.log('Packed mixed root/chart definitions, lazy registration and runtime ownership PASS',JSON.stringify(mixed))
     await page.evaluate(()=>window.analysisDemo.chart.dispose());assert.deepEqual(errors,[])

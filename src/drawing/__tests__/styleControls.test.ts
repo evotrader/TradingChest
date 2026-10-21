@@ -21,7 +21,7 @@ describe('declared style controls and commands',()=>{
  it('intersects actual capabilities and keeps stroke independent from text and body',()=>{
   expect(commonStyleControls([tool('rect'),tool('segment')])).toEqual(['stroke','lineWidth','lineStyle'])
   expect(commonStyleControls([tool('note'),tool('segment')])).toEqual([])
-  expect(templateStylePatch({polygon:{borderColor:'#f44336'}},'rect',['stroke'])).toMatchObject({line:{color:'#f44336'},circle:{borderColor:'#f44336'}})
+  expect(templateStylePatch({polygon:{borderColor:'#f44336'}},['stroke'])).toMatchObject({line:{color:'#f44336'},circle:{borderColor:'#f44336'}})
   expect(drawingStylePatch('stroke','#f44336')).not.toHaveProperty('text')
   expect(drawingStylePatch('fill','transparent')).toMatchObject({polygon:{color:'transparent'},text:{backgroundColor:'transparent'}})
   expect(commonStylePatch({line:{color:'#ffffff',size:3},text:{color:'#111111',size:24}},['stroke'])).toEqual({line:{color:'#ffffff'}})

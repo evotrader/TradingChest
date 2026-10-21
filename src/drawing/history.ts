@@ -15,6 +15,7 @@ interface Options {
 type Entry={logicalId:string;before:DrawingSnapshot|null;after:DrawingSnapshot|null}
 type Transaction={changes:Entry[];operation?:string}
 type BatchRequest={kind:DrawingChange['kind'];logicalId:string;after:DrawingSnapshot|null}
+export type DrawingWriteGuard=(before:DrawingSnapshot|null,after:DrawingSnapshot|null)=>void
 type Operation={ids?:string[];undo:()=>Promise<void>;redo:()=>Promise<void>;available?:()=>boolean;retain?:()=>boolean}
 export interface DrawingCheckpoint {documentGeneration?:number;operations?:Map<string,Operation>;drawings:DrawingSnapshot[];past:Transaction[];future:Transaction[]}
 const content=(value:DrawingSnapshot|null)=>{if(!value)return null;const {presentation,...rest}=value;return rest}
@@ -162,9 +163,11 @@ export class DrawingHistory {
     this.tail=run
     return run.finally(()=>{if(generation===this.generation){this.pending--;this.emit()}})
   }
-  private async perform(id:string,after:DrawingSnapshot|null,source:DrawingSource,generation:number,context:DrawingChange['context']):Promise<{result:DrawingCommitResult;before:DrawingSnapshot|null;after:DrawingSnapshot|null}>{
-    if(after)this.options.validate?.(after)
+  private async perform(id:string,after:DrawingSnapshot|null,source:DrawingSource,generation:number,context:DrawingChange['context'],guard?:DrawingWriteGuard):Promise<{result:DrawingCommitResult;before:DrawingSnapshot|null;after:DrawingSnapshot|null}>{
     const before=copyCanonical(this.drawings.get(id)??null)
+    // A caller's current policy is checked before a write, never after its confirmation.
+    guard?.(before,after)
+    if(after)this.options.validate?.(after)
     if(this.uncertain.has(id)){const result:DrawingCommitResult={status:'rejected',message:this.text('drawing_message_1')};this.apply(id,before);this.error=result.message;this.emit();return {result,before,after:before}}
     if(before?.migration)throw Error('绘图转移结果待核对，请先完成原目标转移')
     const kind=before?(after?'update':'delete'):'create'
@@ -207,7 +210,7 @@ export class DrawingHistory {
     })
   }
   /** Preflight the complete request before the first external write. */
-  submitBatch(requests:BatchRequest[]|(()=>BatchRequest[]),source:DrawingSource):Promise<DrawingCommandResult>{
+  submitBatch(requests:BatchRequest[]|(()=>BatchRequest[]),source:DrawingSource,guard?:DrawingWriteGuard):Promise<DrawingCommandResult>{
     const captured=typeof requests==='function'?requests:copy(requests),context=copy(this.options.context())
     return this.enqueue(async generation=>{
       const started=performance.now()
@@ -227,7 +230,7 @@ export class DrawingHistory {
         if(this.disposed||generation!==this.generation)throw abort(this.options.locale?.()??'zh-CN')
         if(stopped){items.push({logicalId:request.logicalId,status:'not-attempted'});continue}
         let outcome:Awaited<ReturnType<DrawingHistory['perform']>>
-        try{outcome=await this.perform(request.logicalId,request.after,source,generation,context)}catch(error){
+        try{outcome=await this.perform(request.logicalId,request.after,source,generation,context,guard)}catch(error){
           if(this.disposed||generation!==this.generation)throw error
           items.push({logicalId:request.logicalId,status:'rejected',message:error instanceof Error?error.message:String(error)});stopped=true;continue
         }
@@ -244,7 +247,7 @@ export class DrawingHistory {
       return this.finish(items)
     })
   }
-  private travel(direction:'undo'|'redo'):Promise<DrawingCommitResult|undefined>{
+  private travel(direction:'undo'|'redo',guard?:DrawingWriteGuard):Promise<DrawingCommitResult|undefined>{
     const context=copy(this.options.context())
     return this.enqueue(async generation=>{
       const started=performance.now()
@@ -267,7 +270,7 @@ export class DrawingHistory {
         let target=direction==='undo'?entry.before:entry.after
         if(same(content(entry.before),content(entry.after))){const current=this.drawings.get(entry.logicalId);if(!current){this.dropHistory(entry.logicalId);continue}target={...current,presentation:target?.presentation}}
         let outcome:Awaited<ReturnType<DrawingHistory['perform']>>
-        try{outcome=await this.perform(entry.logicalId,target,'history',generation,context)}catch(error){
+        try{outcome=await this.perform(entry.logicalId,target,'history',generation,context,guard)}catch(error){
           if(this.disposed||generation!==this.generation)throw error
           last={status:'rejected',message:error instanceof Error?error.message:String(error)}
           items.push({logicalId:entry.logicalId,status:'rejected',message:last.message});stopped=true;continue
@@ -288,8 +291,8 @@ export class DrawingHistory {
       this.finish(items);this.emit();return last
     })
   }
-  undo():Promise<DrawingCommitResult|undefined>{return this.travel('undo')}
-  redo():Promise<DrawingCommitResult|undefined>{return this.travel('redo')}
+  undo(guard?:DrawingWriteGuard):Promise<DrawingCommitResult|undefined>{return this.travel('undo',guard)}
+  redo(guard?:DrawingWriteGuard):Promise<DrawingCommitResult|undefined>{return this.travel('redo',guard)}
   /** Canonical external reads do not issue CRUD or discard unchanged objects' history. */
   reconcile(owner:DrawingOwner,values:DrawingSnapshot[],token?:symbol):void {
     this.assertRestore(token)

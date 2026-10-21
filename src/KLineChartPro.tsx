@@ -14,7 +14,7 @@
 
 import { render } from 'solid-js/web'
 
-import { utils, Nullable, DeepPartial, Styles } from 'klinecharts'
+import { getOverlayClass, utils, Nullable, DeepPartial, Styles } from 'klinecharts'
 import { locateDataTimestamp, type TimestampLocation } from './core/locateTimestamp'
 
 import ChartProComponent, { type ChartComponentApi } from './ChartProComponent'
@@ -32,6 +32,9 @@ import { getTradeVisHitTargets, cleanupTradeVisInstance } from './indicator/trad
 
 export default class KLineChartPro implements ChartPro {
   constructor (options: ChartProOptions) {
+    const drawingCatalog=copyDrawingCatalog(options.drawingCatalog)
+    for(const tool of drawingCatalog)if(!getOverlayClass(tool.overlayName))throw new Error(`绘图模板 ${tool.overlayName} 尚未注册，请先调用 klinecharts.registerOverlay`)
+
     if (utils.isString(options.container)) {
       this._container = document.getElementById(options.container as string)
       if (!this._container) {
@@ -55,7 +58,7 @@ export default class KLineChartPro implements ChartPro {
           drawingWorkspaceSessions={options.drawingWorkspaceSessions}
           drawingHostSessions={options.drawingHostSessions}
           createDrawingDocumentId={options.createDrawingDocumentId}
-          drawingCatalog={options.drawingCatalog}
+          drawingCatalog={drawingCatalog}
           drawingPreferences={options.drawingPreferences}
           drawingPreferencesStore={options.drawingPreferencesStore}
           drawingPreferencesScope={options.drawingPreferencesScope}
@@ -211,7 +214,7 @@ export default class KLineChartPro implements ChartPro {
       'chart:deleteSelected': () => { const ids=this._chartApi?.getDrawingState().selectedIds??[];if(ids.length)void this._chartApi?.executeDrawingCommand({type:'delete',ids}) },
       'drawing:undo': () => { void this._chartApi?.undoDrawing().catch(()=>{}) },
       'drawing:redo': () => { void this._chartApi?.redoDrawing().catch(()=>{}) },
-      ...Object.fromEntries(copyDrawingCatalog(options.drawingCatalog).map(tool=>[`draw:${tool.toolId}`,()=>{void this._chartApi?.executeDrawingCommand({type:'tool',toolId:tool.toolId})}])),
+      ...Object.fromEntries(drawingCatalog.map(tool=>[`draw:${tool.toolId}`,()=>{void this._chartApi?.executeDrawingCommand({type:'tool',toolId:tool.toolId})}])),
       'drawing:copy':()=>{const ids=this._chartApi?.getDrawingState().selectedIds??[];if(ids.length)void this._chartApi?.executeDrawingCommand({type:'copy',ids})},
       'drawing:paste':()=>{void this._chartApi?.executeDrawingCommand({type:'paste'})},
       // 显示切换
@@ -236,7 +239,7 @@ export default class KLineChartPro implements ChartPro {
         if (axis) chart.overrideYAxis({id:axis.id,paneId:'candle_pane',name:axis.name === 'logarithm' ? 'normal' : 'logarithm'})
       },
     })
-    this._drawingCatalog=copyDrawingCatalog(options.drawingCatalog);this._applyDrawingShortcuts()
+    this._drawingCatalog=drawingCatalog;this._applyDrawingShortcuts()
     this._shortcutManager.bindTo(this._container!)
   }
 

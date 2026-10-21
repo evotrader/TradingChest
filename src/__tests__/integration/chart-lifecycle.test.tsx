@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, fireEvent, waitFor } from '@solidjs/testing-library'
 import ChartProComponent from '../../ChartProComponent'
 import KLineChartPro from '../../KLineChartPro'
+import '../../chart'
 import type { ChartComponentApi as ChartPro } from '../../ChartProComponent'
 import type { HistoryQuery, HistoryResult } from '../../types'
 
@@ -138,6 +139,7 @@ describe('chart lifecycle isolation', () => {
       overlays.delete(id)
       overlay?.onRemoved?.({ overlay })
     })
+    const removeOverlay=host.chart.removeOverlay
     for (const id of ['a', 'b', 'c']) {
       host.api.createDrawing({ name: 'rect', id })
       const overlay = overlays.get(id)
@@ -159,7 +161,7 @@ describe('chart lifecycle isolation', () => {
     host.api.createDrawing({ name: 'rect', id: 'draft' })
     host.api.cancelDrawing()
     expect([...overlays.keys()]).toEqual(['alert', 'order', 'a', 'c'])
-    expect(host.chart.removeOverlay.mock.calls.every(([arg]: any[]) => typeof arg?.id === 'string')).toBe(true)
+    expect(removeOverlay.mock.calls.every(([arg]: any[]) => typeof arg?.id === 'string')).toBe(true)
   })
 
   it('keeps replay alerts separate, uses bar time, and re-seeds silently on seek', async () => {

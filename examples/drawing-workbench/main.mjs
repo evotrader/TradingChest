@@ -1,5 +1,7 @@
-import {KLineChartPro,DrawingStoreError,ChartWorkspace,DrawingSessionRegistry,createIndexedDBDrawingDocumentStore,createIndexedDBDrawingPreferencesStore,createIndexedDBWorkspaceStore,drawingShareKey} from 'trading-chest/chart'
+import {builtinDrawingCatalog,KLineChartPro,DrawingStoreError,ChartWorkspace,DrawingSessionRegistry,createIndexedDBDrawingDocumentStore,createIndexedDBDrawingPreferencesStore,createIndexedDBWorkspaceStore,drawingShareKey} from 'trading-chest/chart'
 import 'trading-chest/dist/trading-chest.css'
+import {analysisZoneDescriptor} from './analysis-zone.mjs'
+const drawingCatalog=[...builtinDrawingCatalog,analysisZoneDescriptor]
 import {createHTTPDrawingStore} from './http-store.mjs'
 
 // Deterministic synthetic inputs are confined to this isolated public-package example.
@@ -19,7 +21,7 @@ async function mount(){
   const registry=index===2?independent:shared
   const workspace=new ChartWorkspace({container:document.querySelector('#'+id),context:'isolated-drawing-'+id,symbols:[symbol],initialSymbol:symbol,initialPeriod:period,getPeriods:async()=>[period,{multiplier:1,timespan:'hour',text:'1h'}],store:layouts,resolveDrawingShareKey:()=>resolution,mountCell:(container,cell)=>{
    let resolve;const ready=new Promise(r=>resolve=r)
-   const pro=new KLineChartPro({container,symbol:cell.symbol,period:cell.period,drawingHostSessions:registry,resolveDrawingShareKey:()=>resolution,drawingPreferencesStore:preferences,drawingPreferencesScope:'isolated-example-'+id,onDataReady:()=>queueMicrotask(()=>resolve(pro)),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>({bars:query.kind==='before'?bars.filter(b=>b.timestamp<query.before):bars.filter(b=>b.timestamp>=query.from&&b.timestamp<query.to),hasMoreBefore:false,basis:'unadjusted'}),subscribe:()=>{},unsubscribe:()=>{}}})
+   const pro=new KLineChartPro({container,drawingCatalog,symbol:cell.symbol,period:cell.period,drawingHostSessions:registry,resolveDrawingShareKey:()=>resolution,drawingPreferencesStore:preferences,drawingPreferencesScope:'isolated-example-'+id,onDataReady:()=>queueMicrotask(()=>resolve(pro)),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>({bars:query.kind==='before'?bars.filter(b=>b.timestamp<query.before):bars.filter(b=>b.timestamp>=query.from&&b.timestamp<query.to),hasMoreBefore:false,basis:'unadjusted'}),subscribe:()=>{},unsubscribe:()=>{}}})
    return {ready,dispose:()=>pro.dispose()}
   }})
   workspaces.push(workspace)

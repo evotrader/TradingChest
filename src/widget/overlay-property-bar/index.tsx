@@ -67,7 +67,7 @@ const OverlayPropertyBar:Component<OverlayPropertyBarProps>=props=>{
   <button type="button" aria-label={t('关闭绘图属性','Close drawing properties')} onClick={props.onClose}>×</button>
   <Show when={props.reason||props.lockReason}><small role="status">{en()?'Selection cannot be edited: ':''}{props.reason??props.lockReason}</small></Show>
   <Show when={notice()}><small role="alert">{notice()}</small></Show>
-  <Show when={palette()}>{control=><ColorPalette label={labels()[control()]} value={String(props.values[control()]??'')} transparent={control()==='fill'} choose={color=>{void changeStyle(control(),color,trigger);closePalette()}} close={closePalette}/>}</Show>
+  <Show when={palette()}>{control=><ColorPalette locale={props.locale} label={labels()[control()]} value={String(props.values[control()]??'')} transparent={control()==='fill'} choose={color=>{void changeStyle(control(),color,trigger);closePalette()}} close={closePalette}/>}</Show>
  </div></Show>
 }
 export default OverlayPropertyBar

@@ -8,9 +8,10 @@ const period={multiplier:1,timespan:'minute',text:'1m'}
 const context=()=>({symbol:{ticker:'A'},period})
 const drawing=(id:string,owner:'local'|'backend'='local'):DrawingSnapshot=>({logicalId:id,owner,backendId:owner==='backend'?`server-${id}`:undefined,overlay:{id,name:'segment',groupId:'drawing_tools',points:[{timestamp:100,value:10},{timestamp:200,value:20}],extendData:null,styles:null,lock:false,visible:true,paneId:'candle_pane'}})
 describe('drawing workbench authority and history',()=>{
-  it('preserves all 43+8 tools and adds two distinct volume tools',()=>{
-    const catalog=copyDrawingCatalog();expect(catalog.filter(t=>t.category!=='volume')).toHaveLength(51);expect(catalog.filter(t=>t.category==='volume').map(t=>t.toolId)).toEqual(['anchoredVwap','fixedRangeVolumeProfile'])
-    expect(new Set(catalog.map(t=>t.overlayName)).size).toBe(53)
+  it('preserves the 51 ordinary and two volume tools and adds three curves',()=>{
+    const catalog=copyDrawingCatalog();expect(catalog.filter(t=>t.category!=='volume'&&!['curve','doubleCurve','arc'].includes(t.toolId))).toHaveLength(51);expect(catalog.filter(t=>t.category==='volume').map(t=>t.toolId)).toEqual(['anchoredVwap','fixedRangeVolumeProfile'])
+    expect(new Set(catalog.map(t=>t.overlayName)).size).toBe(56)
+    expect(catalog.filter(tool=>['curve','doubleCurve','arc'].includes(tool.toolId)).map(tool=>[tool.toolId,tool.minPoints,tool.maxPoints])).toEqual([['curve',3,3],['doubleCurve',4,4],['arc',3,3]])
     for(const id of ['highlighter','polyline','ellipse','rotatedRect','trendAngle','crossLine','priceLabel','anchoredText'])expect(catalog.find(t=>t.toolId===id)).toBeDefined()
     catalog[0].labels['zh-CN']='changed';expect(builtinDrawingCatalog[0].labels['zh-CN']).not.toBe('changed')
     expect(()=>copyDrawingCatalog([catalog[0],catalog[0]])).toThrow('重复')

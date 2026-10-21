@@ -1,3 +1,4 @@
+import curves from './curves'
 import arrow from './arrow'
 import anchoredVwap from './anchoredVwap'
 import fixedRangeVolumeProfile from './fixedRangeVolumeProfile'
@@ -39,6 +40,7 @@ import tradeMarker from './tradeMarker'
 import alertLine from '../alert/AlertLine'
 
 const overlays = [
+  ...curves,
   anchoredVwap,fixedRangeVolumeProfile,
   ...workbenchTools,
   arrow,

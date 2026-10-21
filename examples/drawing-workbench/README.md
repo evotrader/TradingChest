@@ -9,3 +9,19 @@ A/B 借用同一个宿主 registry；C 使用独立 registry，点“刷新独�
 The three workspaces consume the installed public package. A and B borrow one host session registry; C refreshes explicitly through an independent registry. IndexedDB survives page reloads. The optional loopback HTTP example demonstrates revision CAS and uncertain-write reconciliation; its records last only for the local dev-server process. Static builds disable that option. All market inputs are synthetic and isolated.
 
 0.11 的“添加量价估算示例”直接使用已安装包的 `commitDrawing`，只依赖该图已确认的普通 OHLCV。按钮添加独立分组的 AVWAP 与 FRVP，图内工具栏仍可交互创建、编辑、共享和保存。结果明确是当前周期估算，不接 EvoTrader 私有接口。
+
+## 通用第三方绘图
+
+`analysis-zone.mjs` 演示公开 peer `klinecharts.registerOverlay`，工具名 `EXAMPLE/AnalysisZone`，目录 ID `example-analysis-zone`。它在构造图表前登记，再与 `builtinDrawingCatalog` 合并传给 `drawingCatalog`；不是 TradingChest 内部扩展，也不需要 EvoTrader 服务。可从全部工具搜索“示例分析区”，设置中编辑中线、名称与标准样式；定义随原模板、确认历史、共享和命名工作台保存。
+
+原生 JS 或 TS 接入：
+
+```ts
+import { registerOverlay } from 'klinecharts'
+import { KLineChartPro, builtinDrawingCatalog } from 'trading-chest/chart'
+// 注册模板与目录结构见 analysis-zone.mjs；styles 使用 line/polygon/text 等标准键。
+registerOverlay(template)
+const chart = new KLineChartPro({ ...options, drawingCatalog: [...builtinDrawingCatalog, descriptor] })
+```
+
+`styleControls` 必须与模板实际读取的标准样式对应；`settings` 含 style 才启用控件，缺省保持描边/线宽/线型，空数组关闭。注册模板不会获得对宿主只读对象的编辑权限。多个图表可重复使用模板，销毁一个图不注销全局模板。缺少注册时构造会在修改容器前抛错，原容器保留。图表生命周期和原生 IndexedDB 仍由示例的既有所有者释放。

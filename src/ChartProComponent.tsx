@@ -48,6 +48,7 @@ import {MetricSeries} from './widget/metric-series/MetricSeries'
 import {ComparisonManager} from './compare/manager'
 import type {ComparisonState} from './compare/types'
 import {snappedPoint,type DrawingSnapCandidate} from './drawing/snap'
+import {curveSelection,clearCurveGeometry,isCurveDrawing} from './extension/curves'
 import {DrawingProjectionInventory} from './drawing/projectionInventory'
 import {commonStyleControls,drawingStyleValue,drawingStylePatch,selectionWriteReason} from './drawing/styleControls'
 import type {DrawingStyleControl} from './drawing/catalog'
@@ -409,9 +410,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const validateDrawingTarget=(value:DrawingSnapshot,target?:import('./drawing/bindings').DrawingRestoreTarget)=>{
     if(widget&&!target&&value.overlay.paneId&&!widget.getPaneOptions(value.overlay.paneId))throw Error(i18n('drawing_pane_missing',locale()))
     if(value.anchors)for(const anchor of value.anchors)validateAnchor(anchor)
+    const definition=drawingCatalog.find(tool=>tool.overlayName===value.overlay.name)
+    if(definition)validateDrawingParameters(definition,value.parameters??{})
+    if(isCurveDrawing(value.overlay.name)&&value.overlay.points.length!==definition?.minPoints)throw Error('曲线控制点数量与工具定义不一致，请保留完整控制点')
     if(isVolumeDrawing(value.overlay.name)){
-      const tool=drawingCatalog.find(tool=>tool.overlayName===value.overlay.name)!
-      validateDrawingParameters(tool,value.parameters??{})
+      const tool=definition!
       if((value.overlay.paneId??'candle_pane')!=='candle_pane'||value.anchors?.length!==tool.minPoints||value.anchors.some(anchor=>anchor.kind!=='market'||anchor.interpolation))throw Error('量价工具仅支持主价格窗格的真实市场时间锚点')
     }
     if(value.anchors?.some(anchor=>anchor.kind==='viewport')&&(!isText(value.overlay.name)||value.anchors.length!==1))throw Error('视口锚定仅适用于单点文字')
@@ -527,6 +530,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
   const nudgeDrawingHandle=(handle:DrawingHandle,dx:number,dy:number)=>{if(!temporaryPan()&&!handle.locked)void drawingController.nudgePoint(handle.id,handle.index,dx,dy)}
   let nativeDrawingDrag:{id:string;before:DrawingSnapshot;objects:DrawingSnapshot[];x:number;y:number;pointIndex:number|null;clone:boolean;dx:number;dy:number;invalid?:string}|undefined
+  const curveSelectedIds=new Set<string>()
   const projectedDrawingObjects=new Map<string,Overlay>()
   let projectionInventory:DrawingProjectionInventory|undefined
   const engineDrawing=(id:string)=>{
@@ -548,7 +552,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     try{
       const current=engineDrawing(id),owned=!current||projectedDrawingObjects.get(id)===current||nativeDrawingPreviews.has(current)
       if(value&&!owned)throw Error('绘图 ID 已被宿主对象占用，原绘图已保留，请处理冲突后重试')
-      const remove=()=>{if(owned)widget!.removeOverlay({id});projectedDrawingObjects.delete(id);projectedDrawingDefinitions.delete(id);ownedDrawingIds.delete(id);completedDrawingIds.delete(id)}
+      const remove=()=>{if(owned)widget!.removeOverlay({id});clearCurveGeometry(widget!,id);projectedDrawingObjects.delete(id);projectedDrawingDefinitions.delete(id);ownedDrawingIds.delete(id);completedDrawingIds.delete(id)}
       if(!value){remove();if(selected)setSelectedOverlay(null);return null}
       const overlay=value.overlay
       const key=JSON.stringify([overlay,value.anchors,value.yAxisId,value.parameters]),presentation=JSON.stringify(value.presentation??null)
@@ -600,7 +604,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             return figure==='createPointFigures'?[{type:'rectText',ignoreEvent:true,attrs:{x:8,y:20,text:error instanceof Error?error.message:String(error),baseline:'top'},styles:{color:'#ef5350'}}]:[]
           }
           const axis=widget?.getYAxes({paneId:document.overlay.paneId??'candle_pane'}).find(axis=>!document.yAxisId||axis.id===document.yAxisId)
-          const figures=draw({...args,coordinates,yAxis:axis??args.yAxis,overlay:Object.assign(Object.create(args.overlay),{points:projected})})
+          const figures=draw(Object.assign({...args,coordinates,yAxis:axis??args.yAxis,overlay:Object.assign(Object.create(args.overlay),{points:projected})},{[curveSelection]:curveSelectedIds.has(id)}))
           if(figure==='createPointFigures')drawingFigures.set(actual,Array.isArray(figures)?figures:[figures])
           return figures
         }
@@ -852,6 +856,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       },
       onRemoved: (event) => {
         projectionInventory?.invalidate()
+        if(widget)clearCurveGeometry(widget,event.overlay.id)
         if(applyingDrawing)return true
         if (activeDrawingId === event.overlay.id) activeDrawingId = null
         ownedDrawingIds.delete(event.overlay.id)
@@ -897,7 +902,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     coordinates:(value,patch)=>{if(!widget)throw Error('图表尚未就绪');if(patch.anchors)return {...value,overlay:{...value.overlay,points:projectDrawingPoints(value)}};return {...value,anchors:anchorsFromPoints(value.overlay.points,widget.getDataList(),period(),'interaction')}},
     project:()=>{drawingHistory.reproject();drawingCoordinator.project()},
     changed:state=>{setWorkbenchState(state);setDrawingState(state.history);props.onDrawingStateChange?.(state);props.onDrawingHistoryChange?.(state.history);queueMicrotask(refreshDrawingHandles)},
-    selected:ids=>{props.onDrawingSelect?.(ids.length===1?ids[0]:null)}
+    selected:ids=>{const next=new Set(ids),changed=[...new Set([...curveSelectedIds,...ids])].filter(id=>curveSelectedIds.has(id)!==next.has(id));curveSelectedIds.clear();for(const id of ids)curveSelectedIds.add(id);for(const id of changed){const overlay=engineDrawing(id);if(overlay&&projectedDrawingObjects.get(id)===overlay&&isCurveDrawing(overlay.name))widget?.overrideOverlay({id,styles:{}})}props.onDrawingSelect?.(ids.length===1?ids[0]:null)}
   })
 
   const selectedPropertyDrawings=createMemo(()=>{const state=workbenchState(),ids=new Set(state?.selectedIds??[]);return state?.objects.filter(object=>ids.has(object.logicalId))??[]})
@@ -1169,7 +1174,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if(handleLayoutFrame!==undefined)cancelAnimationFrame(handleLayoutFrame)
     for(const action of ['onZoom','onScroll','onVisibleRangeChange','onPaneDrag'] as const)widget?.unsubscribeAction(action,refreshDrawingHandleLayout)
     ++sharingEpoch;drawingCoordinator.dispose();drawingPreferences.dispose();drawingController.dispose();drawingHistory.dispose()
-    projectedDrawingDefinitions.clear();projectedDrawingObjects.clear()
+    projectedDrawingDefinitions.clear();projectedDrawingObjects.clear();curveSelectedIds.clear();if(widget)clearCurveGeometry(widget)
     projectionInventory?.dispose();projectionInventory=undefined
     loader?.dispose()
     if(widget)drawingAnalyticsRuntimes.delete(widget)

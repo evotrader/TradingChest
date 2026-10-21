@@ -1,3 +1,4 @@
+import {commonStyleControls,templateStylePatch} from './styleControls'
 import {createOpaqueId} from '../ids'
 import {copyDrawingCatalog,validateDrawingParameters,type DrawingToolDescriptor} from './catalog'
 import type {DrawingHistory} from './history'
@@ -191,13 +192,19 @@ export class DrawingController {
           if(!command.name?.trim())throw Error('请输入模板名称')
           preferences.update({templates:value.templates.map(t=>t.id===command.templateId?{...t,name:command.name!.trim()}:t)})
         }else if(command.action==='apply'){
-          result=await this.batch(()=>this.targets(command.ids??this.selectedIds,true).map(before=>{
-            const tool=this.catalog.find(t=>t.overlayName===before.overlay.name)!
-            if(tool.toolId!==template!.toolId&&!command.styleOnly)throw Error('不同工具只能显式应用共同样式')
-            const after=copy(before);after.overlay.styles=mergeDrawingStyles(after.overlay.styles,template!.styles)
-            if(!command.styleOnly){after.parameters=copy(template!.parameters??{});validateDrawingParameters(tool,after.parameters)}
-            return {before,after}
-          }))
+          result=await this.batch(()=>{
+            const targets=this.targets(command.ids??this.selectedIds,true),tools=targets.map(before=>this.catalog.find(t=>t.overlayName===before.overlay.name))
+            const controls=commonStyleControls([...tools,this.catalog.find(tool=>tool.toolId===template!.toolId)])
+            if(command.styleOnly&&!controls.length)throw Error('所选工具和模板没有共同样式能力')
+            const styles=command.styleOnly?templateStylePatch(template!.styles,this.catalog.find(tool=>tool.toolId===template!.toolId)!.overlayName,controls):template!.styles
+            return targets.map((before,index)=>{
+              const tool=tools[index]!
+              if(tool.toolId!==template!.toolId&&!command.styleOnly)throw Error('不同工具只能显式应用共同样式')
+              const after=copy(before);after.overlay.styles=mergeDrawingStyles(after.overlay.styles,styles)
+              if(!command.styleOnly){after.parameters=copy(template!.parameters??{});validateDrawingParameters(tool,after.parameters)}
+              return {before,after}
+            })
+          })
         }else{
           const selected=this.targets(command.ids??this.selectedIds)
           if(selected.length!==1)throw Error('请选择一个绘图作为样式来源')

@@ -1,7 +1,10 @@
 import DrawingObjectTree from './DrawingObjectTree'
+import {styleControls,drawingStylePatch,drawingStyleValue} from '../../drawing/styleControls'
+import {ColorPalette} from '../overlay-property-bar/ColorPalette'
+import type {DrawingStyleControl} from '../../drawing/catalog'
 import {isVolumeDrawing} from '../../drawing/analytics'
 import AnalyticsSummary from './AnalyticsSummary'
-import {createMemo,createSignal,createEffect,on,untrack,For,Show,type Component} from 'solid-js'
+import {createMemo,createSignal,createEffect,on,untrack,onCleanup,For,Show,type Component} from 'solid-js'
 import type {DrawingCommand,DrawingCommandResult,DrawingSnapshot,DrawingState,DrawingAnchor} from '../../drawing/types'
 import type {DrawingToolDescriptor} from '../../drawing/catalog'
 import type {Period} from '../../types'
@@ -15,6 +18,8 @@ export interface DrawingWorkbenchProps {
   periods:Period[]
   tickSize?:number
   rotation:{read:(object:DrawingSnapshot)=>number;apply:(object:DrawingSnapshot,degrees:number)=>DrawingSnapshot}
+  page?:'settings'|'templates'
+  onDirtyChange?:(dirty:boolean)=>void
   editId?:string
   axes:(object:DrawingSnapshot)=>Array<{id:string;name:string}>
   execute:(command:DrawingCommand)=>Promise<DrawingCommandResult>
@@ -33,8 +38,19 @@ const DrawingWorkbench:Component<DrawingWorkbenchProps>=props=>{
   const filtered=createMemo(()=>props.state.objects.filter(object=>`${label(object)} ${object.overlay.name} ${object.logicalId} ${object.presentation?.groupName??''}`.toLowerCase().includes(query().toLowerCase())).sort((a,b)=>(b.presentation?.order??0)-(a.presentation?.order??0)))
   const selected=()=>props.state.selectedIds
   const send=async(command:DrawingCommand)=>{const result=await props.execute(command);setNotice(result.message??(result.status==='completed'?'':`${result.status}: ${result.items.filter(i=>i.status==='confirmed').length}/${result.items.length}`));return result}
-  const edit=(object:DrawingSnapshot)=>{void send({type:'select',ids:[object.logicalId]});setDraft(clone(object));setOriginal(clone(object));setText(typeof object.overlay.extendData==='string'?object.overlay.extendData:String((object.overlay.extendData as any)?.text??''));setTab('settings');setNotice('')}
+  const [pendingEdit,setPendingEdit]=createSignal<DrawingSnapshot>(),[closing,setClosing]=createSignal(false),[palette,setPalette]=createSignal<DrawingStyleControl>()
+  const dirty=()=>{const base=original(),d=draft();return !!base&&!!d&&(JSON.stringify(base)!==JSON.stringify(d)||text()!==(typeof base.overlay.extendData==='string'?base.overlay.extendData:String((base.overlay.extendData as any)?.text??'')))}
+  createEffect(()=>props.onDirtyChange?.(dirty()))
+  onCleanup(()=>props.onDirtyChange?.(false))
+  const edit=(object:DrawingSnapshot)=>{
+    if(dirty()){if(original()?.logicalId!==object.logicalId)setPendingEdit(object);else setTab('settings');return}
+    void send({type:'select',ids:[object.logicalId]});setDraft(clone(object));setOriginal(clone(object));setText(typeof object.overlay.extendData==='string'?object.overlay.extendData:String((object.overlay.extendData as any)?.text??''));setTab('settings');setNotice('');setPalette(undefined)
+  }
+  const discardDraft=()=>{setDraft(undefined);setOriginal(undefined);setPalette(undefined)}
+  const close=()=>{if(dirty())setClosing(true);else props.onClose()}
   createEffect(on(()=>props.editId,id=>{if(id){const object=untrack(()=>objects().get(id));if(object)edit(object)}}))
+  createEffect(on(()=>props.page,page=>{if(page==='templates')setTab('templates');else if(page==='settings'&&draft())setTab('settings')}))
+  const draftStyle=(control:DrawingStyleControl,value:string|number)=>{const d=clone(draft()!),patch=drawingStylePatch(control,value);for(const [group,fields] of Object.entries(patch))d.overlay.styles={...d.overlay.styles,[group]:{...(d.overlay.styles as any)?.[group],...(fields as object)}};setDraft(d)}
   const style=(group:string,key:string,value:unknown)=>{const d=clone(draft()!);d.overlay.styles={...d.overlay.styles,[group]:{...(d.overlay.styles as any)?.[group],[key]:value}};setDraft(d)}
   const anchor=(index:number,key:string,value:unknown)=>{const d=clone(draft()!);(d.anchors![index] as any)[key]=value;setDraft(d)}
   const confirm=async()=>{
@@ -60,8 +76,9 @@ const DrawingWorkbench:Component<DrawingWorkbenchProps>=props=>{
   const prefs=()=>props.state.preferences
   const templates=()=>prefs()?.value.templates??[]
   const toggleFavorite=(id:string)=>{const favorites=prefs()?.value.favorites??[];void send({type:'preferences',patch:{favorites:favorites.includes(id)?favorites.filter(v=>v!==id):[...favorites,id]}})}
-  return <aside class="tc-drawing-workbench" aria-label={t('绘图管理','Drawing manager')} onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();props.onClose()}}}>
-    <header><strong>{t('绘图管理','Drawing manager')}</strong><button aria-label={t('关闭绘图管理','Close drawing manager')} onClick={()=>props.onClose()}>×</button></header>
+  return <aside class="tc-drawing-workbench" aria-label={t('绘图管理','Drawing manager')} onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();close()}}}>
+    <header><strong>{t('绘图管理','Drawing manager')}</strong><button aria-label={t('关闭绘图管理','Close drawing manager')} onClick={close}>×</button></header>
+    <Show when={pendingEdit()||closing()}><div role="alertdialog" aria-label={t('尚未确认的设置草稿','Unconfirmed settings draft')}><p>{t('保留当前草稿，或放弃后继续？','Keep the current draft, or discard it and continue?')}</p><button onClick={()=>{setPendingEdit(undefined);setClosing(false);setTab('settings')}}>{t('保留草稿','Keep draft')}</button><button onClick={()=>{const next=pendingEdit(),exit=closing();discardDraft();setPendingEdit(undefined);setClosing(false);if(exit)props.onClose();else if(next)edit(next)}}>{t('放弃草稿并继续','Discard draft and continue')}</button></div></Show>
     <nav aria-label={t('绘图管理页面','Drawing manager pages')}><For each={['objects','settings','templates','preferences'] as const}>{key=><button aria-pressed={tab()===key} disabled={key==='settings'&&!draft()} onClick={()=>setTab(key)}>{({objects:t('对象','Objects'),settings:t('设置','Settings'),templates:t('模板','Templates'),preferences:t('偏好','Preferences')})[key]}</button>}</For></nav>
     <Show when={notice()}><p role="alert">{notice()}</p></Show>
     <Show when={props.state.lastResult&&props.state.lastResult.status!=='completed'}><p role="status">{t('已完成','Completed')} {props.state.lastResult!.items.filter(item=>item.status==='confirmed').length}/{props.state.lastResult!.items.length}</p><For each={props.state.lastResult!.items.filter(item=>item.status!=='confirmed')}>{item=><p role="alert">{objects().get(item.logicalId)?.presentation?.name??item.logicalId}: {item.status} {item.message}</p>}</For></Show>
@@ -80,7 +97,7 @@ const DrawingWorkbench:Component<DrawingWorkbenchProps>=props=>{
       <input aria-label={t('搜索绘图对象','Search drawing objects')} placeholder={t('搜索名称、工具或分组','Search name, tool, or group')} value={query()} onInput={event=>{setQuery(event.currentTarget.value)}}/>
       <p>{t('已选择','Selected')} {selected().length} / {props.state.objects.length}</p>
       <Show when={selected().some(id=>objects().get(id)?.overlay.lock)}><p role="status">{t('选择中含锁定对象，批量写入前请解锁或明确改为仅选择可操作对象','Selection includes locked drawings. Unlock them or explicitly select only writable drawings.')}</p><button onClick={()=>void send({type:'select',ids:selected().filter(id=>!objects().get(id)?.overlay.lock)})}>{t('仅选择未锁定对象','Select unlocked drawings only')}</button></Show>
-      <Show when={selected().length>1}><label>{t('批量线条颜色','Batch line color')}<input type="color" aria-label={t('批量线条颜色','Batch line color')} onChange={event=>void send({type:'update',ids:selected(),patch:{overlay:{styles:{line:{color:event.currentTarget.value},text:{color:event.currentTarget.value}}}}})}/></label></Show>
+
       <For each={selected().filter(id=>props.state.analytics?.[id])}>{id=><AnalyticsSummary state={props.state.analytics![id]} locale={props.locale}/>}</For>
       <div class="tc-drawing-actions">
         <button onClick={()=>void send({type:'select',ids:filtered().map(o=>o.logicalId)})}>{t('选择搜索结果','Select results')}</button>
@@ -101,12 +118,12 @@ const DrawingWorkbench:Component<DrawingWorkbenchProps>=props=>{
       const d=()=>draft()!,descriptor=()=>tool(d())
       return <form onSubmit={event=>{event.preventDefault();void confirm()}}>
         <label>{t('对象名称','Object name')}<input value={d().presentation?.name??''} placeholder={label(d())} onInput={event=>setDraft({...d(),presentation:{...d().presentation,name:event.currentTarget.value}})}/></label>
-        <fieldset><legend>{t('样式','Style')}</legend>
-          <label>{t('线条颜色','Line color')}<input type="color" value={/^#[a-f0-9]{6}$/i.test(d().overlay.styles?.line?.color??'')?d().overlay.styles!.line!.color:'#1677ff'} onInput={event=>{style('line','color',event.currentTarget.value);style('text','color',event.currentTarget.value)}}/></label>
-          <label>{t('线宽','Line width')}<select value={d().overlay.styles?.line?.size??1} onChange={event=>style('line','size',Number(event.currentTarget.value))}><For each={[1,2,3,4,6,8,14]}>{value=><option value={value}>{value}px</option>}</For></select></label>
-          <label>{t('线型','Line style')}<select value={d().overlay.styles?.line?.style??'solid'} onChange={event=>style('line','style',event.currentTarget.value)}><option value="solid">{t('实线','Solid')}</option><option value="dashed">{t('虚线','Dashed')}</option></select></label>
-          <label>{t('填充颜色','Fill color')}<input type="color" onInput={event=>{style('polygon','color',event.currentTarget.value);style('polygon','style','stroke_fill')}}/></label>
-        </fieldset>
+        <Show when={styleControls(descriptor()).length}><fieldset><legend>{t('样式','Style')}</legend>
+          <For each={styleControls(descriptor())}>{control=>{
+            const label=()=>({stroke:t('描边颜色','Stroke color'),fill:t('填充颜色','Fill color'),lineWidth:t('线宽','Line width'),lineStyle:t('线型','Line style'),textColor:t('文字颜色','Text color'),fontSize:t('字号','Font size')})[control]
+            return <label>{label()}<Show when={['stroke','fill','textColor'].includes(control)} fallback={<select aria-label={label()} value={drawingStyleValue(d(),control)??(control==='lineStyle'?'solid':control==='fontSize'?12:1)} onChange={event=>draftStyle(control,control==='lineStyle'?event.currentTarget.value:Number(event.currentTarget.value))}><For each={control==='lineStyle'?['solid','dashed','dotted']:control==='fontSize'?[10,12,14,16,20,24,32]:[1,2,3,4,6,8,14]}>{value=><option value={value}>{value==='solid'?t('实线','Solid'):value==='dashed'?t('虚线','Dashed'):value==='dotted'?t('点线','Dotted'):value}</option>}</For></select>}><button type="button" aria-label={label()} aria-expanded={palette()===control} onClick={()=>setPalette(palette()===control?undefined:control)}>{drawingStyleValue(d(),control)??t('默认','Default')}</button><Show when={palette()===control}><ColorPalette label={label()} value={String(drawingStyleValue(d(),control)??'')} transparent={control==='fill'} choose={color=>{draftStyle(control,color);setPalette(undefined)}} close={()=>setPalette(undefined)}/></Show></Show></label>
+          }}</For>
+        </fieldset></Show>
         <Show when={descriptor()?.settings.includes('text')}><fieldset><legend>{t('文字','Text')}</legend><textarea rows={4} aria-label={t('标注正文','Drawing text')} value={text()} onInput={event=>setText(event.currentTarget.value)}/><label>{t('字体','Font')}<select value={d().overlay.styles?.text?.family??'sans-serif'} onChange={event=>style('text','family',event.currentTarget.value)}><For each={['sans-serif','serif','monospace']}>{value=><option value={value}>{value}</option>}</For></select></label><label>{t('字号','Font size')}<select value={d().overlay.styles?.text?.size??12} onChange={event=>style('text','size',Number(event.currentTarget.value))}><For each={[10,12,14,16,20,24,32]}>{value=><option value={value}>{value}</option>}</For></select></label><label>{t('对齐','Alignment')}<select value={String(d().parameters?.textAlign??'left')} onChange={event=>setDraft({...d(),parameters:{...d().parameters,textAlign:event.currentTarget.value}})}><For each={['left','center','right']}>{value=><option value={value}>{value}</option>}</For></select></label><label>{t('文字背景','Text background')}<input type="color" aria-label={t('文字背景','Text background')} onChange={event=>style('text','backgroundColor',event.currentTarget.value)}/></label></fieldset></Show>
         <Show when={d().anchors?.length}><fieldset><legend>{isVolumeDrawing(d().overlay.name)?t('时间区间','Time interval'):t('坐标','Coordinates')}</legend><Show when={props.tickSize!==undefined}><small>Tick: {props.tickSize}</small></Show><For each={d().anchors}>{(point,index)=><div class="tc-drawing-coordinate"><strong>{index()+1}</strong><select disabled={isVolumeDrawing(d().overlay.name)} aria-label={`${t('锚点模式','Anchor mode')} ${index()+1}`} value={point.kind} onChange={event=>{try{const next=clone(d());next.anchors![index()]=props.convertAnchor(next,index(),event.currentTarget.value as DrawingAnchor['kind']);setDraft(next)}catch(error){setNotice(String(error))}}}><option value="market">{t('市场时间','Market time')}</option><option value="logical">{t('逻辑根数','Logical bars')}</option><option value="viewport">{t('视口位置','Viewport position')}</option></select>
           <Show when={point.kind==='market'}><label>UTC<input type="datetime-local" required step="0.001" value={point.kind==='market'?new Date(point.timestamp).toISOString().slice(0,23):''} onChange={event=>anchor(index(),'timestamp',new Date(`${event.currentTarget.value}Z`).getTime())}/></label></Show>

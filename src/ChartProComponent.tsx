@@ -13,7 +13,7 @@ import {createOpaqueId} from './ids'
  * limitations under the License.
  */
 
-import { createSignal, createEffect, onMount, Show, onCleanup, startTransition, Component, ErrorBoundary,untrack,For } from 'solid-js'
+import { createSignal, createMemo, createEffect, onMount, Show, onCleanup, startTransition, Component, ErrorBoundary,untrack,For } from 'solid-js'
 
 import {
   init, dispose, utils, Nullable, Chart, OverlayMode, Styles,
@@ -49,6 +49,8 @@ import {ComparisonManager} from './compare/manager'
 import type {ComparisonState} from './compare/types'
 import {snappedPoint,type DrawingSnapCandidate} from './drawing/snap'
 import {DrawingProjectionInventory} from './drawing/projectionInventory'
+import {commonStyleControls,drawingStyleValue,drawingStylePatch,selectionWriteReason} from './drawing/styleControls'
+import type {DrawingStyleControl} from './drawing/catalog'
 import {constrainedPoint,translatedDrawing,nudgedDrawing,rotatedDrawing,marketIndex} from './drawing/geometry'
 import {DrawingCoordinator} from './drawing/coordinator'
 import {drawingShareKey} from './drawing/document'
@@ -212,6 +214,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   const [workbenchOpen,setWorkbenchOpen]=createSignal(false)
   const [workbenchEditing,setWorkbenchEditing]=createSignal<string>()
+  const [workbenchDirty,setWorkbenchDirty]=createSignal(false)
+  const [workbenchPage,setWorkbenchPage]=createSignal<'settings'|'templates'>('settings')
   const [drawingMenu,setDrawingMenu]=createSignal<{x:number;y:number}>()
   const [selectionBox,setSelectionBox]=createSignal<{x:number;y:number;width:number;height:number}>()
   const [drawingHandles,setDrawingHandles]=createSignal<DrawingHandle[]>([])
@@ -895,6 +899,23 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     selected:ids=>{props.onDrawingSelect?.(ids.length===1?ids[0]:null)}
   })
 
+  const selectedPropertyDrawings=createMemo(()=>{const state=workbenchState(),ids=new Set(state?.selectedIds??[]);return state?.objects.filter(object=>ids.has(object.logicalId))??[]})
+  const selectedPropertyControls=createMemo(()=>commonStyleControls(selectedPropertyDrawings().map(object=>drawingCatalog.find(tool=>tool.overlayName===object.overlay.name))))
+  const selectedPropertyValues=createMemo(()=>{
+    const values:Partial<Record<DrawingStyleControl,string|number|undefined>>={}
+    for(const control of selectedPropertyControls()){
+      const selected=selectedPropertyDrawings().map(object=>{
+        const defaults=widget?.getStyles().overlay??{},own=engineDrawing(object.logicalId)?.styles??{},styles:any={...defaults}
+        for(const [group,fields] of Object.entries(own))styles[group]={...styles[group],...(fields as object)}
+        const groups=new Set<string>(),actual=engineDrawing(object.logicalId)
+        for(const figure of actual?drawingFigures.get(actual)??[]:[]){const group=figure.type==='rectText'?'text':figure.type;if(!groups.has(group)){groups.add(group);styles[group]={...styles[group],...(figure.styles as object)}}}
+        return drawingStyleValue(object,control,styles)
+      })
+      values[control]=selected.every(value=>value===selected[0])?selected[0]:undefined
+    }
+    return values
+  })
+
   drawingController.refresh()
   props.ref({
     getAnalysisContext:()=>analysis.getContext(),
@@ -1468,7 +1489,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             onRemoveClick={(groupId) => { for(const id of [...ownedDrawingIds]){const overlay=widget?.getOverlays({id})[0];if(overlay&&(!groupId||overlay.groupId===groupId))widget?.removeOverlay({id})} }}/>
         </Show>
         <Show when={drawingBarVisible()&&workbenchState()}>{state=><DrawingFavorites state={state()} catalog={drawingCatalog} locale={locale()} execute={command=>drawingController.execute(command)}/>}</Show>
-        <Show when={workbenchOpen()&&workbenchState()}>{state=><DrawingWorkbench contextKey={JSON.stringify([drawingContextEpoch(),symbol(),period(),dataState()?.basis,workbenchState()?.sharing?.workspace?.key,workbenchState()?.sharing?.host?.key])} locale={locale()} state={state()} catalog={drawingCatalog} period={period()} periods={props.periods} tickSize={symbol().tickSize} rotation={{read:object=>{const points=projectDrawingPoints(object).map(point=>drawingToPixel(point,object));return points.length>1?Math.atan2(points[0].y-points[1].y,points[1].x-points[0].x)*180/Math.PI:0},apply:(object,degrees)=>rotatedDrawing(object,degrees,{bars:widget?.getDataList()??[],period:period(),size:drawingSize,toPixel:drawingToPixel,fromPixel:drawingFromPixel,project:projectDrawingPoints})}} editId={workbenchEditing()} axes={object=>widget?.getYAxes({paneId:object.overlay.paneId??'candle_pane'}).map(axis=>({id:axis.id,name:axis.name}))??[]} execute={command=>drawingController.execute(command)} convertAnchor={convertDrawingAnchor} locate={object=>{const point=projectDrawingPoints(object)[0];if(point?.timestamp!==undefined){const index=widget?.getDataList().findIndex(bar=>bar.timestamp===point.timestamp);if(index!==undefined&&index>=0)widget?.scrollToDataIndex(index,0)}const rendered=widget?.getOverlays({id:object.logicalId})[0];if(rendered)markSelectedOverlay(rendered,false)}} onClose={()=>setWorkbenchOpen(false)}/>}</Show>
+        <Show when={workbenchOpen()&&workbenchState()}>{state=><DrawingWorkbench contextKey={JSON.stringify([drawingContextEpoch(),symbol(),period(),dataState()?.basis,workbenchState()?.sharing?.workspace?.key,workbenchState()?.sharing?.host?.key])} locale={locale()} state={state()} catalog={drawingCatalog} period={period()} periods={props.periods} tickSize={symbol().tickSize} rotation={{read:object=>{const points=projectDrawingPoints(object).map(point=>drawingToPixel(point,object));return points.length>1?Math.atan2(points[0].y-points[1].y,points[1].x-points[0].x)*180/Math.PI:0},apply:(object,degrees)=>rotatedDrawing(object,degrees,{bars:widget?.getDataList()??[],period:period(),size:drawingSize,toPixel:drawingToPixel,fromPixel:drawingFromPixel,project:projectDrawingPoints})}} editId={workbenchEditing()} page={workbenchPage()} onDirtyChange={setWorkbenchDirty} axes={object=>widget?.getYAxes({paneId:object.overlay.paneId??'candle_pane'}).map(axis=>({id:axis.id,name:axis.name}))??[]} execute={command=>drawingController.execute(command)} convertAnchor={convertDrawingAnchor} locate={object=>{const point=projectDrawingPoints(object)[0];if(point?.timestamp!==undefined){const index=widget?.getDataList().findIndex(bar=>bar.timestamp===point.timestamp);if(index!==undefined&&index>=0)widget?.scrollToDataIndex(index,0)}const rendered=widget?.getOverlays({id:object.logicalId})[0];if(rendered)markSelectedOverlay(rendered,false)}} onClose={()=>{setWorkbenchOpen(false);setWorkbenchEditing(undefined);queueMicrotask(()=>(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.querySelector<HTMLButtonElement>('[aria-label="Drawing properties"] button, [aria-label="绘图属性"] button')?.focus())}}/>}</Show>
         <div
           ref={widgetRef}
           class='klinecharts-pro-widget'
@@ -1481,7 +1502,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           {label:locale()==='en-US'?'Copy':'复制',run:()=>void drawingController.execute({type:'copy',ids:drawingController.getSelectedIds()})},
           {label:locale()==='en-US'?'Paste':'粘贴',run:()=>void drawingController.execute({type:'paste'})},
           {label:locale()==='en-US'?'Duplicate':'克隆',run:()=>void drawingController.execute({type:'duplicate',ids:drawingController.getSelectedIds()})},
-          {label:locale()==='en-US'?'Settings':'设置',run:()=>{setWorkbenchEditing(drawingController.getSelectedIds()[0]);setWorkbenchOpen(true)}},
+          {label:locale()==='en-US'?'Settings':'设置',run:()=>{setWorkbenchPage('settings');setWorkbenchEditing(drawingController.getSelectedIds()[0]);setWorkbenchOpen(true)}},
           {label:locale()==='en-US'?'Delete':'删除',run:deleteSelectedDrawing},
           {label:locale()==='en-US'?'Clear selection':'清空选择',run:()=>void drawingController.execute({type:'select',ids:[]})}
         ]}/>}</Show>
@@ -1489,21 +1510,20 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         {/* Drawing properties */}
         <OverlayPropertyBar
           locale={locale()}
-          visible={selectedOverlay() !== null}
-          position={{ x: selectedOverlay()?.x ?? 0, y: selectedOverlay()?.y ?? 0 }}
-          overlayId={selectedOverlay()?.id ?? ''}
-          currentColor={selectedOverlay()?.color ?? '#1677ff'}
-          currentFillColor={selectedOverlay()?.fillColor}
-          currentLineWidth={selectedOverlay()?.lineWidth ?? 1}
-          currentLineStyle={selectedOverlay()?.lineStyle ?? 'solid'}
-          locked={selectedOverlay()?.locked ?? false}
-          onColorChange={color=>{const info=selectedOverlay();if(info)void drawingController.execute({type:'update',ids:[info.id],patch:{overlay:{styles:{line:{color},point:{color},text:{color},arc:{color},polygon:{borderColor:color},circle:{borderColor:color},rect:{borderColor:color}}}}})}}
-          onFillColorChange={fillColor=>{const info=selectedOverlay();if(info)void drawingController.execute({type:'update',ids:[info.id],patch:{overlay:{styles:{polygon:{color:fillColor,style:'stroke_fill'},circle:{color:fillColor,style:'stroke_fill'},rect:{color:fillColor,style:'stroke_fill'}}}}})}}
-          onLineWidthChange={lineWidth=>{const info=selectedOverlay();if(info)void drawingController.execute({type:'update',ids:[info.id],patch:{overlay:{styles:{line:{size:lineWidth},polygon:{borderSize:lineWidth},circle:{borderSize:lineWidth},rect:{borderSize:lineWidth}}}}})}}
-          onLineStyleChange={lineStyle=>{const info=selectedOverlay();if(info)void drawingController.execute({type:'update',ids:[info.id],patch:{overlay:{styles:{line:{style:lineStyle==='solid'?'solid':'dashed',dashedValue:lineStyle==='dotted'?[1,3]:[6,4]},polygon:{borderStyle:lineStyle==='solid'?'solid':'dashed'},circle:{borderStyle:lineStyle==='solid'?'solid':'dashed'},rect:{borderStyle:lineStyle==='solid'?'solid':'dashed'}}}}})}}
-          onLockChange={lock=>{const info=selectedOverlay();if(info)void drawingController.execute({type:'update',ids:[info.id],patch:{overlay:{lock}}})}}
-          onDelete={()=>{const info=selectedOverlay();if(info)void drawingController.execute({type:'delete',ids:[info.id]})}}
-          onClose={() => setSelectedOverlay(null)}
+          position={{x:selectedOverlay()?.x??8,y:selectedOverlay()?.y??10}}
+          objects={workbenchState()?.hidden||workbenchState()?.toolId?[]:selectedPropertyDrawings()}
+          controls={selectedPropertyControls()}
+          catalog={drawingCatalog}
+          handles={drawingHandles()}
+          values={selectedPropertyValues()}
+          reason={workbenchDirty()?(locale()==='en-US'?'Confirm or cancel the open settings draft first':'请先确认或取消尚未提交的设置草稿'):selectionWriteReason(workbenchState(),selectedPropertyDrawings(),value=>editable(value.overlay),false,locale())}
+          lockReason={workbenchDirty()?(locale()==='en-US'?'Confirm or cancel the settings draft first':'请先确认或取消设置草稿'):selectionWriteReason(workbenchState(),selectedPropertyDrawings(),value=>editable(value.overlay),true,locale())}
+          templates={workbenchState()?.preferences?.value.templates??[]}
+          execute={command=>drawingController.execute(command)}
+          onStyle={(control,value)=>drawingController.execute({type:'update',ids:drawingController.getSelectedIds(),patch:{overlay:{styles:drawingStylePatch(control,value)}}})}
+          onSettings={()=>{setWorkbenchPage('settings');setWorkbenchEditing(drawingController.getSelectedIds().length===1?drawingController.getSelectedIds()[0]:undefined);setWorkbenchOpen(true)}}
+          onTemplates={()=>{setWorkbenchPage('templates');setWorkbenchOpen(true)}}
+          onClose={()=>void drawingController.execute({type:'select',ids:[]})}
         />
         <ReplayControlBar
           locale={locale()}

@@ -1,5 +1,6 @@
 export type DrawingCategory='lines'|'channels'|'geometry'|'fibonacci'|'waves'|'measurement'|'annotations'|'positions'|'volume'
 export interface DrawingParameter {key:string;label:string;kind:'number'|'text'|'boolean'|'levels';min?:number;max?:number;choices?:string[];defaultValue:number|string|boolean|number[]}
+export type DrawingStyleControl='stroke'|'fill'|'lineWidth'|'lineStyle'|'textColor'|'fontSize'
 export interface DrawingToolDescriptor {
   toolId:string
   overlayName:string
@@ -11,6 +12,7 @@ export interface DrawingToolDescriptor {
   minPoints:number
   maxPoints:number|null
   settings:Array<'style'|'text'|'coordinates'|'visibility'|'parameters'>
+  styleControls?:DrawingStyleControl[]
   parameters:DrawingParameter[]
 }
 const groups:Array<[DrawingCategory,Array<[string,string,string,number,string?]>]>=[
@@ -27,13 +29,24 @@ const groups:Array<[DrawingCategory,Array<[string,string,string,number,string?]>
   ['positions',[['longPosition','多头仓位','Long position',3],['shortPosition','空头仓位','Short position',3]]],
   ['volume',[['anchoredVwap','锚定 VWAP','Anchored VWAP',1],['fixedRangeVolumeProfile','固定区间成交量分布','Fixed range volume profile',2]]]
 ]
+// Capabilities follow the actual figures, including fixed-color measurement figures.
+const builtinStyleControls=(id:string):DrawingStyleControl[]=>{
+  if(['textAnnotation','note','anchoredText','priceLabel'].includes(id))return ['fill','textColor','fontSize']
+  if(id==='fixedRangeVolumeProfile')return ['stroke','textColor']
+  if(id==='dateRange')return ['lineWidth']
+  if(['priceRange','dateAndPriceRange'].includes(id))return ['lineWidth','lineStyle']
+  const controls:DrawingStyleControl[]=['stroke','lineWidth','lineStyle']
+  if(['rect','circle','triangle','parallelogram','ellipse','rotatedRect','gannBox','xabcd','regressionChannel','callout'].includes(id))controls.push('fill')
+  if(['callout','trendAngle','fibonacciLine','fibonacciSegment','fibonacciCircle','fibonacciExtension','fibonacciSpeedResistanceFan','xabcd','abcd','threeWaves','fiveWaves','eightWaves','anyWaves','longPosition','shortPosition'].includes(id))controls.push('textColor','fontSize')
+  return controls
+}
 export const builtinDrawingCatalog:DrawingToolDescriptor[]=groups.flatMap(([category,items])=>items.map(([toolId,zh,en,points,shortcut])=>{
   const text=['textAnnotation','callout','note','anchoredText'].includes(toolId),variable=['polyline','anyWaves'].includes(toolId)
-  if(category==='volume')return {toolId,overlayName:toolId,labels:{'zh-CN':zh,'en-US':en},category,icon:toolId,shortcut,mode:'points',minPoints:points,maxPoints:points,settings:['style','coordinates','visibility','parameters'],parameters:toolId==='anchoredVwap'?[
+  if(category==='volume')return {toolId,overlayName:toolId,styleControls:builtinStyleControls(toolId),labels:{'zh-CN':zh,'en-US':en},category,icon:toolId,shortcut,mode:'points',minPoints:points,maxPoints:points,settings:['style','coordinates','visibility','parameters'],parameters:toolId==='anchoredVwap'?[
     {key:'source',label:'价格源',kind:'text',choices:['close','hl2','hlc3','ohlc4'],defaultValue:'hlc3'},
     {key:'algorithm',label:'估算算法',kind:'text',choices:['bar-price-volume-v1'],defaultValue:'bar-price-volume-v1'}
   ]:[{key:'rows',label:'分箱行数',kind:'number',min:1,max:256,choices:['24','48','96','192'],defaultValue:48},{key:'valueArea',label:'价值区比例',kind:'number',min:Number.MIN_VALUE,max:1,choices:['0.5','0.6','0.68','0.7','0.8','0.9','0.95'],defaultValue:.7},{key:'mode',label:'成交量显示',kind:'text',choices:['total','up-down'],defaultValue:'total'},{key:'algorithm',label:'估算算法',kind:'text',choices:['bar-range-uniform-v1'],defaultValue:'bar-range-uniform-v1'}]} as DrawingToolDescriptor
-  return {toolId,overlayName:toolId,labels:{'zh-CN':zh,'en-US':en},category,icon:toolId,shortcut,
+  return {toolId,overlayName:toolId,styleControls:builtinStyleControls(toolId),labels:{'zh-CN':zh,'en-US':en},category,icon:toolId,shortcut,
     mode:['brush','highlighter'].includes(toolId)?'continuous':text?'text':variable?'variable':'points',minPoints:points,maxPoints:variable||['brush','highlighter'].includes(toolId)?null:points,
     settings:['style',...(text?['text' as const]:[]),'coordinates','visibility',...(category==='fibonacci'||category==='channels'?['parameters' as const]:[])],
     parameters:toolId==='fibonacciSpiral'?[{key:'segments',label:'弧段数',kind:'number' as const,min:2,max:32,defaultValue:9}]:toolId.startsWith('regression')?[{key:'source',label:'回归价格',kind:'text' as const,choices:['open','high','low','close'],defaultValue:'close'},{key:'extend',label:'向右延伸',kind:'boolean' as const,defaultValue:true},...(toolId==='regressionChannel'?[{key:'deviations',label:'残差标准差倍数',kind:'number' as const,min:0,max:10,defaultValue:2}]:[])]:category==='fibonacci'?[{key:'levels',label:'级别',kind:'levels' as const,defaultValue:toolId==='gannBox'?[0,.25,.5,.75,1]:[0,.236,.382,.5,.618,.786,1]}]:text?[{key:'textAlign',label:'文字对齐',kind:'text' as const,defaultValue:'left',choices:['left','center','right']}]:[]}
@@ -42,6 +55,7 @@ export function copyDrawingCatalog(input:DrawingToolDescriptor[]=builtinDrawingC
   const ids=new Set<string>(),names=new Set<string>()
   for(const item of input){
     if(!item.toolId||!item.overlayName||ids.has(item.toolId)||names.has(item.overlayName)||!item.labels?.['zh-CN']||!item.labels?.['en-US']||!Number.isInteger(item.minPoints)||item.minPoints<1||(item.maxPoints!==null&&(!Number.isInteger(item.maxPoints)||item.maxPoints<item.minPoints)))throw Error('绘图目录定义无效或重复')
+    if(item.styleControls&&(!Array.isArray(item.styleControls)||new Set(item.styleControls).size!==item.styleControls.length||item.styleControls.some(control=>!['stroke','fill','lineWidth','lineStyle','textColor','fontSize'].includes(control))))throw Error('绘图样式能力定义无效或重复')
     ids.add(item.toolId);names.add(item.overlayName)
   }
   return structuredClone(input)

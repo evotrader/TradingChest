@@ -1,222 +1,74 @@
-/**
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
-
- * http://www.apache.org/licenses/LICENSE-2.0
-
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-import { Component, createSignal, Show } from 'solid-js'
-import i18n from '../../i18n'
+import {createEffect,createMemo,createSignal,onCleanup,Show,For,type Component} from 'solid-js'
+import {commonStyleControls} from '../../drawing/styleControls'
+import type {DrawingToolDescriptor,DrawingStyleControl} from '../../drawing/catalog'
+import type {DrawingCommand,DrawingCommandResult,DrawingSnapshot} from '../../drawing/types'
+import type {DrawingTemplate} from '../../drawing/preferences'
+import {ColorPalette} from './ColorPalette'
 
 export interface OverlayPropertyBarProps {
-  locale: string
-  visible: boolean
-  position: { x: number, y: number }
-  overlayId: string
-  /** 描边色 */
-  currentColor: string
-  /** 填充色（可选，有值时显示填充色控件） */
-  currentFillColor?: string
-  currentLineWidth: number
-  currentLineStyle: string
-  locked: boolean
-  onColorChange: (color: string) => void
-  /** 填充色变更 */
-  onFillColorChange?: (color: string) => void
-  onLineWidthChange: (width: number) => void
-  onLineStyleChange: (style: string) => void
-  onLockChange: (locked: boolean) => void
-  onDelete: () => void
-  onClose: () => void
+  locale:string
+  position:{x:number;y:number}
+  objects:DrawingSnapshot[]
+  handles:Array<{x:number;y:number}>
+  controls:DrawingStyleControl[]
+  catalog:DrawingToolDescriptor[]
+  values:Partial<Record<DrawingStyleControl,string|number|undefined>>
+  reason?:string
+  lockReason?:string
+  templates:DrawingTemplate[]
+  execute:(command:DrawingCommand)=>Promise<DrawingCommandResult>
+  onStyle:(control:DrawingStyleControl,value:string|number)=>Promise<DrawingCommandResult>
+  onSettings:()=>void
+  onTemplates:()=>void
+  onClose:()=>void
 }
-
-// 预设调色板颜色（TradingView 风格 8x9 色板）
-const PALETTE_COLORS = [
-  // 灰度行
-  '#ffffff', '#d1d4dc', '#b2b5be', '#787b86', '#434651', '#363a45', '#2a2e39', '#1e222d', '#131722',
-  // 红色行
-  '#f44336', '#ff5252', '#ff8a80', '#ef5350', '#e53935', '#c62828', '#b71c1c', '#880e4f', '#ad1457',
-  // 橙色行
-  '#ff9800', '#ffb74d', '#ffe0b2', '#ff6d00', '#f57c00', '#e65100', '#bf360c', '#ff6f00', '#ff8f00',
-  // 黄色行
-  '#ffeb3b', '#fff176', '#fff9c4', '#fdd835', '#f9a825', '#f57f17', '#fbc02d', '#ffd600', '#ffea00',
-  // 绿色行
-  '#4caf50', '#66bb6a', '#a5d6a7', '#00c853', '#00e676', '#2e7d32', '#1b5e20', '#33691e', '#00bfa5',
-  // 青色行
-  '#00bcd4', '#4dd0e1', '#80deea', '#00acc1', '#0097a7', '#00838f', '#006064', '#00897b', '#009688',
-  // 蓝色行
-  '#2196f3', '#42a5f5', '#90caf9', '#1e88e5', '#1565c0', '#0d47a1', '#01579b', '#0277bd', '#1677ff',
-  // 紫色行
-  '#9c27b0', '#ab47bc', '#ce93d8', '#8e24aa', '#6a1b9a', '#4a148c', '#7b1fa2', '#6200ea', '#651fff',
-]
-
-const LINE_WIDTHS = [1, 2, 3, 4]
-const LINE_STYLES: { key: string, labelKey: string }[] = [
-  { key: 'solid', labelKey: 'line_style_solid' },
-  { key: 'dashed', labelKey: 'line_style_dashed' },
-  { key: 'dotted', labelKey: 'line_style_dotted' },
-]
-
-const OverlayPropertyBar: Component<OverlayPropertyBarProps> = props => {
-  const [showColorPalette, setShowColorPalette] = createSignal(false)
-  const [showFillPalette, setShowFillPalette] = createSignal(false)
-  const [showWidthPicker, setShowWidthPicker] = createSignal(false)
-  const [showStylePicker, setShowStylePicker] = createSignal(false)
-
-  const closeAllPopups = () => {
-    setShowColorPalette(false)
-    setShowFillPalette(false)
-    setShowWidthPicker(false)
-    setShowStylePicker(false)
-  }
-
-  return (
-    <Show when={props.visible}>
-      <div
-        class="klinecharts-pro-overlay-property-bar"
-        style={{
-          left: `${props.position.x}px`,
-          top: `${props.position.y}px`,
-        }}>
-        {/* 颜色选择 */}
-        <div class="klinecharts-pro-overlay-property-bar-item"
-          onClick={() => { const next = !showColorPalette(); closeAllPopups(); setShowColorPalette(next) }}>
-          <div class="klinecharts-pro-overlay-property-bar-color-swatch"
-            style={{ 'background-color': props.currentColor }} />
-          <Show when={showColorPalette()}>
-            <div class="klinecharts-pro-overlay-property-bar-palette">
-              {PALETTE_COLORS.map(color => (
-                <div
-                  class={`klinecharts-pro-overlay-property-bar-palette-item${color === props.currentColor ? ' active' : ''}`}
-                  style={{ 'background-color': color }}
-                  onClick={(e) => { e.stopPropagation(); props.onColorChange(color); setShowColorPalette(false) }}
-                />
-              ))}
-            </div>
-          </Show>
-        </div>
-
-        {/* 填充色（仅对有填充的图形显示） */}
-        <Show when={props.currentFillColor != null}>
-          <div class="klinecharts-pro-overlay-property-bar-item"
-            onClick={() => { const next = !showFillPalette(); closeAllPopups(); setShowFillPalette(next) }}>
-            <div class="klinecharts-pro-overlay-property-bar-color-swatch"
-              style={{
-                'background-color': props.currentFillColor ?? 'transparent',
-                'background-image': !props.currentFillColor || props.currentFillColor === 'transparent'
-                  ? 'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc)'
-                  : 'none',
-                'background-size': '6px 6px',
-                'background-position': '0 0, 3px 3px',
-              }} />
-            <Show when={showFillPalette()}>
-              <div class="klinecharts-pro-overlay-property-bar-palette">
-                {/* 透明（无填充）选项 */}
-                <div
-                  class={`klinecharts-pro-overlay-property-bar-palette-item${props.currentFillColor === 'transparent' ? ' active' : ''}`}
-                  style={{
-                    'background-image': 'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%)',
-                    'background-size': '8px 8px', 'background-position': '0 0, 4px 4px',
-                  }}
-                  onClick={(e) => { e.stopPropagation(); props.onFillColorChange?.('transparent'); setShowFillPalette(false) }}
-                />
-                {PALETTE_COLORS.map(color => (
-                  <div
-                    class={`klinecharts-pro-overlay-property-bar-palette-item${color === props.currentFillColor ? ' active' : ''}`}
-                    style={{ 'background-color': color + '40' }}
-                    onClick={(e) => { e.stopPropagation(); props.onFillColorChange?.(color + '40'); setShowFillPalette(false) }}
-                  />
-                ))}
-              </div>
-            </Show>
-          </div>
-        </Show>
-
-        <span class="klinecharts-pro-overlay-property-bar-separator" />
-
-        {/* 线宽选择 */}
-        <div class="klinecharts-pro-overlay-property-bar-item"
-          onClick={() => { const next = !showWidthPicker(); closeAllPopups(); setShowWidthPicker(next) }}>
-          <svg width="20" height="14" viewBox="0 0 20 14">
-            <line x1="2" y1="7" x2="18" y2="7" stroke="currentColor" stroke-width={props.currentLineWidth} />
-          </svg>
-          <span class="klinecharts-pro-overlay-property-bar-label">{props.currentLineWidth}px</span>
-          <Show when={showWidthPicker()}>
-            <div class="klinecharts-pro-overlay-property-bar-dropdown">
-              {LINE_WIDTHS.map(w => (
-                <div
-                  class={`klinecharts-pro-overlay-property-bar-dropdown-item${w === props.currentLineWidth ? ' active' : ''}`}
-                  onClick={(e) => { e.stopPropagation(); props.onLineWidthChange(w); setShowWidthPicker(false) }}>
-                  <svg width="40" height="14" viewBox="0 0 40 14">
-                    <line x1="4" y1="7" x2="36" y2="7" stroke="currentColor" stroke-width={w} />
-                  </svg>
-                  <span>{w}px</span>
-                </div>
-              ))}
-            </div>
-          </Show>
-        </div>
-
-        <span class="klinecharts-pro-overlay-property-bar-separator" />
-
-        {/* 线型选择 */}
-        <div class="klinecharts-pro-overlay-property-bar-item"
-          onClick={() => { const next = !showStylePicker(); closeAllPopups(); setShowStylePicker(next) }}>
-          <svg width="20" height="14" viewBox="0 0 20 14">
-            <line x1="2" y1="7" x2="18" y2="7" stroke="currentColor" stroke-width="2"
-              stroke-dasharray={props.currentLineStyle === 'dashed' ? '4,3' : props.currentLineStyle === 'dotted' ? '1,3' : 'none'} />
-          </svg>
-          <Show when={showStylePicker()}>
-            <div class="klinecharts-pro-overlay-property-bar-dropdown">
-              {LINE_STYLES.map(s => (
-                <div
-                  class={`klinecharts-pro-overlay-property-bar-dropdown-item${s.key === props.currentLineStyle ? ' active' : ''}`}
-                  onClick={(e) => { e.stopPropagation(); props.onLineStyleChange(s.key); setShowStylePicker(false) }}>
-                  <svg width="40" height="14" viewBox="0 0 40 14">
-                    <line x1="4" y1="7" x2="36" y2="7" stroke="currentColor" stroke-width="2"
-                      stroke-dasharray={s.key === 'dashed' ? '6,4' : s.key === 'dotted' ? '2,4' : 'none'} />
-                  </svg>
-                  <span>{i18n(s.labelKey, props.locale)}</span>
-                </div>
-              ))}
-            </div>
-          </Show>
-        </div>
-
-        <span class="klinecharts-pro-overlay-property-bar-separator" />
-
-        {/* 锁定切换 */}
-        <div
-          class={`klinecharts-pro-overlay-property-bar-item${props.locked ? ' active' : ''}`}
-          onClick={() => props.onLockChange(!props.locked)}
-          title={i18n('lock', props.locale)}>
-          <svg width="16" height="16" viewBox="0 0 16 16">
-            {props.locked
-              ? <path d="M11,7V5A3,3,0,0,0,5,5V7a2,2,0,0,0-2,2v4a2,2,0,0,0,2,2h6a2,2,0,0,0,2-2V9A2,2,0,0,0,11,7ZM6,5A2,2,0,0,1,10,5V7H6ZM12,13a1,1,0,0,1-1,1H5a1,1,0,0,1-1-1V9A1,1,0,0,1,5,8h6a1,1,0,0,1,1,1Z" fill="currentColor"/>
-              : <path d="M11,7H6V5A2,2,0,0,1,10,5h1A3,3,0,0,0,5,5V7a2,2,0,0,0-2,2v4a2,2,0,0,0,2,2h6a2,2,0,0,0,2-2V9A2,2,0,0,0,11,7Zm1,6a1,1,0,0,1-1,1H5a1,1,0,0,1-1-1V9A1,1,0,0,1,5,8h6a1,1,0,0,1,1,1Z" fill="currentColor"/>
-            }
-          </svg>
-        </div>
-
-        {/* 删除 */}
-        <div
-          class="klinecharts-pro-overlay-property-bar-item danger"
-          onClick={() => props.onDelete()}
-          title={i18n('delete_overlay', props.locale)}>
-          <svg width="16" height="16" viewBox="0 0 16 16">
-            <path d="M11,3H8.5l-.5-1h-3l-.5,1H2v1h1v9a1,1,0,0,0,1,1h7a1,1,0,0,0,1-1V4h1V3ZM11,13H4V4h7Zm-5-2V6H7v5Zm3,0V6h1v5Z" fill="currentColor"/>
-          </svg>
-        </div>
-      </div>
-    </Show>
-  )
+const OverlayPropertyBar:Component<OverlayPropertyBarProps>=props=>{
+ const en=()=>props.locale==='en-US',t=(zh:string,en:string)=>props.locale==='en-US'?en:zh
+ const labels=()=>({stroke:t('描边颜色','Stroke color'),fill:t('填充颜色','Fill color'),lineWidth:t('线宽','Line width'),lineStyle:t('线型','Line style'),textColor:t('文字颜色','Text color'),fontSize:t('字号','Font size')})
+ const [palette,setPalette]=createSignal<DrawingStyleControl>(),[notice,setNotice]=createSignal(''),[template,setTemplate]=createSignal(''),[narrow,setNarrow]=createSignal(false),[layout,setLayout]=createSignal({width:700,height:600,barHeight:154})
+ let element:HTMLDivElement|undefined,trigger:HTMLButtonElement|undefined
+ const ids=()=>props.objects.map(object=>object.logicalId)
+ const closePalette=()=>{setPalette(undefined);trigger?.focus()}
+ createEffect(()=>{ids().join('\0');setPalette(undefined);setNotice('')})
+ const showResult=(result:DrawingCommandResult)=>setNotice(result.status==='completed'?'':[result.message,`${result.status}: ${result.items.filter(item=>item.status==='confirmed').length}/${result.items.length}`,...result.items.filter(item=>item.status!=='confirmed').map(item=>`${props.objects.find(object=>object.logicalId===item.logicalId)?.presentation?.name??item.logicalId}: ${item.status} ${item.message??''}`)].filter(Boolean).join(' · '))
+ const send=async(command:DrawingCommand)=>showResult(await props.execute(command))
+ const changeStyle=async(control:DrawingStyleControl,value:string|number,target:HTMLElement|undefined)=>{
+   const selection=ids().join('\0')
+   showResult(await props.onStyle(control,value))
+   if(selection===ids().join('\0')&&target?.isConnected&&document.activeElement===document.body)target.focus()
+ }
+ const compatible=createMemo(()=>props.templates.filter(template=>props.objects.length===1&&template.toolId===props.catalog.find(tool=>tool.overlayName===props.objects[0].overlay.name)?.toolId))
+ const widthOptions=[1,2,3,4,6,8,14],fontOptions=[10,12,14,16,20,24,32]
+ createEffect(()=>{
+   if(!props.objects.length)return
+   let canceled=false,observer:ResizeObserver|undefined
+   queueMicrotask(()=>{const parent=element?.parentElement;if(canceled||!parent)return;const measure=()=>{setNarrow(parent.clientWidth<700);setLayout({width:parent.clientWidth,height:parent.clientHeight,barHeight:element?.clientHeight??154})};observer=new ResizeObserver(measure);measure();observer.observe(parent);if(element)observer.observe(element)})
+   onCleanup(()=>{canceled=true;observer?.disconnect()})
+ })
+ const position=createMemo(()=>{
+   const size=layout(),width=Math.min(660,size.width-16),left=Math.max(8,Math.min(props.position.x,size.width-width-8)),height=size.barHeight
+   const points=props.handles.filter(point=>point.x>=left-22&&point.x<=left+width+22),clamp=(top:number)=>Math.max(8,Math.min(top,size.height-height-8))
+   const candidates=[props.position.y,...(points.length?[Math.min(...points.map(point=>point.y))-height-26,Math.max(...points.map(point=>point.y))+26]:[]),8,size.height-height-8].map(clamp)
+   const top=candidates.find(top=>points.every(point=>point.y<top-22||point.y>top+height+22))??candidates[0]
+   return {left,top}
+ })
+ return <Show when={props.objects.length}><div ref={element} role="region" aria-label={t('绘图属性','Drawing properties')} class={`klinecharts-pro-overlay-property-bar${narrow()?' tc-drawing-property-docked':''}`} style={{left:`${position().left}px`,top:`${position().top}px`}} onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();if(palette())closePalette();else props.onClose()}}}>
+  <span>{t('已选','Selected')} {props.objects.length}</span>
+  <For each={props.controls}>{control=><Show when={['stroke','fill','textColor'].includes(control)} fallback={<label>{labels()[control]}<select aria-label={labels()[control]} disabled={!!props.reason} value={props.values[control]??''} onChange={event=>void changeStyle(control,control==='lineStyle'?event.currentTarget.value:Number(event.currentTarget.value),event.currentTarget)}>
+    <option value="" disabled>{t('混合','Mixed')}</option>
+    <For each={control==='lineStyle'?['solid','dashed','dotted']:control==='fontSize'?fontOptions:widthOptions}>{value=><option value={value}>{value==='solid'?t('实线','Solid'):value==='dashed'?t('虚线','Dashed'):value==='dotted'?t('点线','Dotted'):value}</option>}</For>
+   </select></label>}><button type="button" disabled={!!props.reason} aria-label={labels()[control]} aria-expanded={palette()===control} onClick={event=>{const next=palette()===control?undefined:control;trigger=event.currentTarget;setPalette(next);if(next)queueMicrotask(()=>element?.querySelector<HTMLButtonElement>('.tc-drawing-color-palette button')?.focus())}}><span class="tc-drawing-color-swatch" style={{'background-color':typeof props.values[control]==='string'?String(props.values[control]):'transparent'}}/>{labels()[control]} {props.values[control]===undefined?t('混合','Mixed'):''}</button></Show>}</For>
+  <button type="button" disabled={!!props.lockReason} aria-label={props.objects.every(o=>o.overlay.lock)?t('解锁绘图','Unlock drawings'):t('锁定绘图','Lock drawings')} onClick={()=>void send({type:'update',ids:ids(),patch:{overlay:{lock:!props.objects.every(o=>o.overlay.lock)}}})}>{props.objects.every(o=>o.overlay.lock)?t('解锁','Unlock'):t('锁定','Lock')}</button>
+  <button type="button" disabled={!!props.reason} onClick={()=>void send({type:'delete',ids:ids()})}>{t('删除绘图','Delete drawings')}</button>
+  <button type="button" onClick={props.onSettings}>{props.objects.length===1?t('绘图设置','Drawing settings'):t('管理选中对象','Manage selection')}</button>
+  <select aria-label={t('快捷绘图模板','Quick drawing template')} disabled={!!props.reason||!props.templates.length} value={template()} onChange={event=>setTemplate(event.currentTarget.value)}><option value="">{props.templates.length?t('选择模板','Choose template'):t('暂无模板','No templates')}</option><For each={props.templates}>{item=><option value={item.id}>{item.name}</option>}</For></select>
+  <button type="button" disabled={!!props.reason||!compatible().some(item=>item.id===template())} onClick={()=>void send({type:'template',action:'apply',ids:ids(),templateId:template()})}>{t('应用模板','Apply template')}</button>
+  <button type="button" disabled={!!props.reason||!template()||!commonStyleControls([...props.objects.map(object=>props.catalog.find(tool=>tool.overlayName===object.overlay.name)),props.catalog.find(tool=>tool.toolId===props.templates.find(item=>item.id===template())?.toolId)]).length} onClick={()=>void send({type:'template',action:'apply',ids:ids(),templateId:template(),styleOnly:true})}>{t('只应用共同样式','Apply common styles only')}</button>
+  <button type="button" onClick={props.onTemplates}>{t('管理模板','Manage templates')}</button>
+  <button type="button" aria-label={t('关闭绘图属性','Close drawing properties')} onClick={props.onClose}>×</button>
+  <Show when={props.reason||props.lockReason}><small role="status">{en()?'Selection cannot be edited: ':''}{props.reason??props.lockReason}</small></Show>
+  <Show when={notice()}><small role="alert">{notice()}</small></Show>
+  <Show when={palette()}>{control=><ColorPalette label={labels()[control()]} value={String(props.values[control()]??'')} transparent={control()==='fill'} choose={color=>{void changeStyle(control(),color,trigger);closePalette()}} close={closePalette}/>}</Show>
+ </div></Show>
 }
-
 export default OverlayPropertyBar

@@ -6,6 +6,10 @@ export const styleControls=(tool:DrawingToolDescriptor|undefined):DrawingStyleCo
 export function commonStyleControls(tools:Array<DrawingToolDescriptor|undefined>):DrawingStyleControl[]{
   return tools.length?styleControls(tools[0]).filter(control=>tools.every(tool=>styleControls(tool).includes(control))):[]
 }
+export function styleControlOptions(control:DrawingStyleControl,current:string|number|undefined):Array<string|number>{
+ const values:Array<string|number>=control==='lineStyle'?['solid','dashed','dotted']:control==='fontSize'?[10,12,14,16,20,24,32]:[1,2,3,4,6,8,14]
+ return [...new Set([...values,...(current!==undefined?[current]:[])])]
+}
 /** Standard figure keys are shared by built-in and third-party tools. */
 export function drawingStylePatch(control:DrawingStyleControl,value:string|number):Styles {
   const result:any={},shapes=['polygon','rect','circle']

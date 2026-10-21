@@ -1,4 +1,4 @@
-import {Show,type Component} from 'solid-js'
+import {For,Show,type Component} from 'solid-js'
 import type {DrawingAnalyticsState} from '../../drawing/analytics'
 
 const AnalyticsSummary:Component<{state:DrawingAnalyticsState;locale:string}>=props=>{
@@ -15,6 +15,7 @@ const AnalyticsSummary:Component<{state:DrawingAnalyticsState;locale:string}>=pr
       {t('成交量','Volume')} {number(summary().volume)} ({t('数据源成交量单位','provider volume units')})
       <Show when={summary().poc!==undefined}> · POC {number(summary().poc)} · VAH {number(summary().vah)} · VAL {number(summary().val)} · VA {number((summary().valueArea??0)*100)}% · {summary().rows} {t('行','rows')}</Show>
     </span>}</Show>
+    <Show when={props.state.bands}>{bands=><span>{bands().mode==='percentage'?t('百分比带','Percentage bands'):t('成交量加权总体标准差带','Volume-weighted population deviation bands')}<For each={bands().values}>{value=><span> · {value.multiplier}{bands().mode==='percentage'?'%':'σ'}: {number(value.lower)} — {number(value.upper)}</span>}</For><Show when={bands().reason}><strong>{t('带不可用','Bands unavailable')}: {bands().reason}</strong></Show></span>}</Show>
     <Show when={props.state.replayPartial}><strong>{t('回放区间尚未完整','Replay interval is not complete')}</strong></Show>
     <Show when={props.state.reason}><span data-analytics-status={props.state.status}>{props.state.status}: {props.state.reason}</span></Show>
   </div>

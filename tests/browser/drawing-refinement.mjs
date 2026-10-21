@@ -1,3 +1,4 @@
+import {volumeRefinement} from './volume-refinement-cases.mjs'
 import {launchBrowser} from './support.mjs'
 import assert from 'node:assert/strict'
 import {writeFileSync} from 'node:fs'
@@ -91,6 +92,25 @@ try {
  await page.waitForFunction(()=>pro.getDrawings()[0].overlay.styles.polygon.borderSize===4)
  results.push({scenario:'locked-selection-explicit-unlock-and-narrow-44px-controls',passed:true})
  await page.screenshot({path:`${process.env.TC_BROWSER_EVIDENCE}/drawing-refinement-narrow.png`})
+ await volumeRefinement(page,results)
+
+ await page.evaluate(async()=>{
+  await pro.executeDrawingCommand({type:'select',ids:[]});await pro.executeDrawingCommand({type:'delete',ids:pro.getDrawings().map(d=>d.logicalId)})
+  const b=pro.getChart().getDataList().at(-35),id='nonpreset',anchors=[{kind:'market',timestamp:b.timestamp,value:b.close}]
+  pro.restoreDrawings('local',[{logicalId:id,owner:'local',anchors,overlay:{id,name:'note',paneId:'candle_pane',groupId:'drawing_tools',points:anchors.map(a=>({timestamp:a.timestamp,value:a.value})),visible:true,lock:false,extendData:'字号回归',styles:{text:{size:18,backgroundColor:'#abcdef80'}}}}]);await pro.executeDrawingCommand({type:'select',ids:[id]})
+ })
+ assert.equal(await bar.getByRole('combobox',{name:'字号',exact:true}).inputValue(),'18')
+ await bar.getByRole('button',{name:'绘图设置',exact:true}).click()
+ assert.equal(await manager.getByRole('combobox',{name:'字号',exact:true}).count(),1);assert.equal(await manager.getByRole('combobox',{name:'字号',exact:true}).inputValue(),'18')
+ assert.equal(await manager.locator('input[type=color]').count(),0)
+ assert.match(await manager.getByRole('button',{name:'填充颜色',exact:true}).innerText(),/#abcdef80/)
+ await manager.getByRole('combobox',{name:'字号',exact:true}).selectOption('20');await manager.getByRole('button',{name:'填充颜色',exact:true}).click();await manager.getByRole('button',{name:'transparent',exact:true}).click()
+ await manager.getByRole('button',{name:'取消修改',exact:true}).click();await manager.getByRole('button',{name:'关闭绘图管理',exact:true}).click()
+ assert.deepEqual(await page.evaluate(()=>pro.getDrawings()[0].overlay.styles.text),{size:18,backgroundColor:'#abcdef80'})
+ await page.evaluate(async()=>{const drawing=pro.getDrawings()[0],bar=pro.getChart().getDataList().at(-28);drawing.overlay.name='segment';drawing.overlay.styles={line:{size:2.5}};drawing.anchors.push({kind:'market',timestamp:bar.timestamp,value:bar.close});drawing.overlay.points=drawing.anchors.map(a=>({timestamp:a.timestamp,value:a.value}));pro.restoreDrawings('local',[drawing]);await pro.executeDrawingCommand({type:'select',ids:[drawing.logicalId]})})
+ assert.equal(await bar.getByRole('combobox',{name:'线宽',exact:true}).inputValue(),'2.5');await bar.getByRole('button',{name:'绘图设置',exact:true}).click();assert.equal(await manager.getByRole('combobox',{name:'线宽',exact:true}).inputValue(),'2.5')
+ await manager.getByRole('button',{name:'取消修改',exact:true}).click();await manager.getByRole('button',{name:'关闭绘图管理',exact:true}).click()
+ results.push({scenario:'review-nonpreset-style-current-values-single-entry-and-cancel',passed:true})
  assert.deepEqual(errors,[])
  const evidence={passed:true,scope:'isolated-native-engine',results,errors}
  if(process.argv[2])writeFileSync(process.argv[2],JSON.stringify(evidence,null,2))

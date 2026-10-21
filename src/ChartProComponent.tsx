@@ -215,7 +215,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const [workbenchOpen,setWorkbenchOpen]=createSignal(false)
   const [workbenchEditing,setWorkbenchEditing]=createSignal<string>()
   const [workbenchDirty,setWorkbenchDirty]=createSignal(false)
-  const [workbenchPage,setWorkbenchPage]=createSignal<'settings'|'templates'>('settings')
+  const [workbenchPage,setWorkbenchPage]=createSignal<'objects'|'settings'|'templates'>('objects')
+  const [workbenchRequest,setWorkbenchRequest]=createSignal(0)
   const [drawingMenu,setDrawingMenu]=createSignal<{x:number;y:number}>()
   const [selectionBox,setSelectionBox]=createSignal<{x:number;y:number;width:number;height:number}>()
   const [drawingHandles,setDrawingHandles]=createSignal<DrawingHandle[]>([])
@@ -1489,7 +1490,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             onRemoveClick={(groupId) => { for(const id of [...ownedDrawingIds]){const overlay=widget?.getOverlays({id})[0];if(overlay&&(!groupId||overlay.groupId===groupId))widget?.removeOverlay({id})} }}/>
         </Show>
         <Show when={drawingBarVisible()&&workbenchState()}>{state=><DrawingFavorites state={state()} catalog={drawingCatalog} locale={locale()} execute={command=>drawingController.execute(command)}/>}</Show>
-        <Show when={workbenchOpen()&&workbenchState()}>{state=><DrawingWorkbench contextKey={JSON.stringify([drawingContextEpoch(),symbol(),period(),dataState()?.basis,workbenchState()?.sharing?.workspace?.key,workbenchState()?.sharing?.host?.key])} locale={locale()} state={state()} catalog={drawingCatalog} period={period()} periods={props.periods} tickSize={symbol().tickSize} rotation={{read:object=>{const points=projectDrawingPoints(object).map(point=>drawingToPixel(point,object));return points.length>1?Math.atan2(points[0].y-points[1].y,points[1].x-points[0].x)*180/Math.PI:0},apply:(object,degrees)=>rotatedDrawing(object,degrees,{bars:widget?.getDataList()??[],period:period(),size:drawingSize,toPixel:drawingToPixel,fromPixel:drawingFromPixel,project:projectDrawingPoints})}} editId={workbenchEditing()} page={workbenchPage()} onDirtyChange={setWorkbenchDirty} axes={object=>widget?.getYAxes({paneId:object.overlay.paneId??'candle_pane'}).map(axis=>({id:axis.id,name:axis.name}))??[]} execute={command=>drawingController.execute(command)} convertAnchor={convertDrawingAnchor} locate={object=>{const point=projectDrawingPoints(object)[0];if(point?.timestamp!==undefined){const index=widget?.getDataList().findIndex(bar=>bar.timestamp===point.timestamp);if(index!==undefined&&index>=0)widget?.scrollToDataIndex(index,0)}const rendered=widget?.getOverlays({id:object.logicalId})[0];if(rendered)markSelectedOverlay(rendered,false)}} onClose={()=>{setWorkbenchOpen(false);setWorkbenchEditing(undefined);queueMicrotask(()=>(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.querySelector<HTMLButtonElement>('[aria-label="Drawing properties"] button, [aria-label="绘图属性"] button')?.focus())}}/>}</Show>
+        <Show when={workbenchOpen()&&workbenchState()}>{state=><DrawingWorkbench contextKey={JSON.stringify([drawingContextEpoch(),symbol(),period(),dataState()?.basis,workbenchState()?.sharing?.workspace?.key,workbenchState()?.sharing?.host?.key])} locale={locale()} state={state()} catalog={drawingCatalog} period={period()} periods={props.periods} tickSize={symbol().tickSize} rotation={{read:object=>{const points=projectDrawingPoints(object).map(point=>drawingToPixel(point,object));return points.length>1?Math.atan2(points[0].y-points[1].y,points[1].x-points[0].x)*180/Math.PI:0},apply:(object,degrees)=>rotatedDrawing(object,degrees,{bars:widget?.getDataList()??[],period:period(),size:drawingSize,toPixel:drawingToPixel,fromPixel:drawingFromPixel,project:projectDrawingPoints})}} editId={workbenchEditing()} page={workbenchPage()} requestVersion={workbenchRequest()} onDirtyChange={setWorkbenchDirty} axes={object=>widget?.getYAxes({paneId:object.overlay.paneId??'candle_pane'}).map(axis=>({id:axis.id,name:axis.name}))??[]} execute={command=>drawingController.execute(command)} convertAnchor={convertDrawingAnchor} locate={object=>{const point=projectDrawingPoints(object)[0];if(point?.timestamp!==undefined){const index=widget?.getDataList().findIndex(bar=>bar.timestamp===point.timestamp);if(index!==undefined&&index>=0)widget?.scrollToDataIndex(index,0)}const rendered=widget?.getOverlays({id:object.logicalId})[0];if(rendered)markSelectedOverlay(rendered,false)}} onClose={()=>{setWorkbenchOpen(false);setWorkbenchEditing(undefined);queueMicrotask(()=>(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.querySelector<HTMLButtonElement>('[aria-label="Drawing properties"] button, [aria-label="绘图属性"] button')?.focus())}}/>}</Show>
         <div
           ref={widgetRef}
           class='klinecharts-pro-widget'
@@ -1502,7 +1503,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           {label:locale()==='en-US'?'Copy':'复制',run:()=>void drawingController.execute({type:'copy',ids:drawingController.getSelectedIds()})},
           {label:locale()==='en-US'?'Paste':'粘贴',run:()=>void drawingController.execute({type:'paste'})},
           {label:locale()==='en-US'?'Duplicate':'克隆',run:()=>void drawingController.execute({type:'duplicate',ids:drawingController.getSelectedIds()})},
-          {label:locale()==='en-US'?'Settings':'设置',run:()=>{setWorkbenchPage('settings');setWorkbenchEditing(drawingController.getSelectedIds()[0]);setWorkbenchOpen(true)}},
+          {label:locale()==='en-US'?'Settings':'设置',run:()=>{setWorkbenchPage('settings');setWorkbenchEditing(drawingController.getSelectedIds()[0]);setWorkbenchRequest(value=>value+1);setWorkbenchOpen(true)}},
           {label:locale()==='en-US'?'Delete':'删除',run:deleteSelectedDrawing},
           {label:locale()==='en-US'?'Clear selection':'清空选择',run:()=>void drawingController.execute({type:'select',ids:[]})}
         ]}/>}</Show>
@@ -1521,8 +1522,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           templates={workbenchState()?.preferences?.value.templates??[]}
           execute={command=>drawingController.execute(command)}
           onStyle={(control,value)=>drawingController.execute({type:'update',ids:drawingController.getSelectedIds(),patch:{overlay:{styles:drawingStylePatch(control,value)}}})}
-          onSettings={()=>{setWorkbenchPage('settings');setWorkbenchEditing(drawingController.getSelectedIds().length===1?drawingController.getSelectedIds()[0]:undefined);setWorkbenchOpen(true)}}
-          onTemplates={()=>{setWorkbenchPage('templates');setWorkbenchOpen(true)}}
+          onSettings={()=>{setWorkbenchPage(drawingController.getSelectedIds().length===1?'settings':'objects');setWorkbenchEditing(drawingController.getSelectedIds().length===1?drawingController.getSelectedIds()[0]:undefined);setWorkbenchRequest(value=>value+1);setWorkbenchOpen(true)}}
+          onTemplates={()=>{setWorkbenchEditing(undefined);setWorkbenchPage('templates');setWorkbenchRequest(value=>value+1);setWorkbenchOpen(true)}}
           onClose={()=>void drawingController.execute({type:'select',ids:[]})}
         />
         <ReplayControlBar

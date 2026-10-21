@@ -3,9 +3,10 @@ import type {ConfirmedSeries} from '../core/engineDataLoader'
 import type {ChartDataState} from '../types'
 import type {DrawingSnapshot} from './types'
 import {VwapIndex,calculateVolumeProfile,isVolumeDrawing,lowerBound,type DrawingAnalyticsState,type VolumeProfile,type VwapPoint,type VwapPriceSource} from './analytics'
+import {VwapBandIndex,vwapBandOptions,vwapBands} from './vwapBands'
 import {drawingParameters} from './content'
 
-export interface DrawingAnalyticsResult {state:DrawingAnalyticsState;from:number;to:number;profile?:VolumeProfile;point?:(index:number)=>VwapPoint}
+export interface DrawingAnalyticsResult {state:DrawingAnalyticsState;from:number;to:number;profile?:VolumeProfile;point?:(index:number)=>VwapPoint;band?:(index:number)=>import('./analytics').VwapBandsSummary|undefined}
 export const drawingAnalyticsRuntimes=new WeakMap<Chart,DrawingAnalyticsRuntime>()
 export class DrawingAnalyticsRuntime {
   private context?:ConfirmedSeries
@@ -14,14 +15,16 @@ export class DrawingAnalyticsRuntime {
   private revision=-1
   private error?:string
   private results=new Map<string,{key:string;result:DrawingAnalyticsResult}>()
+  private bandIndexes=new Map<VwapPriceSource,VwapBandIndex>()
   private indexes=new Map<VwapPriceSource,VwapIndex>()
   sync(context:ConfirmedSeries,bars:readonly KLineData[]):boolean {
     const key=JSON.stringify([context.symbol.market,context.symbol.exchange,context.symbol.ticker,context.symbol.priceCurrency,context.period.multiplier,context.period.timespan,context.basis,context.epoch,context.replay])
     const changed=key!==this.contextKey||context.contentRevision!==this.revision||context.confirmed!==this.context?.confirmed||context.cutoff!==this.context?.cutoff
     const same=key===this.contextKey
-    if(!same){this.results.clear();this.indexes.clear();this.error=undefined}
+    if(!same){this.results.clear();this.indexes.clear();this.bandIndexes.clear();this.error=undefined}
     if(!same||context.contentRevision!==this.revision){
       for(const index of this.indexes.values())index.update(bars,same&&context.contentChange==='tail')
+      for(const index of this.bandIndexes.values())index.update(bars,same&&context.contentChange==='tail')
     }
     this.bars=bars;this.context={...context,symbol:{...context.symbol},period:{...context.period}}
     this.contextKey=key;this.revision=context.contentRevision??-1
@@ -45,7 +48,8 @@ export class DrawingAnalyticsRuntime {
     const times=drawing.anchors?.map(a=>a.kind==='market'?a.timestamp:NaN)??drawing.overlay.points.map(p=>p.timestamp??NaN)
     const start=Math.min(...times),end=drawing.overlay.name==='anchoredVwap'?undefined:Math.max(...times)
     const parameters=drawing.parameters??{},context=this.context
-    const key=JSON.stringify([this.contextKey,this.revision,context?.confirmed,context?.cutoff,start,end,parameters,this.error])
+    const mathParameters=drawing.overlay.name==='anchoredVwap'?{source:parameters.source,algorithm:parameters.algorithm,bandMode:parameters.bandMode,bandMultipliers:parameters.bandMultipliers,bandAlgorithm:parameters.bandAlgorithm}:{rows:parameters.rows,valueArea:parameters.valueArea,algorithm:parameters.algorithm}
+    const key=JSON.stringify([this.contextKey,this.revision,context?.confirmed,context?.cutoff,drawing.overlay.name,start,end,mathParameters,this.error])
     const cached=this.results.get(drawing.logicalId);if(cached?.key===key)return cached.result
     const state:DrawingAnalyticsState={status:'calculating',method:drawing.overlay.name==='anchoredVwap'?'bar-price-volume-v1':'bar-range-uniform-v1',period:context?.period?{...context.period}:undefined,requestedRange:{from:Number.isFinite(start)?start:0,...(end!==undefined&&Number.isFinite(end)?{to:end}:{})},count:0,coverage:'loaded-bars'}
     let result:DrawingAnalyticsResult={state,from:0,to:-1}
@@ -74,6 +78,13 @@ export class DrawingAnalyticsRuntime {
             result.point=i=>index!.at(this.bars,from,i)
             if(current.value===undefined)throw Error(current.volume===0?'累计成交量为零或无效，无法计算均价':'累计区间存在无效 OHLCV 或数值溢出，请修正数据后重试')
             state.summary={vwap:current.value,volume:current.volume,source}
+            const options=vwapBandOptions(parameters)
+            if(options.mode!=='none'){
+              let moments=this.bandIndexes.get(source)
+              if(options.mode==='standard-deviation'&&!moments){moments=new VwapBandIndex(source);moments.update(this.bars);this.bandIndexes.set(source,moments)}
+              result.band=i=>vwapBands(index!.at(this.bars,from,i).value,options,()=>moments!.deviation(this.bars,from,i,index!.at(this.bars,from,i).value!))
+              state.bands=result.band(to)
+            }
           }else{
             if(parameters.algorithm!==undefined&&parameters.algorithm!=='bar-range-uniform-v1')throw Error('成交量分布算法无效')
             const profile=calculateVolumeProfile(this.bars,from,to,Number(parameters.rows??48),Number(parameters.valueArea??.7))
@@ -84,10 +95,14 @@ export class DrawingAnalyticsRuntime {
         }catch(error){unavailable(error instanceof Error?error.message:String(error))}
       }
     }
+    if(drawing.overlay.name==='anchoredVwap'&&!state.bands&&parameters.bandMode!==undefined&&parameters.bandMode!=='none'){
+      try{state.bands=vwapBands(undefined,vwapBandOptions(parameters));if(state.bands&&state.reason)state.bands.reason=state.reason}
+      catch(error){unavailable(error instanceof Error?error.message:String(error))}
+    }
     if(this.error&&context?.confirmed){state.status='stale';state.reason=`${this.error}；请重试原行情读取`}
     if(this.results.size>2048)this.results.clear()
     this.results.set(drawing.logicalId,{key,result});return result
   }
   timestamp(index:number):number|undefined{return this.bars[index]?.timestamp}
-  dispose():void {this.results.clear();this.indexes.clear();this.bars=[];this.context=undefined;this.contextKey='';this.error=undefined}
+  dispose():void {this.results.clear();this.indexes.clear();this.bandIndexes.clear();this.bars=[];this.context=undefined;this.contextKey='';this.error=undefined}
 }

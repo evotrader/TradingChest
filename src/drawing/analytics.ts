@@ -3,6 +3,9 @@ import type {Period} from '../types'
 
 export type VwapPriceSource='close'|'hl2'|'hlc3'|'ohlc4'
 export type DrawingAnalyticsMethod='bar-price-volume-v1'|'bar-range-uniform-v1'
+export type VwapBandMode='none'|'standard-deviation'|'percentage'
+export interface VwapBandBoundary {multiplier:number;lower:number;upper:number}
+export interface VwapBandsSummary {mode:Exclude<VwapBandMode,'none'>;method:'ohlcv-vwap-bands-v1';values:VwapBandBoundary[];reason?:string}
 export interface DrawingAnalyticsState {
   status:'calculating'|'ready'|'unavailable'|'stale'
   method:DrawingAnalyticsMethod
@@ -14,6 +17,7 @@ export interface DrawingAnalyticsState {
   boundarySampled?:boolean
   replayPartial?:boolean
   reason?:string
+  bands?:VwapBandsSummary
   summary?:{vwap?:number;volume:number;poc?:number;vah?:number;val?:number;valueArea?:number;rows?:number;source?:VwapPriceSource}
 }
 export interface VwapPoint {timestamp:number;value?:number;volume:number}
@@ -30,7 +34,7 @@ export function validVolumeBar(bar:KLineData):boolean {
   return [bar.timestamp,bar.open,bar.high,bar.low,bar.close,bar.volume].every(v=>typeof v==='number'&&Number.isFinite(v))&&
     bar.volume!>=0&&bar.low<=Math.min(bar.open,bar.close)&&bar.high>=Math.max(bar.open,bar.close)&&bar.high>=bar.low
 }
-const price=(bar:KLineData,source:VwapPriceSource)=>source==='close'?bar.close:source==='hl2'?bar.high/2+bar.low/2:source==='hlc3'?bar.high/3+bar.low/3+bar.close/3:bar.open/4+bar.high/4+bar.low/4+bar.close/4
+export const vwapSourcePrice=(bar:KLineData,source:VwapPriceSource)=>source==='close'?bar.close:source==='hl2'?bar.high/2+bar.low/2:source==='hlc3'?bar.high/3+bar.low/3+bar.close/3:bar.open/4+bar.high/4+bar.low/4+bar.close/4
 class Sum {
   private parts:number[]
   // Retain storage between accumulations; only this active prefix participates in arithmetic.
@@ -88,7 +92,7 @@ export class VwapIndex {
     }else{this.amounts=[0];this.volumes=[0];this.invalid=[0];this.amount=new Sum();this.volume=new Sum();this.beforeTail=undefined}
     for(let i=start;i<bars.length;i++){
       if(i===bars.length-1)this.beforeTail={amount:this.amount.snapshot(),volume:this.volume.snapshot()}
-      const bar=bars[i],valid=validVolumeBar(bar),contribution=valid?price(bar,this.source)*bar.volume!:0
+      const bar=bars[i],valid=validVolumeBar(bar),contribution=valid?vwapSourcePrice(bar,this.source)*bar.volume!:0
       const size=valid?bar.volume!:0,amount=this.amount.add(Number.isFinite(contribution)?contribution:0),volume=this.volume.add(size)
       if(!Number.isFinite(amount)||!Number.isFinite(volume)){this.amount=new Sum();this.volume=new Sum()}
       this.amounts.push(this.amount.total);this.volumes.push(this.volume.total)
@@ -109,7 +113,7 @@ export class VwapIndex {
     let range=this.ranges.get(from)
     if(!range){if(this.ranges.size>=64)this.ranges.delete(this.ranges.keys().next().value!);range={amount:new Sum(),volume:new Sum(),bad:false,points:[]};this.ranges.set(from,range)}
     for(let i=from+range.points.length;i<=index;i++){
-      const bar=bars[i],valid=validVolumeBar(bar),contribution=valid?price(bar,this.source)*bar.volume!:NaN
+      const bar=bars[i],valid=validVolumeBar(bar),contribution=valid?vwapSourcePrice(bar,this.source)*bar.volume!:NaN
       if(!valid||!Number.isFinite(contribution))range.bad=true
       else{range.amount.add(contribution);range.volume.add(bar.volume!)}
       const value=!range.bad&&range.volume.total>0?range.amount.total/range.volume.total:undefined

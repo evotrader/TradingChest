@@ -1,5 +1,5 @@
 import {createEffect,createMemo,createSignal,onCleanup,Show,For,type Component} from 'solid-js'
-import {commonStyleControls} from '../../drawing/styleControls'
+import {commonStyleControls,styleControlOptions} from '../../drawing/styleControls'
 import type {DrawingToolDescriptor,DrawingStyleControl} from '../../drawing/catalog'
 import type {DrawingCommand,DrawingCommandResult,DrawingSnapshot} from '../../drawing/types'
 import type {DrawingTemplate} from '../../drawing/preferences'
@@ -38,7 +38,6 @@ const OverlayPropertyBar:Component<OverlayPropertyBarProps>=props=>{
    if(selection===ids().join('\0')&&target?.isConnected&&document.activeElement===document.body)target.focus()
  }
  const compatible=createMemo(()=>props.templates.filter(template=>props.objects.length===1&&template.toolId===props.catalog.find(tool=>tool.overlayName===props.objects[0].overlay.name)?.toolId))
- const widthOptions=[1,2,3,4,6,8,14],fontOptions=[10,12,14,16,20,24,32]
  createEffect(()=>{
    if(!props.objects.length)return
    let canceled=false,observer:ResizeObserver|undefined
@@ -56,7 +55,7 @@ const OverlayPropertyBar:Component<OverlayPropertyBarProps>=props=>{
   <span>{t('已选','Selected')} {props.objects.length}</span>
   <For each={props.controls}>{control=><Show when={['stroke','fill','textColor'].includes(control)} fallback={<label>{labels()[control]}<select aria-label={labels()[control]} disabled={!!props.reason} value={props.values[control]??''} onChange={event=>void changeStyle(control,control==='lineStyle'?event.currentTarget.value:Number(event.currentTarget.value),event.currentTarget)}>
     <option value="" disabled>{t('混合','Mixed')}</option>
-    <For each={control==='lineStyle'?['solid','dashed','dotted']:control==='fontSize'?fontOptions:widthOptions}>{value=><option value={value}>{value==='solid'?t('实线','Solid'):value==='dashed'?t('虚线','Dashed'):value==='dotted'?t('点线','Dotted'):value}</option>}</For>
+    <For each={styleControlOptions(control,props.values[control])}>{value=><option value={value}>{value==='solid'?t('实线','Solid'):value==='dashed'?t('虚线','Dashed'):value==='dotted'?t('点线','Dotted'):value}</option>}</For>
    </select></label>}><button type="button" disabled={!!props.reason} aria-label={labels()[control]} aria-expanded={palette()===control} onClick={event=>{const next=palette()===control?undefined:control;trigger=event.currentTarget;setPalette(next);if(next)queueMicrotask(()=>element?.querySelector<HTMLButtonElement>('.tc-drawing-color-palette button')?.focus())}}><span class="tc-drawing-color-swatch" style={{'background-color':typeof props.values[control]==='string'?String(props.values[control]):'transparent'}}/>{labels()[control]} {props.values[control]===undefined?t('混合','Mixed'):''}</button></Show>}</For>
   <button type="button" disabled={!!props.lockReason} aria-label={props.objects.every(o=>o.overlay.lock)?t('解锁绘图','Unlock drawings'):t('锁定绘图','Lock drawings')} onClick={()=>void send({type:'update',ids:ids(),patch:{overlay:{lock:!props.objects.every(o=>o.overlay.lock)}}})}>{props.objects.every(o=>o.overlay.lock)?t('解锁','Unlock'):t('锁定','Lock')}</button>
   <button type="button" disabled={!!props.reason} onClick={()=>void send({type:'delete',ids:ids()})}>{t('删除绘图','Delete drawings')}</button>

@@ -1,5 +1,6 @@
+import {vwapBandOptions} from './vwapBands'
 export type DrawingCategory='lines'|'channels'|'geometry'|'fibonacci'|'waves'|'measurement'|'annotations'|'positions'|'volume'
-export interface DrawingParameter {key:string;label:string;kind:'number'|'text'|'boolean'|'levels';min?:number;max?:number;choices?:string[];defaultValue:number|string|boolean|number[]}
+export interface DrawingParameter {key:string;label:string;kind:'number'|'text'|'boolean'|'levels'|'color';min?:number;max?:number;choices?:string[];defaultValue:number|string|boolean|number[]}
 export type DrawingStyleControl='stroke'|'fill'|'lineWidth'|'lineStyle'|'textColor'|'fontSize'
 export interface DrawingToolDescriptor {
   toolId:string
@@ -44,8 +45,22 @@ export const builtinDrawingCatalog:DrawingToolDescriptor[]=groups.flatMap(([cate
   const text=['textAnnotation','callout','note','anchoredText'].includes(toolId),variable=['polyline','anyWaves'].includes(toolId)
   if(category==='volume')return {toolId,overlayName:toolId,styleControls:builtinStyleControls(toolId),labels:{'zh-CN':zh,'en-US':en},category,icon:toolId,shortcut,mode:'points',minPoints:points,maxPoints:points,settings:['style','coordinates','visibility','parameters'],parameters:toolId==='anchoredVwap'?[
     {key:'source',label:'价格源',kind:'text',choices:['close','hl2','hlc3','ohlc4'],defaultValue:'hlc3'},
-    {key:'algorithm',label:'估算算法',kind:'text',choices:['bar-price-volume-v1'],defaultValue:'bar-price-volume-v1'}
-  ]:[{key:'rows',label:'分箱行数',kind:'number',min:1,max:256,choices:['24','48','96','192'],defaultValue:48},{key:'valueArea',label:'价值区比例',kind:'number',min:Number.MIN_VALUE,max:1,choices:['0.5','0.6','0.68','0.7','0.8','0.9','0.95'],defaultValue:.7},{key:'mode',label:'成交量显示',kind:'text',choices:['total','up-down'],defaultValue:'total'},{key:'algorithm',label:'估算算法',kind:'text',choices:['bar-range-uniform-v1'],defaultValue:'bar-range-uniform-v1'}]} as DrawingToolDescriptor
+    {key:'algorithm',label:'估算算法',kind:'text',choices:['bar-price-volume-v1'],defaultValue:'bar-price-volume-v1'},
+    {key:'bandMode',label:'VWAP 带模式',kind:'text',choices:['none','standard-deviation','percentage'],defaultValue:'none'},
+    {key:'bandMultipliers',label:'VWAP 带倍数',kind:'levels',defaultValue:[1,2,3]},
+    {key:'bandFill',label:'填充 VWAP 带',kind:'boolean',defaultValue:true},
+    {key:'bandOpacity',label:'VWAP 带透明度',kind:'number',min:0,max:1,choices:['0','0.05','0.12','0.2','0.3','0.5','1'],defaultValue:.12},
+    {key:'bandAlgorithm',label:'带算法',kind:'text',choices:['ohlcv-vwap-bands-v1'],defaultValue:'ohlcv-vwap-bands-v1'}
+  ]:[{key:'rows',label:'分箱行数',kind:'number',min:1,max:256,choices:['24','48','96','192'],defaultValue:48},{key:'valueArea',label:'价值区比例',kind:'number',min:Number.MIN_VALUE,max:1,choices:['0.5','0.6','0.68','0.7','0.8','0.9','0.95'],defaultValue:.7},{key:'mode',label:'成交量显示',kind:'text',choices:['total','up-down'],defaultValue:'total'},{key:'algorithm',label:'估算算法',kind:'text',choices:['bar-range-uniform-v1'],defaultValue:'bar-range-uniform-v1'},
+    {key:'profileSide',label:'分布位置',kind:'text',choices:['left','right'],defaultValue:'left'},
+    {key:'profileWidth',label:'分布宽度',kind:'number',min:Number.MIN_VALUE,max:1,choices:['0.05','0.1','0.2','0.3','0.5','1'],defaultValue:.3},
+    {key:'levelExtent',label:'价位线延长',kind:'text',choices:['profile','range','pane-right'],defaultValue:'profile'},
+    ...(['Poc','Vah','Val'] as const).flatMap(level=>[
+      {key:`show${level}`,label:`显示 ${level.toUpperCase()}`,kind:'boolean',defaultValue:true},
+      {key:`${level.toLowerCase()}Color`,label:`${level.toUpperCase()} 颜色`,kind:'color',defaultValue:level==='Poc'?'#f59e0b':'#64748b'},
+      {key:`${level.toLowerCase()}Width`,label:`${level.toUpperCase()} 线宽`,kind:'number',min:1,max:4,choices:['1','2','3','4'],defaultValue:1},
+      {key:`${level.toLowerCase()}Style`,label:`${level.toUpperCase()} 线型`,kind:'text',choices:['solid','dashed','dotted'],defaultValue:level==='Poc'?'solid':'dashed'}
+    ])]} as DrawingToolDescriptor
   return {toolId,overlayName:toolId,styleControls:builtinStyleControls(toolId),labels:{'zh-CN':zh,'en-US':en},category,icon:toolId,shortcut,
     mode:['brush','highlighter'].includes(toolId)?'continuous':text?'text':variable?'variable':'points',minPoints:points,maxPoints:variable||['brush','highlighter'].includes(toolId)?null:points,
     settings:['style',...(text?['text' as const]:[]),'coordinates','visibility',...(category==='fibonacci'||category==='channels'?['parameters' as const]:[])],
@@ -61,12 +76,14 @@ export function copyDrawingCatalog(input:DrawingToolDescriptor[]=builtinDrawingC
   return structuredClone(input)
 }
 export function validateDrawingParameters(tool:DrawingToolDescriptor,parameters:Record<string,unknown>):void {
+  if(tool.overlayName==='anchoredVwap')vwapBandOptions(parameters)
   for(const [key,value] of Object.entries(parameters)){
     const spec=tool.parameters.find(p=>p.key===key)
     if(!spec)throw Error(`工具 ${tool.toolId} 不支持参数 ${key}`)
     if(spec.kind==='number'&&(typeof value!=='number'||!Number.isFinite(value)||(spec.min!==undefined&&value<spec.min)||(spec.max!==undefined&&value>spec.max)))throw Error(`参数 ${spec.label} 无效`)
     if(spec.kind==='levels'&&(!Array.isArray(value)||!value.length||value.length>64||value.some(v=>typeof v!=='number'||!Number.isFinite(v))))throw Error(`参数 ${spec.label} 无效`)
     if((key==='segments'||tool.toolId==='fixedRangeVolumeProfile'&&key==='rows')&&!Number.isInteger(value))throw Error('行数或弧段数必须是整数')
+    if(spec.kind==='color'&&(typeof value!=='string'||!/^#[a-f0-9]{6}(?:[a-f0-9]{2})?$|^transparent$/i.test(value)))throw Error(`参数 ${spec.label} 颜色无效`)
     if(spec.kind==='text'&&typeof value!=='string'||spec.kind==='boolean'&&typeof value!=='boolean')throw Error(`参数 ${spec.label} 无效`)
     if(spec.kind==='text'&&spec.choices&&!spec.choices.includes(String(value)))throw Error(`参数 ${spec.label} 不在允许选项内`)
   }

@@ -1,6 +1,6 @@
 import {describe,it,expect,vi} from 'vitest'
 import {builtinDrawingCatalog,copyDrawingCatalog,type DrawingToolDescriptor} from '../catalog'
-import {commonStyleControls,commonStylePatch,templateStylePatch,drawingStylePatch,drawingStyleValue,selectionWriteReason,styleControls} from '../styleControls'
+import {commonStyleControls,commonStylePatch,templateStylePatch,drawingStylePatch,drawingStyleValue,selectionWriteReason,styleControls,styleControlOptions} from '../styleControls'
 import {DrawingHistory} from '../history'
 import {DrawingController} from '../controller'
 import {defaultDrawingPreferences,DrawingPreferencesManager} from '../preferences'
@@ -10,6 +10,7 @@ const tool=(id:string)=>builtinDrawingCatalog.find(tool=>tool.toolId===id)!
 describe('declared style controls and commands',()=>{
  it('validates detached catalogs, custom legacy defaults and explicit empty capabilities',()=>{
   const custom:DrawingToolDescriptor={...structuredClone(tool('segment')),toolId:'custom',overlayName:'Custom'};delete custom.styleControls
+  expect(styleControlOptions('fontSize',18)).toContain(18);expect(styleControlOptions('lineWidth',2.5)).toContain(2.5);expect(styleControlOptions('fontSize',undefined)).not.toContain(undefined);
   expect(styleControls(custom)).toEqual(['stroke','lineWidth','lineStyle']);custom.styleControls=[];expect(styleControls(custom)).toEqual([])
   custom.styleControls=['fill','fill'];expect(()=>copyDrawingCatalog([custom])).toThrow('重复')
   custom.styleControls=['wrong' as any];expect(()=>copyDrawingCatalog([custom])).toThrow('无效')

@@ -1,0 +1,428 @@
+{
+  "oracle": "Python Decimal.from_float, precision=800; variance around independently computed unchanged fsum VWAP center",
+  "cases": [
+    {
+      "name": "unequal-volume",
+      "source": "close",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": 10,
+          "high": 10,
+          "low": 10,
+          "close": 10,
+          "volume": 100
+        },
+        {
+          "timestamp": 2,
+          "open": 20,
+          "high": 20,
+          "low": 20,
+          "close": 20,
+          "volume": 200
+        },
+        {
+          "timestamp": 3,
+          "open": 30,
+          "high": 30,
+          "low": 30,
+          "close": 30,
+          "volume": 300
+        }
+      ],
+      "center": 23.333333333333332,
+      "deviation": 7.453559924999299
+    },
+    {
+      "name": "constant",
+      "source": "close",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": 17,
+          "high": 17,
+          "low": 17,
+          "close": 17,
+          "volume": 0
+        },
+        {
+          "timestamp": 2,
+          "open": 17,
+          "high": 17,
+          "low": 17,
+          "close": 17,
+          "volume": 2
+        },
+        {
+          "timestamp": 3,
+          "open": 17,
+          "high": 17,
+          "low": 17,
+          "close": 17,
+          "volume": 5
+        }
+      ],
+      "center": 17.0,
+      "deviation": 0.0
+    },
+    {
+      "name": "zero-center",
+      "source": "close",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": -10,
+          "high": -10,
+          "low": -10,
+          "close": -10,
+          "volume": 1
+        },
+        {
+          "timestamp": 2,
+          "open": 0,
+          "high": 0,
+          "low": 0,
+          "close": 0,
+          "volume": 2
+        },
+        {
+          "timestamp": 3,
+          "open": 10,
+          "high": 10,
+          "low": 10,
+          "close": 10,
+          "volume": 1
+        }
+      ],
+      "center": 0.0,
+      "deviation": 7.0710678118654755
+    },
+    {
+      "name": "negative",
+      "source": "close",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": -5,
+          "high": -5,
+          "low": -5,
+          "close": -5,
+          "volume": 1
+        },
+        {
+          "timestamp": 2,
+          "open": -8,
+          "high": -8,
+          "low": -8,
+          "close": -8,
+          "volume": 2
+        },
+        {
+          "timestamp": 3,
+          "open": -11,
+          "high": -11,
+          "low": -11,
+          "close": -11,
+          "volume": 4
+        }
+      ],
+      "center": -9.285714285714286,
+      "deviation": 2.1852940772540506
+    },
+    {
+      "name": "translated",
+      "source": "close",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": 1000000000010,
+          "high": 1000000000010,
+          "low": 1000000000010,
+          "close": 1000000000010,
+          "volume": 100
+        },
+        {
+          "timestamp": 2,
+          "open": 1000000000020,
+          "high": 1000000000020,
+          "low": 1000000000020,
+          "close": 1000000000020,
+          "volume": 200
+        },
+        {
+          "timestamp": 3,
+          "open": 1000000000030,
+          "high": 1000000000030,
+          "low": 1000000000030,
+          "close": 1000000000030,
+          "volume": 300
+        }
+      ],
+      "center": 1000000000023.3334,
+      "deviation": 7.4535599251103655
+    },
+    {
+      "name": "negative-scale",
+      "source": "close",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": -70,
+          "high": -70,
+          "low": -70,
+          "close": -70,
+          "volume": 100
+        },
+        {
+          "timestamp": 2,
+          "open": -140,
+          "high": -140,
+          "low": -140,
+          "close": -140,
+          "volume": 200
+        },
+        {
+          "timestamp": 3,
+          "open": -210,
+          "high": -210,
+          "low": -210,
+          "close": -210,
+          "volume": 300
+        }
+      ],
+      "center": -163.33333333333334,
+      "deviation": 52.17491947499509
+    },
+    {
+      "name": "large-narrow",
+      "source": "close",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": 3.273390607896142e+150,
+          "high": 3.273390607896142e+150,
+          "low": 3.273390607896142e+150,
+          "close": 3.273390607896142e+150,
+          "volume": 1
+        },
+        {
+          "timestamp": 2,
+          "open": 3.273390607896145e+150,
+          "high": 3.273390607896145e+150,
+          "low": 3.273390607896145e+150,
+          "close": 3.273390607896145e+150,
+          "volume": 3
+        },
+        {
+          "timestamp": 3,
+          "open": 3.2733906078961506e+150,
+          "high": 3.2733906078961506e+150,
+          "low": 3.2733906078961506e+150,
+          "close": 3.2733906078961506e+150,
+          "volume": 2
+        },
+        {
+          "timestamp": 4,
+          "open": 3.273390607896162e+150,
+          "high": 3.273390607896162e+150,
+          "low": 3.273390607896162e+150,
+          "close": 3.273390607896162e+150,
+          "volume": 5
+        }
+      ],
+      "center": 3.2733906078961535e+150,
+      "deviation": 8.316162384370231e+135
+    },
+    {
+      "name": "ohlcv-close",
+      "source": "close",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": 3,
+          "high": 12,
+          "low": 0,
+          "close": 6,
+          "volume": 3
+        },
+        {
+          "timestamp": 2,
+          "open": 9,
+          "high": 18,
+          "low": 6,
+          "close": 15,
+          "volume": 7
+        }
+      ],
+      "center": 12.3,
+      "deviation": 4.124318125460256
+    },
+    {
+      "name": "ohlcv-hl2",
+      "source": "hl2",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": 3,
+          "high": 12,
+          "low": 0,
+          "close": 6,
+          "volume": 3
+        },
+        {
+          "timestamp": 2,
+          "open": 9,
+          "high": 18,
+          "low": 6,
+          "close": 15,
+          "volume": 7
+        }
+      ],
+      "center": 10.2,
+      "deviation": 2.749545416973504
+    },
+    {
+      "name": "ohlcv-hlc3",
+      "source": "hlc3",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": 3,
+          "high": 12,
+          "low": 0,
+          "close": 6,
+          "volume": 3
+        },
+        {
+          "timestamp": 2,
+          "open": 9,
+          "high": 18,
+          "low": 6,
+          "close": 15,
+          "volume": 7
+        }
+      ],
+      "center": 10.9,
+      "deviation": 3.207802986469088
+    },
+    {
+      "name": "ohlcv-ohlc4",
+      "source": "ohlc4",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": 3,
+          "high": 12,
+          "low": 0,
+          "close": 6,
+          "volume": 3
+        },
+        {
+          "timestamp": 2,
+          "open": 9,
+          "high": 18,
+          "low": 6,
+          "close": 15,
+          "volume": 7
+        }
+      ],
+      "center": 9.975,
+      "deviation": 3.093238594095192
+    }
+  ],
+  "precisionCases": [
+    {
+      "name": "scale-weight-subnormal-160",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": 0.0,
+          "high": 0.0,
+          "low": 0.0,
+          "close": 0.0,
+          "volume": 1.0
+        },
+        {
+          "timestamp": 2,
+          "open": 1.0,
+          "high": 1.0,
+          "low": 1.0,
+          "close": 1.0,
+          "volume": 1.0
+        },
+        {
+          "timestamp": 3,
+          "open": 1e+160,
+          "high": 1e+160,
+          "low": 1e+160,
+          "close": 1e+160,
+          "volume": 1e-323
+        }
+      ],
+      "center": 0.5,
+      "deviation": 0.5004938217858851
+    },
+    {
+      "name": "scale-weight-subnormal-161",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": 0.0,
+          "high": 0.0,
+          "low": 0.0,
+          "close": 0.0,
+          "volume": 1.0
+        },
+        {
+          "timestamp": 2,
+          "open": 1.0,
+          "high": 1.0,
+          "low": 1.0,
+          "close": 1.0,
+          "volume": 1.0
+        },
+        {
+          "timestamp": 3,
+          "open": 1e+161,
+          "high": 1e+161,
+          "low": 1e+161,
+          "close": 1e+161,
+          "volume": 1e-323
+        }
+      ],
+      "center": 0.5,
+      "deviation": 0.5471805593989288
+    },
+    {
+      "name": "scale-weight-subnormal-162",
+      "bars": [
+        {
+          "timestamp": 1,
+          "open": 0.0,
+          "high": 0.0,
+          "low": 0.0,
+          "close": 0.0,
+          "volume": 1.0
+        },
+        {
+          "timestamp": 2,
+          "open": 1.0,
+          "high": 1.0,
+          "low": 1.0,
+          "close": 1.0,
+          "volume": 1.0
+        },
+        {
+          "timestamp": 3,
+          "open": 1e+162,
+          "high": 1e+162,
+          "low": 1e+162,
+          "close": 1e+162,
+          "volume": 1e-323
+        }
+      ],
+      "center": 0.5,
+      "deviation": 2.2783012220539374
+    }
+  ]
+}

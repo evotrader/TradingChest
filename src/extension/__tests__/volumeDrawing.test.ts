@@ -32,3 +32,32 @@ describe('volume drawing projection',()=>{
     expect(volumeDrawingFigures(args).some(f=>f.type==='rectText'&&JSON.stringify(f.attrs).includes('AVWAP 22.00 · close'))).toBe(true)
   })
 })
+
+describe('refined volume drawing display',()=>{
+ it('draws six independent boundaries and adjacent fill strips without changing the center',()=>{
+  const {args}=setup('anchoredVwap',[bar(1,10,1),bar(2,20,1),bar(3,30,1)])
+  args.overlay.extendData={drawingParameters:{source:'close',bandMode:'standard-deviation',bandMultipliers:[1,2,3]}}
+  const figures=volumeDrawingFigures(args),lines=figures.filter(figure=>figure.type==='line'),fills=figures.filter(figure=>figure.type==='polygon')
+  expect(lines).toHaveLength(7);expect(lines[0].attrs).toEqual({coordinates:[{x:0,y:10},{x:10,y:15},{x:20,y:20}]});expect(fills).toHaveLength(6)
+  expect(fills.every(figure=>figure.ignoreEvent)).toBe(true)
+ })
+ it('keeps the center and visible upper bounds when logarithmic lower bounds are not projectable',()=>{
+  const {args}=setup('anchoredVwap',[bar(1,10,1),bar(2,20,1)])
+  args.yAxis!.name='logarithm';args.overlay.extendData={drawingParameters:{bandMode:'percentage',bandMultipliers:[100]}}
+  const figures=volumeDrawingFigures(args)
+  expect(figures.filter(figure=>figure.type==='line')).toHaveLength(2)
+  expect(figures.some(figure=>figure.type==='rectText'&&JSON.stringify(figure.attrs).includes('部分 VWAP 带边界'))).toBe(true)
+  expect(JSON.stringify(figures)).not.toMatch(/NaN|Infinity/)
+ })
+ it('changes only profile position, width and level presentation',()=>{
+  const {args,runtime}=setup('fixedRangeVolumeProfile',[bar(1,10,100),bar(2,20,100)])
+  args.coordinates=[{x:50,y:10},{x:250,y:20}]
+  const base=runtime.forOverlay(args.overlay).profile
+  args.overlay.extendData={drawingParameters:{profileSide:'right',profileWidth:.5,levelExtent:'pane-right',showVah:false,pocColor:'#f44336',pocWidth:3,pocStyle:'dotted'}}
+  const figures=volumeDrawingFigures(args),rects=figures.filter(figure=>figure.type==='rect').map(figure=>figure.attrs as {x:number;width:number}),lines=figures.filter(figure=>figure.type==='line')
+  expect(runtime.forOverlay(args.overlay).profile).toBe(base);expect(Math.max(...rects.map(rect=>rect.x+rect.width))).toBe(250)
+  expect(lines).toHaveLength(2);expect(lines.every(line=>(line.attrs as any).coordinates[1].x===300)).toBe(true)
+  expect(lines.find(line=>(line.styles as any).color==='#f44336')?.styles).toMatchObject({size:3,dashedValue:[1,3]})
+  expect(figures.filter(figure=>figure.type==='rectText').some(figure=>JSON.stringify(figure.attrs).includes('VAH'))).toBe(false)
+ })
+})

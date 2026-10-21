@@ -33,33 +33,38 @@ export function validVolumeBar(bar:KLineData):boolean {
 const price=(bar:KLineData,source:VwapPriceSource)=>source==='close'?bar.close:source==='hl2'?bar.high/2+bar.low/2:source==='hlc3'?bar.high/3+bar.low/3+bar.close/3:bar.open/4+bar.high/4+bar.low/4+bar.close/4
 class Sum {
   private parts:number[]
+  // Retain storage between accumulations; only this active prefix participates in arithmetic.
+  private count:number
   private invalid=false
-  constructor(parts:number[]=[]){this.parts=[...parts]}
-  snapshot():number[]{return [...this.parts]}
-  merge(other:Sum):void {if(other.invalid){this.invalid=true;return}for(const part of other.parts)this.add(part)}
+  constructor(parts:number[]=[]){this.parts=[...parts];this.count=parts.length}
+  snapshot():number[]{return this.parts.slice(0,this.count)}
+  clear():void {this.count=0;this.invalid=false}
+  merge(other:Sum):void {if(other.invalid){this.invalid=true;return}for(let i=0;i<other.count;i++)this.accumulate(other.parts[i])}
   get total():number {
     if(this.invalid)return NaN
-    let n=this.parts.length
+    let n=this.count
     if(!n)return 0
     let high=this.parts[--n],low=0
     while(n){const previous=high,value=this.parts[--n];high=previous+value;low=value-(high-previous);if(low)break}
     if(n&&((low<0&&this.parts[n-1]<0)||(low>0&&this.parts[n-1]>0))){const doubled=low*2,next=high+doubled;if(next-high===doubled)high=next}
     return high
   }
-  add(value:number):number {
-    if(this.invalid||!Number.isFinite(value)){this.invalid=true;return NaN}
+  add(value:number):number {this.accumulate(value);return this.total}
+  accumulate(value:number):void {
+    if(this.invalid||!Number.isFinite(value)){this.invalid=true;return}
+    const parts=this.parts,length=this.count
     let x=value,used=0
-    for(let y of this.parts){
-      if(Math.abs(x)<Math.abs(y))[x,y]=[y,x]
+    for(let i=0;i<length;i++){
+      let y=parts[i]
+      if(Math.abs(x)<Math.abs(y)){const previous=x;x=y;y=previous}
       const high=x+y
-      if(!Number.isFinite(high)){this.invalid=true;return NaN}
+      if(!Number.isFinite(high)){this.invalid=true;return}
       const low=y-(high-x)
-      if(low)this.parts[used++]=low
+      if(low)parts[used++]=low
       x=high
     }
-    this.parts.length=used
-    if(x||!used)this.parts.push(x)
-    return this.total
+    if(x||!used)parts[used++]=x
+    this.count=used
   }
 }
 
@@ -126,7 +131,7 @@ export function calculateVolumeProfile(bars:readonly KLineData[],from:number,to:
   const total=new Sum(),upTotal=new Sum(),downTotal=new Sum()
   for(let i=from;i<=to;i++){
     const bar=bars[i];if(!validVolumeBar(bar))throw Error('区间包含缺失或无效 OHLCV，请修正数据后重试')
-    low=Math.min(low,bar.low);high=Math.max(high,bar.high);total.add(bar.volume!);(bar.close>=bar.open?upTotal:downTotal).add(bar.volume!)
+    low=Math.min(low,bar.low);high=Math.max(high,bar.high);total.accumulate(bar.volume!);(bar.close>=bar.open?upTotal:downTotal).accumulate(bar.volume!)
   }
   if(!Number.isFinite(total.total))throw Error('成交量累计溢出')
   if(total.total===0)throw Error('区间无成交量，无法计算 POC 和价值区')
@@ -138,31 +143,32 @@ export function calculateVolumeProfile(bars:readonly KLineData[],from:number,to:
   // Normalize before subtracting bin boundaries: a large price origin never enters overlap arithmetic.
   const coordinate=(value:number)=>value===low?0:value===high?rows:(value-low)/width
   const bin=(value:number)=>Math.max(0,Math.min(rows-1,Math.floor(value)))
+  const edge=new Sum(),allocated=new Sum()
   for(let i=from;i<=to;i++){
     const bar=bars[i],volume=bar.volume!;if(volume===0)continue
     const target=bar.close>=bar.open?up:down,diff=bar.close>=bar.open?upDiff:downDiff,start=coordinate(bar.low),end=coordinate(bar.high),first=bin(start),last=bin(end)
-    if(bar.low===bar.high||end===start){target[first].add(volume);continue}
+    if(bar.low===bar.high||end===start){target[first].accumulate(volume);continue}
     const span=end-start,unit=volume/(bar.high-bar.low)*width
-    const edge=new Sum()
+    edge.clear();allocated.clear()
     let useUnit=Number.isFinite(unit)&&unit>0
     const lastValue=first===last?0:unit*(end-last)
     if(useUnit){
-      edge.add(first===last?unit*(end-first):unit);edge.add(-unit*(start-first))
-      const allocated=new Sum(edge.snapshot());allocated.add(lastValue)
-      if(last>first+1)allocated.add(unit*(last-first-1))
+      edge.accumulate(first===last?unit*(end-first):unit);edge.accumulate(-unit*(start-first))
+      allocated.merge(edge);allocated.accumulate(lastValue)
+      if(last>first+1)allocated.accumulate(unit*(last-first-1))
       // Select the stable formula before committing any contribution to global bins.
       useUnit=Number.isFinite(allocated.total)&&Math.abs(allocated.total-volume)<=1e-12*volume
     }
     if(useUnit){
       // Equal physical densities use the same unit, independent of normalized endpoint rounding.
       target[first].merge(edge)
-      if(first!==last){target[last].add(lastValue);if(last>first+1){diff[first+1].add(unit);diff[last].add(-unit)}}
+      if(first!==last){target[last].accumulate(lastValue);if(last>first+1){diff[first+1].accumulate(unit);diff[last].accumulate(-unit)}}
     }else{
       // Bounded ratios keep finite edges calculable when physical density cannot be represented.
-      if(first===last){target[first].add(volume);continue}
-      target[first].add(volume*((first+1-start)/span))
-      target[last].add(volume*((end-last)/span))
-      if(last>first+1){const middle=volume*(1/span);diff[first+1].add(middle);diff[last].add(-middle)}
+      if(first===last){target[first].accumulate(volume);continue}
+      target[first].accumulate(volume*((first+1-start)/span))
+      target[last].accumulate(volume*((end-last)/span))
+      if(last>first+1){const middle=volume*(1/span);diff[first+1].accumulate(middle);diff[last].accumulate(-middle)}
     }
   }
   const currentUp=new Sum(),currentDown=new Sum()

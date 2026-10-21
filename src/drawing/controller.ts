@@ -254,7 +254,8 @@ export class DrawingController {
             absoluteOrders=new Map(selected.map((id,i)=>[id,start+step*(i+1)]))
             const unique=new Set([...rest.map(id=>lookup.get(id)!),...absoluteOrders.values()])
             if(!(step>0)||unique.size!==all.length||[...rest.map(id=>lookup.get(id)!),...absoluteOrders.values()].some(v=>!Number.isSafeInteger(v))){
-              absoluteOrders=new Map(reordered.map((id,i)=>[id,i]))
+              // Leave integer gaps so consecutive insertions do not renumber every neighbor again.
+              absoluteOrders=new Map(reordered.map((id,i)=>[id,i*1024]))
             }
             for(const before of all)if(absoluteOrders.has(before.logicalId)&&absoluteOrders.get(before.logicalId)!==before.presentation?.order)this.targets([before.logicalId],true)
           }

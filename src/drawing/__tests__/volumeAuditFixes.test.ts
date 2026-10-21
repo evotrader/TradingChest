@@ -42,6 +42,21 @@ describe('volume release audit contracts',()=>{
     await controller.execute({type:'redo'});expect(session.history.getDrawings().every(isDrawingSnapshot)).toBe(true)
     coordinator.dispose();registry.dispose();local.dispose()
   })
+  it('keeps consecutive insertions local after one integer renumbering and restores their order',async()=>{
+    const history=new DrawingHistory({context,apply:(_id,v)=>v}),controller=controls(history)
+    const initial=Array.from({length:30},(_,i)=>value(`d${i}`,0));history.reconcile('local',initial)
+    await controller.execute({type:'reorder',ids:['d0'],targetId:'d29',position:'before'})
+    const first=history.getDrawings();expect(first.every(isDrawingSnapshot)).toBe(true)
+    for(let i=1;i<10;i++){
+      const before=history.getDrawings()
+      expect((await controller.execute({type:'reorder',ids:[`d${i}`],targetId:'d29',position:'before'})).status).toBe('completed')
+      const after=history.getDrawings();expect(after.every(isDrawingSnapshot)).toBe(true)
+      expect(after.filter(d=>d.presentation?.order!==before.find(b=>b.logicalId===d.logicalId)?.presentation?.order).map(d=>d.logicalId)).toEqual([`d${i}`])
+      expect(after.find(d=>d.logicalId===`d${i}`)!.presentation!.order!).toBeGreaterThan(after.find(d=>d.logicalId==='d29')!.presentation!.order!)
+      await controller.execute({type:'undo'});expect(history.getDrawings()).toEqual(before)
+      await controller.execute({type:'redo'});expect(history.getDrawings()).toEqual(after)
+    }
+  })
   it('keeps mixed selection keyboard movement in one history operation with per-tool units',async()=>{
     const bars=Array.from({length:30},(_,i)=>({timestamp:(i+1)*100,open:i+1,high:i+1,low:i+1,close:i+1,volume:1}))
     const geometry:DrawingGeometry={bars,period:context().period,size:()=>({width:500,height:500}),project:d=>d.overlay.points,toPixel:p=>({x:(p.timestamp!/100-1)*10,y:p.value!}),fromPixel:p=>({dataIndex:p.x/10,value:p.y})}

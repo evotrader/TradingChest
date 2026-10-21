@@ -19,8 +19,31 @@ type Operation={ids?:string[];undo:()=>Promise<void>;redo:()=>Promise<void>;avai
 export interface DrawingCheckpoint {documentGeneration?:number;operations?:Map<string,Operation>;drawings:DrawingSnapshot[];past:Transaction[];future:Transaction[]}
 const content=(value:DrawingSnapshot|null)=>{if(!value)return null;const {presentation,...rest}=value;return rest}
 const copy=<T>(value:T):T=>JSON.parse(JSON.stringify(value))
+/** Only clone values already normalized through the JSON boundary above. */
+function copyCanonical<T>(value:T):T {
+  if(value===null||typeof value!=='object')return value
+  if(Array.isArray(value))return value.map(copyCanonical) as T
+  const result:Record<string,unknown>={}
+  for(const key of Object.keys(value)){
+    const next=copyCanonical((value as Record<string,unknown>)[key])
+    if(key==='__proto__')Object.defineProperty(result,key,{value:next,enumerable:true,writable:true,configurable:true})
+    else result[key]=next
+  }
+  return result as T
+}
 const ordered=(value:any):any=>Array.isArray(value)?value.map(ordered):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,ordered(v)])):value
-const same=(a:unknown,b:unknown)=>JSON.stringify(ordered(a))===JSON.stringify(ordered(b))
+const same=(a:unknown,b:unknown):boolean=>{
+  if(a===b)return true
+  if(a&&b&&typeof a==='object'&&typeof b==='object'&&'overlay' in a&&'overlay' in b&&('presentation' in a||'presentation' in b)){
+    return same((a as DrawingSnapshot).presentation,(b as DrawingSnapshot).presentation)&&same(content(a as DrawingSnapshot),content(b as DrawingSnapshot))
+  }
+  return JSON.stringify(a)===JSON.stringify(b)||JSON.stringify(ordered(a))===JSON.stringify(ordered(b))
+}
+const yieldDrawingTask=()=>new Promise<void>(resolve=>{
+  const channel=new MessageChannel()
+  channel.port1.onmessage=()=>{channel.port1.close();channel.port2.close();resolve()}
+  channel.port2.postMessage(null)
+})
 const abort=(locale='zh-CN')=>new DOMException(i18n('drawing_context_changed',locale),'AbortError')
 
 /** History advances only after an explicit confirmation, never on a visual preview. */
@@ -42,11 +65,16 @@ export class DrawingHistory {
   private restoreToken:symbol|undefined
   private restoreReason:'layout'|'document'='document'
   private tail:Promise<unknown>=Promise.resolve()
+  private localYieldToken?:symbol
+  isYieldingLocalWork():boolean{return this.localYieldToken!==undefined}
+  private async yieldLocalWork():Promise<void>{const token=Symbol('local-drawing-yield');this.localYieldToken=token;try{await yieldDrawingTask()}finally{if(this.localYieldToken===token)this.localYieldToken=undefined}}
   private text(key:string){return i18n(key,this.options.locale?.()??'zh-CN')}
   constructor(options:Options){this.options=options}
   getState():DrawingHistoryState{this.pruneOperations();return {pending:this.pending+(this.restoreToken?1:0),canUndo:this.past.length>0,canRedo:this.future.length>0,error:this.error,uncertainLogicalIds:[...this.uncertain.keys()],projectionErrors:Object.fromEntries(this.projectionErrors)}}
-  getDrawings():DrawingSnapshot[]{return [...this.drawings.values()].map(copy)}
-  getDrawing(id:string):DrawingSnapshot|undefined{const value=this.drawings.get(id);return value?copy(value):undefined}
+  getDrawings():DrawingSnapshot[]{return [...this.drawings.values()].map(copyCanonical)}
+  getDrawing(id:string):DrawingSnapshot|undefined{const value=this.drawings.get(id);return value?copyCanonical(value):undefined}
+  hasDrawing(id:string):boolean{return this.drawings.has(id)}
+  getMigratingDrawingIds():string[]{return [...this.drawings.values()].filter(value=>value.migration).map(value=>value.logicalId)}
   getDrawingIds():string[]{return [...this.drawings.keys()]}
   reproject():void{for(const value of this.getDrawings())this.apply(value.logicalId,value);this.emit()}
   private emit(){if(!this.disposed)this.options.onChange?.(this.getState())}
@@ -119,9 +147,9 @@ export class DrawingHistory {
     // The confirmed document is authoritative even if its current view cannot be rendered.
     const actual=state?copy({...state,logicalId:id,overlay:{...state.overlay,id}}):null
     if(actual)this.drawings.set(id,actual);else this.drawings.delete(id)
-    try{this.options.apply(id,copy(actual));this.projectionErrors.delete(id)}
+    try{this.options.apply(id,copyCanonical(actual));this.projectionErrors.delete(id)}
     catch(error){this.projectionErrors.set(id,error instanceof Error?error.message:String(error))}
-    return copy(actual)
+    return copyCanonical(actual)
   }
   private enqueue<T>(task:(generation:number)=>Promise<T>):Promise<T>{
     if(this.disposed)return Promise.reject(abort(this.options.locale?.()??'zh-CN'))
@@ -133,17 +161,16 @@ export class DrawingHistory {
   }
   private async perform(id:string,after:DrawingSnapshot|null,source:DrawingSource,generation:number,context:DrawingChange['context']):Promise<{result:DrawingCommitResult;before:DrawingSnapshot|null;after:DrawingSnapshot|null}>{
     if(after)this.options.validate?.(after)
-    const before=copy(this.drawings.get(id)??null)
+    const before=copyCanonical(this.drawings.get(id)??null)
     if(this.uncertain.has(id)){const result:DrawingCommitResult={status:'rejected',message:this.text('drawing_message_1')};this.apply(id,before);this.error=result.message;this.emit();return {result,before,after:before}}
     if(before?.migration)throw Error('绘图转移结果待核对，请先完成原目标转移')
     const kind=before?(after?'update':'delete'):'create'
     if(!before&&!after)return {result:{status:'confirmed',snapshot:null},before,after:null}
     if(before&&after&&before.owner!==after.owner)throw Error(this.text('drawing_message_2'))
-    const change:DrawingChange={kind,logicalId:id,before,after:copy(after),source,context:copy(context)}
     let result:DrawingCommitResult
     try{
-      result=!same(content(before),content(after))&&(before??after)!.owner==='backend'
-        ?this.options.commit?await this.options.commit(change):{status:'rejected',message:this.text('drawing_message_3')}
+      result=(before??after)!.owner==='backend'&&!same(content(before),content(after))
+        ?this.options.commit?await this.options.commit({kind,logicalId:id,before,after:copy(after),source,context:copy(context)}):{status:'rejected',message:this.text('drawing_message_3')}
         :{status:'confirmed',snapshot:after}
     }catch(reason){result={status:'uncertain',message:`${this.text('drawing_submission_uncertain')}${reason instanceof Error?reason.message:String(reason)}`}}
     if(this.disposed||generation!==this.generation)throw abort(this.options.locale?.()??'zh-CN')
@@ -190,8 +217,10 @@ export class DrawingHistory {
         seen.add(request.logicalId)
       }
       const transaction:Transaction={changes:[]},items:DrawingItemResult[]=[]
-      let stopped=false
+      const cooperative=requested.length>=128&&requested.every(request=>(request.after??this.drawings.get(request.logicalId))?.owner==='local')
+      let stopped=false,checkpoint=performance.now()
       for(const request of requested){
+        if(this.disposed||generation!==this.generation)throw abort(this.options.locale?.()??'zh-CN')
         if(stopped){items.push({logicalId:request.logicalId,status:'not-attempted'});continue}
         let outcome:Awaited<ReturnType<DrawingHistory['perform']>>
         try{outcome=await this.perform(request.logicalId,request.after,source,generation,context)}catch(error){
@@ -206,6 +235,7 @@ export class DrawingHistory {
             transaction.changes.push(entry);this.notify(entry,source,context)
           }
         }else stopped=true
+        if(!stopped&&cooperative&&request!==requested[requested.length-1]&&performance.now()-checkpoint>=128){await this.yieldLocalWork();checkpoint=performance.now()}
       }
       return this.finish(items)
     })
@@ -224,8 +254,10 @@ export class DrawingHistory {
       }
       const entries=direction==='undo'?[...transaction.changes].reverse():[...transaction.changes]
       const completed:Transaction={changes:[]},items:DrawingItemResult[]=[]
-      let last:DrawingCommitResult|undefined,stopped=false
+      const cooperative=entries.length>=128&&entries.every(entry=>(entry.after??entry.before)?.owner==='local')
+      let last:DrawingCommitResult|undefined,stopped=false,checkpoint=performance.now()
       for(const entry of entries){
+        if(this.disposed||generation!==this.generation)throw abort(this.options.locale?.()??'zh-CN')
         if(stopped){items.push({logicalId:entry.logicalId,status:'not-attempted'});continue}
         let target=direction==='undo'?entry.before:entry.after
         if(same(content(entry.before),content(entry.after))){const current=this.drawings.get(entry.logicalId);if(!current){this.dropHistory(entry.logicalId);continue}target={...current,presentation:target?.presentation}}
@@ -245,6 +277,7 @@ export class DrawingHistory {
           if(direction==='undo')completed.changes.unshift(actual);else completed.changes.push(actual)
           this.notify({logicalId:entry.logicalId,before:outcome.before,after:outcome.after},'history',context)
         }else stopped=true
+        if(!stopped&&cooperative&&entry!==entries[entries.length-1]&&performance.now()-checkpoint>=128){await this.yieldLocalWork();checkpoint=performance.now()}
       }
       if(!transaction.changes.length){const index=from.indexOf(transaction);if(index>=0)from.splice(index,1)}
       this.finish(items);this.emit();return last
@@ -268,7 +301,7 @@ export class DrawingHistory {
   reset(clearDrawings=false,token?:symbol):void {
     if(clearDrawings)this.restoreToken=undefined
     else this.assertRestore(token)
-    this.generation++;this.documentGeneration++;this.pending=0;this.tail=Promise.resolve();this.past=[];this.future=[];this.operations.clear();this.uncertain.clear();this.projectionErrors.clear();this.error=undefined
+    this.generation++;this.documentGeneration++;this.pending=0;this.tail=Promise.resolve();this.localYieldToken=undefined;this.past=[];this.future=[];this.operations.clear();this.uncertain.clear();this.projectionErrors.clear();this.error=undefined
     if(clearDrawings){for(const id of this.drawings.keys())this.options.apply(id,null);this.drawings.clear()}
     this.emit()
   }

@@ -57,7 +57,7 @@ export class DrawingCoordinator {
   private retainedBindings=new Set<object>()
   private origin:'user'|'history'|'projection'='projection'
   reason='请等待行情与共享价格口径确认'
-  constructor(readonly local:DrawingHistory,private options:{project:(id:string,value:DrawingSnapshot|null)=>void;changed:()=>void;saveAs?:(session:DrawingSession,identity:DrawingSession['identity'])=>Promise<DrawingSession>;owns?:(id:string)=>boolean;validate:(value:DrawingSnapshot)=>void}){}
+  constructor(readonly local:DrawingHistory,private options:{project:(id:string,value:DrawingSnapshot|null)=>void;changed:()=>void;saveAs?:(session:DrawingSession,identity:DrawingSession['identity'])=>Promise<DrawingSession>;owns?:(id:string)=>boolean;validate:(value:DrawingSnapshot)=>void;validateBatch?:(values:DrawingSnapshot[])=>void}){}
   bind(workspace?:DrawingSession,host?:DrawingSession):void {
     this.attach(workspace,host,{})
   }
@@ -89,12 +89,12 @@ export class DrawingCoordinator {
   getSharing(){return {canSaveAs:!!this.options.saveAs,workspace:this.sessions.workspace?.getState(),host:this.sessions.host?.getState(),reason:this.reason||undefined}}
   hasSharedDrawings():boolean{return this.list().some(session=>session.history.getDrawingIds().length>0)}
   getSharedDrawingIds():string[]{return this.list().flatMap(session=>session.history.getDrawingIds())}
-  getDrawings():DrawingSnapshot[]{return [...this.local.getDrawings(),...this.list().flatMap(s=>s.history.getDrawings()).filter(d=>!this.local.getDrawing(d.logicalId))]}
+  getDrawings():DrawingSnapshot[]{return [...this.local.getDrawings(),...this.list().flatMap(s=>s.history.getDrawings()).filter(d=>!this.local.hasDrawing(d.logicalId))]}
   /** Shared values project onto each chart's main price axis, never an engine instance ID. */
   prepare(value:DrawingSnapshot):DrawingSnapshot{if(!value.presentation?.scope||value.presentation.scope==='chart')return value;const prepared=copy(value);delete prepared.yAxisId;return prepared}
   getDrawing(id:string):DrawingSnapshot|undefined{return this.local.getDrawing(id)??this.list().map(s=>s.history.getDrawing(id)).find(Boolean)}
   history(ids:string[]=[],write=false):DrawingHistory {
-    const owners=new Set(ids.map(id=>{if(this.local.getDrawing(id))return this.local;const session=this.list().find(s=>s.history.getDrawing(id));if(!session)throw Error('绘图不存在，请刷新对象列表');return session.history}))
+    const owners=new Set(ids.map(id=>{if(this.local.hasDrawing(id))return this.local;const session=this.list().find(s=>s.history.hasDrawing(id));if(!session)throw Error('绘图不存在，请刷新对象列表');return session.history}))
     if(owners.size>1)throw Error('所选绘图属于不同会话，请按作用域分别操作')
     const history=owners.values().next().value??(this.scope==='chart'?this.local:this.getSession(this.scope).history)
     const session=this.list().find(s=>s.history===history)
@@ -105,7 +105,7 @@ export class DrawingCoordinator {
     const states=[this.local,...this.list().map(s=>s.history)].map(h=>h.getState())
     let active:DrawingHistoryState
     try{active=this.history(ids).getState()}catch{active={pending:0,canUndo:false,canRedo:false,uncertainLogicalIds:[]}}
-    const migrations=this.getDrawings().filter(d=>d.migration).map(d=>d.logicalId),unknown=this.list().filter(s=>s.getState().status==='uncertain')
+    const migrations=[...this.local.getMigratingDrawingIds(),...this.list().flatMap(s=>s.history.getMigratingDrawingIds()).filter(id=>!this.local.hasDrawing(id))],unknown=this.list().filter(s=>s.getState().status==='uncertain')
     return {...active,pending:states.reduce((n,s)=>n+s.pending,0),uncertainLogicalIds:[...new Set([...states.flatMap(s=>s.uncertainLogicalIds),...migrations,...unknown.flatMap(s=>s.history.getDrawingIds().length?s.history.getDrawingIds():[`shared:${s.getState().documentId}`])])],projectionErrors:Object.assign({},...states.map(s=>s.projectionErrors),this.errors)}
   }
   project(changedIds?:string[]):void {
@@ -123,6 +123,12 @@ export class DrawingCoordinator {
 this.options.changed()
   }
   validate(value:DrawingSnapshot):void{this.options.validate(value);if(value.presentation?.scope&&value.presentation.scope!=='chart')this.getSession(value.presentation.scope).validate(value)}
+  /** Reuse the immutable projection inventory only within this synchronous preflight. */
+  validateBatch(values:DrawingSnapshot[]):void{
+    if(this.options.validateBatch)this.options.validateBatch(values)
+    else for(const value of values)this.options.validate(value)
+    for(const value of values)if(value.presentation?.scope&&value.presentation.scope!=='chart')this.getSession(value.presentation.scope).validate(value)
+  }
   async transfer(ids:string[],scope:DrawingScope):Promise<void>{
     if(!ids.length||new Set(ids).size!==ids.length)throw Error('请选择不同的绘图对象')
     const binding=this.bindingEpoch

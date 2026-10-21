@@ -1,0 +1,10 @@
+{
+  "source": "2026-10-21 reviewed TradingChest 0.12 plan G4; local drawings only; existing budgets unchanged",
+  "objects": 1002,
+  "rounds": 10,
+  "history": [10000, 50000],
+  "actions": ["reorder", "style", "delete", "undo", "redo", "restore"],
+  "maximumLatency": 500,
+  "maximumRestoreLatency": 1000,
+  "maximumLongTask": 250
+}

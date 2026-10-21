@@ -12,6 +12,7 @@ interface Options {
   catalog?:DrawingToolDescriptor[]
   editable:(snapshot:DrawingSnapshot)=>boolean
   validate:(snapshot:DrawingSnapshot)=>void
+  validateBatch?:(snapshots:DrawingSnapshot[])=>void
   create:(tool:DrawingToolDescriptor)=>void
   cancel:()=>void
   finish?:()=>Promise<DrawingCommandResult>
@@ -107,7 +108,9 @@ export class DrawingController {
     return history.submitBatch(()=>{
       for(const before of this.previewBases??[])if(JSON.stringify(this.options.coordinator?.getDrawing(before.logicalId)??this.options.history.getDrawing(before.logicalId))!==JSON.stringify(before))throw Error('绘图已被更新，本次手势已取消，请重新操作')
       const values=build().map(value=>({...value,after:value.after?this.options.coordinator?.prepare(value.after)??value.after:null}))
-      for(const value of values)if(value.after)this.options.validate(value.after)
+      const proposed=values.flatMap(value=>value.after?[value.after]:[])
+      if(this.options.validateBatch)this.options.validateBatch(proposed)
+      else for(const value of proposed)this.options.validate(value)
       return values.map(v=>({kind:v.before?v.after?'update' as const:'delete' as const:'create' as const,logicalId:(v.before??v.after)!.logicalId,after:v.after}))
     },'programmatic')
   }

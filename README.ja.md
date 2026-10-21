@@ -111,7 +111,7 @@ before/countBack・range、履歴の終端、状態通知と retryData を提供
 ## インストール
 
 ```bash
-npm install trading-chest@0.8.0 klinecharts@10.1.0
+npm install trading-chest@0.12.0 klinecharts@10.1.0
 ```
 
 ## 使い方

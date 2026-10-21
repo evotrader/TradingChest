@@ -111,7 +111,7 @@ before/countBack·range, 명시적 기록 경계, 상태 알림과 retryData를 
 ## 설치
 
 ```bash
-npm install trading-chest@0.8.0 klinecharts@10.1.0
+npm install trading-chest@0.12.0 klinecharts@10.1.0
 ```
 
 ## 사용법

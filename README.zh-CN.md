@@ -15,6 +15,14 @@
   <img src="docs/public/image.png" alt="TradingChest 截图" width="800" />
 </p>
 
+## 0.12.0 绘图精修
+
+单选与多选编辑器按工具声明提供共同样式控件并显示混合值。锚定 VWAP 支持最多三组标准差／百分比带，FRVP 增加显示位置与级别样式；新增三种屏幕投影曲线工具，目录扩展至 56 项。第三方工具通过 peer 的 `registerOverlay` 注册，库不依赖特定宿主后端。参见 [0.12 升级说明](docs/upgrade/0.12.0.md)和[绘图使用](docs/drawings.md)。数据接入与持久化格式保持不变，发布状态以 npm registry 为准。
+
+## 0.11.0 量价绘图
+
+锚定 VWAP 与固定区间成交量分布使用每张图已确认的 OHLCV，明确采样与覆盖边界。虚拟对象树支持分组折叠和经过确认的拖动／键盘排序。参见 [0.11 升级说明](docs/upgrade/0.11.0.md)与[量价绘图契约](docs/drawings.md#volume-drawings)。
+
 ## 0.10.0 绘图工作台
 
 统一 51 工具目录、多行文字、精确坐标与控制点、多选分组、模板偏好，以及本图／工作台／宿主共享。后端写入保留原确认权威，布局升级 ChartLayoutV4／WorkspaceDocument v2，旧原件纯读取迁移。参见[绘图使用](docs/drawings.md)、[升级说明](docs/upgrade/0.10.0.md)与[独立示例](examples/drawing-workbench)。本地源码／产物不代表已经发布，也不代表所有 TradingView 工具等价。
@@ -118,7 +126,7 @@
 ## 安装
 
 ```bash
-npm install trading-chest@0.8.0 klinecharts@10.1.0
+npm install trading-chest@0.12.0 klinecharts@10.1.0
 ```
 
 ## 使用

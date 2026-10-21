@@ -90,3 +90,7 @@ await chart.executeDrawingCommand({
 ```
 
 Position follows displayed order. Objects must share document, scope, pane and group; there is no implicit regrouping. Locked, migration and uncertain objects are rejected. Multiselection preserves relative order. Confirmation and undo/redo use the existing history, including older direction commands.
+
+The canvas and control-point keyboard paths both move volume drawings by one actual bar, or ten with Shift. Time handles follow the current bar display without writing a display price into the saved definition. A failed read remains stale during a pending retry or a failed subscription restore; the visible retry also handles source-status errors, while public retryData remains idempotent when no query has failed.
+
+Reorder keeps integer order values in the existing schema. When an insertion needs renumbering, all affected objects pass the existing write checks before the single history operation. Long names remain accessible while fixed rows keep actions aligned with their own object.

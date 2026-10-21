@@ -118,10 +118,11 @@
 .tc-volume-summary > span { overflow-wrap:anywhere; }
 
 .tc-drawing-tree-viewport { position:relative; height:min(360px,45vh); min-height:160px; overflow:auto; overflow-anchor:none; }
-.tc-drawing-virtual-row { display:flex; align-items:center; gap:3px; border-bottom:1px solid var(--klinecharts-pro-border-color,#e5e7eb); }
-.tc-drawing-virtual-row .tc-drawing-object-name { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; text-align:left; }
+.tc-drawing-workbench .tc-drawing-virtual-row { display:flex; flex-wrap:nowrap; align-items:center; gap:3px; overflow:hidden; border-bottom:1px solid var(--klinecharts-pro-border-color,#e5e7eb); }
+.tc-drawing-virtual-row > button { flex-shrink:0; box-sizing:border-box; height:44px; }
+.tc-drawing-virtual-row .tc-drawing-object-name { min-width:0; flex:1 1 0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; text-align:left; line-height:16px; padding:4px 6px; small { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; line-height:12px; } }
 .tc-drawing-group-row { display:flex; align-items:center; gap:4px; font-weight:600; }
-.tc-drawing-group-row .tc-drawing-row-focus { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; text-align:left; }
+.tc-drawing-group-row .tc-drawing-row-focus { min-width:0; flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; text-align:left; }
 .tc-drawing-drag-handle { touch-action:none; cursor:grab; padding:2px; }
 .tc-drawing-sort-controls { display:flex; flex-wrap:wrap; gap:4px; margin:6px 0; }
 .tc-drawing-sort-controls select { min-width:0; max-width:100%; }

@@ -16,6 +16,7 @@ interface Options {
   cancel:()=>void
   finish?:()=>Promise<DrawingCommandResult>
   translate?:(snapshot:DrawingSnapshot,dx:number,dy:number)=>DrawingSnapshot
+  translateNudge?:(snapshot:DrawingSnapshot,dx:number,dy:number)=>DrawingSnapshot
   translatePoint?:(snapshot:DrawingSnapshot,index:number,dx:number,dy:number)=>DrawingSnapshot
   project:()=>void
   owner:(snapshot:DrawingSnapshot)=>DrawingSnapshot['owner']
@@ -31,7 +32,7 @@ export function mergeDrawingStyles(before:DrawingSnapshot['overlay']['styles'],p
   return result
 }
 const complete=():DrawingCommandResult=>({status:'completed',items:[]})
-type DrawingIntent=DrawingCommand|{type:'move-point';ids:string[];index:number;dx:number;dy:number}
+type DrawingIntent=DrawingCommand|{type:'move-point';ids:string[];index:number;dx:number;dy:number}|{type:'nudge-selection';ids:string[];dx:number;dy:number}
 /** A command coordinator; DrawingHistory remains the sole content writer. */
 export class DrawingController {
   readonly catalog:DrawingToolDescriptor[]
@@ -132,6 +133,7 @@ export class DrawingController {
   }
   commitPreview(command:DrawingCommand,before:DrawingSnapshot[]):Promise<DrawingCommandResult>{return this.enqueue(command,before)}
   nudgePoint(id:string,index:number,dx:number,dy:number):Promise<DrawingCommandResult>{return this.enqueue({type:'move-point',ids:[id],index,dx,dy})}
+  nudgeSelection(ids:string[],dx:number,dy:number):Promise<DrawingCommandResult>{return this.enqueue({type:'nudge-selection',ids,dx,dy})}
   private enqueue(command:DrawingIntent,before?:DrawingSnapshot[]):Promise<DrawingCommandResult>{
     const intent=copy(command),bases=before&&copy(before),assertContext=['preferences','preferences-retry','view'].includes(command.type)?undefined:this.captureContext(),run=this.tail.catch(()=>{}).then(()=>this.run(intent,bases,assertContext))
     this.tail=run;return run
@@ -230,7 +232,7 @@ export class DrawingController {
         const presentation=['presentation','group','ungroup','reorder'].includes(command.type)
         const unlock=command.type==='update'&&Object.keys(command.patch).length===1&&command.patch.overlay&&Object.keys(command.patch.overlay).every(k=>k==='lock'||k==='visible')
         const objects=this.targets(command.ids,true,!!unlock||presentation)
-        if(command.type==='move'&&new Set(objects.map(o=>o.overlay.paneId??'candle_pane')).size>1)throw Error('不能整体移动不同窗格中的绘图')
+        if((command.type==='move'||command.type==='nudge-selection')&&new Set(objects.map(o=>o.overlay.paneId??'candle_pane')).size>1)throw Error('不能整体移动不同窗格中的绘图')
         if(command.type==='group'&&(new Set(objects.map(o=>o.overlay.paneId??'candle_pane')).size>1||new Set(objects.map(o=>o.presentation?.scope??'chart')).size>1))throw Error('只能对同一会话和窗格中的绘图分组')
         const groupId=command.type==='group'?`group-${createOpaqueId()}`:undefined
         const all=this.history().getDrawings().sort((a,b)=>(a.presentation?.order??0)-(b.presentation?.order??0))
@@ -247,11 +249,11 @@ export class DrawingController {
             reordered.splice(0,reordered.length,...rest.slice(0,position),...selected,...rest.slice(position))
             const lookup=new Map(all.map(o=>[o.logicalId,o.presentation?.order??0]))
             const left=position?lookup.get(rest[position-1])!:undefined,right=position<rest.length?lookup.get(rest[position])!:undefined
-            const step=left!==undefined&&right!==undefined?(right-left)/(selected.length+1):1
+            const step=left!==undefined&&right!==undefined?Math.floor((right-left)/(selected.length+1)):1
             const start=left??(right??0)-selected.length-1
             absoluteOrders=new Map(selected.map((id,i)=>[id,start+step*(i+1)]))
             const unique=new Set([...rest.map(id=>lookup.get(id)!),...absoluteOrders.values()])
-            if(!(step>0)||unique.size!==all.length||[...absoluteOrders.values()].some(v=>!Number.isFinite(v))){
+            if(!(step>0)||unique.size!==all.length||[...rest.map(id=>lookup.get(id)!),...absoluteOrders.values()].some(v=>!Number.isSafeInteger(v))){
               absoluteOrders=new Map(reordered.map((id,i)=>[id,i]))
             }
             for(const before of all)if(absoluteOrders.has(before.logicalId)&&absoluteOrders.get(before.logicalId)!==before.presentation?.order)this.targets([before.logicalId],true)
@@ -267,9 +269,10 @@ export class DrawingController {
           let after=copy(before)
           if(command.type==='move-point'){
             if(!this.options.translatePoint)throw Error('控制点坐标尚未就绪');after=this.options.translatePoint(before,command.index,command.dx,command.dy)
-          }else if(command.type==='move'){
-            if(!this.options.translate)throw Error('绘图坐标尚未就绪');after=this.options.translate(before,command.dx,command.dy)
-            if(command.clone){const id=`drawing-${createOpaqueId()}`;after.logicalId=id;after.overlay.id=id;delete after.backendId;delete after.migration;after.presentation={...after.presentation,groupId:undefined,groupName:undefined};after.owner=this.options.owner(after);return {after}}
+          }else if(command.type==='move'||command.type==='nudge-selection'){
+            const translate=command.type==='move'?this.options.translate:this.options.translateNudge
+            if(!translate)throw Error('绘图坐标尚未就绪');after=translate(before,command.dx,command.dy)
+            if(command.type==='move'&&command.clone){const id=`drawing-${createOpaqueId()}`;after.logicalId=id;after.overlay.id=id;delete after.backendId;delete after.migration;after.presentation={...after.presentation,groupId:undefined,groupName:undefined};after.owner=this.options.owner(after);return {after}}
           }
           else if(command.type==='update'){
             const {overlay,text,...patch}=command.patch

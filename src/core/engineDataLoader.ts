@@ -44,7 +44,7 @@ export class EngineDataLoader implements DataLoader {
   private publishing=0
   private alignmentRevision=0
   private identityEpoch=0
-  private resumeCheckpoint?:{reading:ReadingState;bars:KLineData[];basis?:string;confirmed:boolean;replay?:KLineData[];suspended:boolean;anchor?:number;anchorX?:number;space:number}
+  private resumeCheckpoint?:{reading:ReadingState;error?:string;bars:KLineData[];basis?:string;confirmed:boolean;replay?:KLineData[];suspended:boolean;anchor?:number;anchorX?:number;space:number}
   private generation = 0
   private pageSequence = 0
   private requests = new Set<AbortController>()
@@ -168,8 +168,7 @@ export class EngineDataLoader implements DataLoader {
       else if (bars.length>0 && basis !== this.basis) throw new Error('历史复权口径已变化，请重试重新加载行情')
       this.reading.lastRead=read
       this.reading.hasMoreBefore=result.hasMoreBefore
-      this.reading.errorCode=undefined
-      this.readError=undefined
+      if(!this.resumeCheckpoint){this.reading.errorCode=undefined;this.readError=undefined}
       // Engine callbacks may synchronously install subscriptions and reenter host code.
       // Publish one complete commit, and never let an old callback mutate its successor.
       ++this.publishing
@@ -301,6 +300,13 @@ export class EngineDataLoader implements DataLoader {
       .finally(()=>{if(this.retryTask===task)this.retryTask=undefined})
     this.retryTask=task;return task
   }
+  /** Visible errors without a failed query still need a real read; public retry remains idempotent. */
+  retryError():Promise<void> {
+    if(this.failed||this.retryTask)return this.retry()
+    if(!this.readError)return Promise.resolve()
+    const task=this.reload(true,this.reading.revisionRequired).finally(()=>{if(this.retryTask===task)this.retryTask=undefined})
+    this.retryTask=task;return task
+  }
   /** Prefetch before reset; failure leaves the confirmed data, drawings and viewport intact. */
   async reload(preserveViewport = true, requireComplete = false, earliestTimestamp = Infinity, retryQuery?:HistoryQuery): Promise<void> {
     if (this.disposed || !this.current) throw new DOMException('行情恢复已取消或图表尚未就绪','AbortError')
@@ -314,7 +320,6 @@ export class EngineDataLoader implements DataLoader {
     const attempt={query,operation:retryQuery?'load-more' as const:'reload' as const,requireComplete,earliestTimestamp}
     this.failed=attempt
     this.reading.operation=retryQuery?'load-more':'reload'
-    this.readError=undefined
     try {
       this.setLoading(true)
       if (this.disposed || generation !== this.generation || controller.signal.aborted) throw new DOMException('行情恢复已取消','AbortError')
@@ -379,15 +384,15 @@ export class EngineDataLoader implements DataLoader {
   }
   private beginRestore():{prepare:()=>void;commit:()=>void;rollback:()=>void} {
     const data=this.chart.getDataList(),range=this.chart.getVisibleRange()
-    const checkpoint={reading:structuredClone(this.reading),bars:data.map(b=>({...b})),basis:this.basis,confirmed:this.confirmed,replay:this.replay?.map(b=>({...b})),suspended:this.suspended,anchor:data[Math.min(data.length-1,Math.max(0,range.to-1))]?.timestamp,anchorX:(this.chart.convertToPixel({timestamp:data[Math.min(data.length-1,Math.max(0,range.to-1))]?.timestamp},{paneId:'candle_pane'}) as {x?:number}|undefined)?.x,space:this.chart.getBarSpace().bar}
+    const checkpoint={reading:structuredClone(this.reading),error:this.readError,bars:data.map(b=>({...b})),basis:this.basis,confirmed:this.confirmed,replay:this.replay?.map(b=>({...b})),suspended:this.suspended,anchor:data[Math.min(data.length-1,Math.max(0,range.to-1))]?.timestamp,anchorX:(this.chart.convertToPixel({timestamp:data[Math.min(data.length-1,Math.max(0,range.to-1))]?.timestamp},{paneId:'candle_pane'}) as {x?:number}|undefined)?.x,space:this.chart.getBarSpace().bar}
     this.resumeCheckpoint=checkpoint
     const active=()=>!this.disposed&&this.resumeCheckpoint===checkpoint
     let prepared=false
     const prepare=()=>{if(!active())throw new DOMException('回放恢复已取消','AbortError');if(!prepared){this.startSubscription();if(!active())throw new DOMException('回放恢复已取消','AbortError');prepared=true}}
     return {
       prepare,
-      commit:()=>{prepare();const identity=this.current,generation=this.generation;this.resumeCheckpoint=undefined;this.confirmContent();this.flushSubscription();if(this.disposed||this.current!==identity||this.generation!==generation)return;this.emitState();if(this.disposed||this.current!==identity||this.generation!==generation)return;if(identity)this.hooks.ready(identity);if(this.disposed||this.current!==identity||this.generation!==generation)return;queueMicrotask(()=>{void this.drainSnapshots().catch(()=>{})})},
-      rollback:()=>{if(!active())return;this.invalidate();if(!active())return;this.basis=checkpoint.basis;this.confirmed=checkpoint.confirmed;this.replay=checkpoint.replay;this.prepared=checkpoint.replay?undefined:{bars:checkpoint.bars,basis:checkpoint.basis,hasMoreBefore:checkpoint.reading.hasMoreBefore,read:checkpoint.reading.lastRead};this.chart.resetData();if(!active())return;this.confirmed=checkpoint.confirmed;this.suspended=checkpoint.replay?checkpoint.suspended:true;this.reading=checkpoint.reading;this.resumeCheckpoint=undefined;this.chart.setBarSpace(checkpoint.space);const index=this.chart.getDataList().findIndex(b=>b.timestamp===checkpoint.anchor);if(index>=0)this.restoreAnchor(checkpoint.anchor!,checkpoint.anchorX,checkpoint.space);this.emitState()}
+      commit:()=>{prepare();const identity=this.current,generation=this.generation;this.readError=undefined;this.reading.errorCode=undefined;this.resumeCheckpoint=undefined;this.confirmContent();this.flushSubscription();if(this.disposed||this.current!==identity||this.generation!==generation)return;this.emitState();if(this.disposed||this.current!==identity||this.generation!==generation)return;if(identity)this.hooks.ready(identity);if(this.disposed||this.current!==identity||this.generation!==generation)return;queueMicrotask(()=>{void this.drainSnapshots().catch(()=>{})})},
+      rollback:()=>{if(!active())return;this.invalidate();if(!active())return;this.basis=checkpoint.basis;this.confirmed=checkpoint.confirmed;this.replay=checkpoint.replay;this.prepared=checkpoint.replay?undefined:{bars:checkpoint.bars,basis:checkpoint.basis,hasMoreBefore:checkpoint.reading.hasMoreBefore,read:checkpoint.reading.lastRead};this.chart.resetData();if(!active())return;this.confirmed=checkpoint.confirmed;this.suspended=checkpoint.replay?checkpoint.suspended:true;this.reading=checkpoint.reading;this.readError=checkpoint.error;this.resumeCheckpoint=undefined;this.chart.setBarSpace(checkpoint.space);const index=this.chart.getDataList().findIndex(b=>b.timestamp===checkpoint.anchor);if(index>=0)this.restoreAnchor(checkpoint.anchor!,checkpoint.anchorX,checkpoint.space);this.emitState()}
     }
   }
   setReplay(bars: KLineData[]): void {

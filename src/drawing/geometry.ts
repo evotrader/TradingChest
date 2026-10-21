@@ -40,6 +40,20 @@ export function translatedDrawing(before:DrawingSnapshot,dx:number,dy:number,geo
   after.anchors=anchorsFromPoints(after.overlay.points,geometry.bars,geometry.period,'interaction')
   return after
 }
+/** Keyboard intent uses actual bars for time-only tools and pixels for ordinary drawings. */
+export function nudgedDrawing(before:DrawingSnapshot,dx:number,dy:number,geometry:DrawingGeometry):DrawingSnapshot {
+  if(!isVolumeDrawing(before.overlay.name))return translatedDrawing(before,dx,dy,geometry)
+  if(!Number.isInteger(dx)||!Number.isFinite(dy))throw Error('量价绘图微调必须使用整数根数')
+  if(!dx)return structuredClone(before)
+  const after=structuredClone(before)
+  after.overlay.points=geometry.project(before).map(point=>{
+    const index=Math.round(marketIndex(point.timestamp!,geometry.bars))+dx,bar=geometry.bars[index]
+    if(!bar)throw Error('量价绘图只能移动到已加载历史')
+    return {timestamp:bar.timestamp,dataIndex:index,value:point.value}
+  })
+  after.anchors=anchorsFromPoints(after.overlay.points,geometry.bars,geometry.period,'interaction')
+  return after
+}
 export function rotatedDrawing(before:DrawingSnapshot,degrees:number,geometry:DrawingGeometry):DrawingSnapshot {
   if(!Number.isFinite(degrees)||before.overlay.name!=='rotatedRect')throw Error('此工具不支持旋转角度')
   const points=geometry.project(before),pixels=points.map(point=>geometry.toPixel(point,before));if(pixels.length<3)throw Error('旋转矩形需要三个控制点')

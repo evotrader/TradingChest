@@ -11,7 +11,7 @@ export function flattenDrawingRows(objects:DrawingSnapshot[],collapsed:ReadonlyS
     if(!object.presentation?.groupId){append({key:`object:${object.logicalId}`,object,height:56,level:1});continue}
     const id=drawingGroupKey(object);if(seen.has(id))continue;seen.add(id)
     const members=groups.get(id)!
-    append({key:`group:${id}`,height:40,level:1,group:{id,name:object.presentation.groupName??object.presentation.groupId,members}})
+    append({key:`group:${id}`,height:48,level:1,group:{id,name:object.presentation.groupName??object.presentation.groupId,members}})
     if(searching||!collapsed.has(id))for(const member of members)append({key:`object:${member.logicalId}`,object:member,height:56,level:2})
   }
   return rows

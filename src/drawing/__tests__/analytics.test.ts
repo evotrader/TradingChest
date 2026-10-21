@@ -79,6 +79,73 @@ describe('OHLCV drawing mathematics',()=>{
     const result=calculateVolumeProfile([bar(1,0,10),bar(2,1,10),bar(3,2,10),bar(4,3,10)],0,3,4,.5)
     expect(result.pocIndex).toBe(1);expect(result.vaFrom).toBe(0);expect(result.vaTo).toBe(1)
   })
+  it('keeps uniform default bins tied under translation and high-price one-cent ranges',()=>{
+    for(const rows of [48,96,192])for(const [low,high] of [[0,1],[100,105],[100000,100000.01],[-100005,-100000]]){
+      const result=calculateVolumeProfile([{timestamp:1,open:low,low,high,close:high,volume:480}],0,0,rows)
+      expect(new Set(result.bins.map(bin=>bin.volume)).size).toBe(1)
+      expect(result.pocIndex).toBe(rows/2-1)
+      expect(result.vaFrom).toBe(0);expect(result.vaTo).toBe(Math.ceil(rows*.7)-1)
+      expect(result.bins.reduce((n,bin)=>n+bin.volume,0)).toBeCloseTo(480,10)
+    }
+  })
+  it('preserves real one-ULP differences for direct POC and value-area comparisons',()=>{
+    const result=calculateVolumeProfile([bar(1,0,1),bar(2,1,1+Number.EPSILON)],0,1,2)
+    expect(result.pocIndex).toBe(1)
+    const area=calculateVolumeProfile([bar(1,0,1),bar(2,1,10),bar(3,2,1+Number.EPSILON)],0,2,3,.9)
+    expect(area).toMatchObject({pocIndex:1,vaFrom:1,vaTo:2})
+  })
+  it('does not overflow finite edge contributions when a narrow bar crosses a boundary',()=>{
+    const data=[{timestamp:1,open:0,low:0,high:48,close:48,volume:0},{timestamp:2,open:24,low:23.999999999999996,high:24.000000000000004,close:24,volume:1e308}]
+    const result=calculateVolumeProfile(data,0,1,48)
+    expect(result.bins[23].volume).toBe(5e307);expect(result.bins[24].volume).toBe(5e307)
+    expect(result.volume).toBe(1e308)
+  })
+  it.each([
+    {wide:[0,48,0],narrow:[.25,.25000001,1000.1],expected:[1000.1,0]},
+    {wide:[100,148,1],narrow:[100.25,100.25000001,1000.1],expected:[1000.1+1/48,1/48]},
+    {wide:[0,48,1],narrow:[.999999995,1.000000005,1000.1],expected:[500.05+1/48,500.05+1/48]},
+  ])('preserves non-integer narrow-bar volume without subtracting large rounded products: %j',({wide,narrow,expected})=>{
+    for(const down of [false,true]){
+      const data=[wide,narrow].map(([low,high,volume],i)=>({timestamp:i+1,low,high,volume,open:down?high:low,close:down?low:high}))
+      const result=calculateVolumeProfile(data,0,1,48)
+      expect(result.volume).toBe(wide[2]+narrow[2])
+      for(let i=0;i<2;i++){
+        expect(result.bins[i].volume).toBeCloseTo(expected[i],11)
+        expect(result.bins[i][down?'down':'up']).toBeCloseTo(expected[i],11)
+        expect(result.bins[i][down?'up':'down']).toBe(0)
+      }
+      expect(result.bins.reduce((n,bin)=>n+bin.volume,0)).toBeCloseTo(result.volume,9)
+    }
+  })
+  it('keeps equal physical densities tied across adjacent bars, translations and up/down partitions',()=>{
+    for(const rows of [48,96,192])for(const shift of [0,100000,-100000])for(const cuts of [[0,9,11],[0,2,5]])for(const down of [false,true]){
+      const data=cuts.slice(1).map((high,i)=>({timestamp:i+1,low:cuts[i]+shift,high:high+shift,open:(down?high:cuts[i])+shift,close:(down?cuts[i]:high)+shift,volume:high-cuts[i]}))
+      const result=calculateVolumeProfile(data,0,data.length-1,rows)
+      expect(result.pocIndex).toBe(rows/2-1);expect(result.vaFrom).toBe(0);expect(result.vaTo).toBe(Math.ceil(rows*.7)-1)
+      expect(new Set(result.bins.map(bin=>bin.volume)).size).toBe(1)
+    }
+  })
+  it('keeps small active-bin contributions after large difference terms cancel',()=>{
+    for(const down of [false,true]){
+      const data=[[0,4,0],[0,2,2e36],[0,3,3]].map(([low,high,volume],i)=>({timestamp:i+1,low,high,open:down?high:low,close:down?low:high,volume}))
+      const result=calculateVolumeProfile(data,0,2,4)
+      expect(result.bins.map(bin=>bin.volume)).toEqual([1e36,1e36,1,0])
+      expect(result.bins[2][down?'down':'up']).toBe(1)
+    }
+  })
+  it('preserves uniform POC and value-area ties across 1000 independent integer-density partitions',()=>{
+    let seed=17
+    const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/2**32}
+    for(let attempt=0;attempt<1000;attempt++){
+      const high=10+Math.floor(random()*1000),rows=[48,96,192][attempt%3],cuts=[0,high]
+      for(let i=0;i<10;i++)cuts.push(Math.floor(random()*high))
+      const boundaries=[...new Set(cuts.sort((a,b)=>a-b))],density=1+Math.floor(random()*8)
+      const data=boundaries.slice(1).map((high,i)=>{const low=boundaries[i],down=attempt%2&&i%2;return {timestamp:i+1,low,high,open:down?high:low,close:down?low:high,volume:(high-low)*density}})
+      const result=calculateVolumeProfile(data,0,data.length-1,rows)
+      expect(result).toMatchObject({pocIndex:rows/2-1,vaFrom:0,vaTo:Math.ceil(rows*.7)-1})
+      expect(new Set(result.bins.map(bin=>bin.volume)).size).toBe(1)
+    }
+  })
   it('rejects zero volume, invalid bars and unsupported row counts',()=>{
     expect(()=>calculateVolumeProfile([bar(1,10,0)],0,0)).toThrow('无成交量')
     expect(()=>calculateVolumeProfile([{...bar(1,10,1),volume:undefined}],0,0)).toThrow('无效')

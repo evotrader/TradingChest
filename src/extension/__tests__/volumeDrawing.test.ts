@@ -24,4 +24,11 @@ describe('volume drawing projection',()=>{
     expect(rect.x).toBeGreaterThanOrEqual(0);expect(rect.x+rect.width).toBeLessThanOrEqual(300);expect(rect.width).toBeGreaterThanOrEqual(24);expect(rect.height).toBeGreaterThanOrEqual(2)
     expect(figures.filter(f=>f.type==='rectText'&&JSON.stringify(f.attrs).includes('POC'))).toHaveLength(1)
   })
+  it('labels a surviving valid prefix with its actual non-default source despite a bad tail',()=>{
+    const data=[1,2,3,4].map((n,i)=>({timestamp:n,open:n*10,high:n*10+2,low:n*10-2,close:n*10+2,volume:i===3?undefined:1}))
+    const {chart,args}=setup('anchoredVwap',data)
+    chart.getVisibleRange=()=>({from:0,to:1} as ReturnType<Chart['getVisibleRange']>)
+    args.overlay.extendData={drawingParameters:{source:'close'}}
+    expect(volumeDrawingFigures(args).some(f=>f.type==='rectText'&&JSON.stringify(f.attrs).includes('AVWAP 22.00 · close'))).toBe(true)
+  })
 })

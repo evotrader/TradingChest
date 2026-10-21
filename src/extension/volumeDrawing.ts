@@ -1,6 +1,7 @@
 import type {OverlayTemplate,OverlayCreateFiguresCallbackParams,OverlayFigure,Coordinate} from 'klinecharts'
 import {drawingAnalyticsRuntimes} from '../drawing/analyticsRuntime'
 import {canProjectAxisValue} from './numerics'
+import {drawingParameters} from '../drawing/content'
 
 export function volumeDrawingFigures(args:OverlayCreateFiguresCallbackParams<unknown>):OverlayFigure[]{
   const {chart,overlay,coordinates,bounding,xAxis,yAxis}=args
@@ -20,7 +21,7 @@ export function volumeDrawingFigures(args:OverlayCreateFiguresCallbackParams<unk
       const flush=()=>{if(line.length>1)figures.push({type:'line',attrs:{coordinates:line}});else if(line.length===1)figures.push({type:'circle',attrs:{...line[0],r:3}});line=[]}
       for(let i=from;i<=to;i++){const point=result.point(i);if(point.value===undefined){flush();continue}line.push({x:xAxis.convertToPixel(i),y:y(point.value)})}
       flush()
-      if(to>=from){const point=result.point(to);if(point.value!==undefined)figures.push({type:'rectText',attrs:{x:xAxis.convertToPixel(to),y:y(point.value),text:`AVWAP ${format(point.value)} · ${state.summary?.source??'hlc3'} · OHLCV 估算`,baseline:'bottom',align:'right'},styles:{color:overlay.styles?.line?.color??'#1677ff'}})}
+      if(to>=from){const point=result.point(to);if(point.value!==undefined)figures.push({type:'rectText',attrs:{x:xAxis.convertToPixel(to),y:y(point.value),text:`AVWAP ${format(point.value)} · ${drawingParameters(overlay.extendData)?.source??'hlc3'} · OHLCV 估算`,baseline:'bottom',align:'right'},styles:{color:overlay.styles?.line?.color??'#1677ff'}})}
     }else if(result.profile){
       const profile=result.profile,anchorX=Math.min(...coordinates.map(p=>p.x)),last=Math.max(...coordinates.map(p=>p.x))
       const width=Math.min(bounding.width,Math.max(24,Math.max(last-anchorX,chart.getBarSpace().bar)*.3)),first=Math.max(0,Math.min(anchorX,bounding.width-width)),maximum=Math.max(...profile.bins.map(bin=>bin.volume))

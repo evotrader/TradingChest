@@ -36,6 +36,7 @@ class Sum {
   private invalid=false
   constructor(parts:number[]=[]){this.parts=[...parts]}
   snapshot():number[]{return [...this.parts]}
+  merge(other:Sum):void {if(other.invalid){this.invalid=true;return}for(const part of other.parts)this.add(part)}
   get total():number {
     if(this.invalid)return NaN
     let n=this.parts.length
@@ -130,36 +131,60 @@ export function calculateVolumeProfile(bars:readonly KLineData[],from:number,to:
   if(!Number.isFinite(total.total))throw Error('成交量累计溢出')
   if(total.total===0)throw Error('区间无成交量，无法计算 POC 和价值区')
   if(low===high)rows=1
-  const width=(high-low)/rows
+  const range=high-low,width=range/rows
   if(!Number.isFinite(width)||width<0)throw Error('价格范围无法分箱')
-  const up=new Float64Array(rows),down=new Float64Array(rows),upDiff=new Float64Array(rows+1),downDiff=new Float64Array(rows+1)
-  const bin=(value:number)=>width===0?0:Math.max(0,Math.min(rows-1,Math.floor((value-low)/width)))
+  const sums=(length:number)=>Array.from({length},()=>new Sum())
+  const up=sums(rows),down=sums(rows),upDiff=sums(rows+1),downDiff=sums(rows+1)
+  // Normalize before subtracting bin boundaries: a large price origin never enters overlap arithmetic.
+  const coordinate=(value:number)=>value===low?0:value===high?rows:(value-low)/width
+  const bin=(value:number)=>Math.max(0,Math.min(rows-1,Math.floor(value)))
   for(let i=from;i<=to;i++){
     const bar=bars[i],volume=bar.volume!;if(volume===0)continue
-    const target=bar.close>=bar.open?up:down,diff=bar.close>=bar.open?upDiff:downDiff,first=bin(bar.low),last=bin(bar.high)
-    if(first===last||bar.low===bar.high){target[first]+=volume;continue}
-    const span=bar.high-bar.low
-    target[first]+=volume*((low+(first+1)*width-bar.low)/span)
-    target[last]+=volume*((bar.high-(low+last*width))/span)
-    if(last>first+1){const middle=volume*(width/span);diff[first+1]+=middle;diff[last]-=middle}
+    const target=bar.close>=bar.open?up:down,diff=bar.close>=bar.open?upDiff:downDiff,start=coordinate(bar.low),end=coordinate(bar.high),first=bin(start),last=bin(end)
+    if(bar.low===bar.high||end===start){target[first].add(volume);continue}
+    const span=end-start,unit=volume/(bar.high-bar.low)*width
+    const edge=new Sum()
+    let useUnit=Number.isFinite(unit)&&unit>0
+    const lastValue=first===last?0:unit*(end-last)
+    if(useUnit){
+      edge.add(first===last?unit*(end-first):unit);edge.add(-unit*(start-first))
+      const allocated=new Sum(edge.snapshot());allocated.add(lastValue)
+      if(last>first+1)allocated.add(unit*(last-first-1))
+      // Select the stable formula before committing any contribution to global bins.
+      useUnit=Number.isFinite(allocated.total)&&Math.abs(allocated.total-volume)<=1e-12*volume
+    }
+    if(useUnit){
+      // Equal physical densities use the same unit, independent of normalized endpoint rounding.
+      target[first].merge(edge)
+      if(first!==last){target[last].add(lastValue);if(last>first+1){diff[first+1].add(unit);diff[last].add(-unit)}}
+    }else{
+      // Bounded ratios keep finite edges calculable when physical density cannot be represented.
+      if(first===last){target[first].add(volume);continue}
+      target[first].add(volume*((first+1-start)/span))
+      target[last].add(volume*((end-last)/span))
+      if(last>first+1){const middle=volume*(1/span);diff[first+1].add(middle);diff[last].add(-middle)}
+    }
   }
-  let currentUp=0,currentDown=0
+  const currentUp=new Sum(),currentDown=new Sum()
   const tolerance=1e-9*Math.max(1,Math.abs(total.total)),actual=new Sum(),actualUp=new Sum(),actualDown=new Sum()
   const bins:VolumeBin[]=Array.from({length:rows},(_,i)=>{
-    currentUp+=upDiff[i];currentDown+=downDiff[i]
+    currentUp.merge(upDiff[i]);currentDown.merge(downDiff[i])
     const clean=(value:number)=>{if(!Number.isFinite(value)||value < -tolerance)throw Error('成交量分箱发生数值错误');return Math.max(0,value)}
-    const u=clean(up[i]+currentUp),d=clean(down[i]+currentDown),volume=u+d
+    const combine=(boundary:Sum,current:Sum)=>{const sum=new Sum(boundary.snapshot());sum.merge(current);const value=clean(sum.total);return value===0?new Sum():sum}
+    const upValue=combine(up[i],currentUp),downValue=combine(down[i],currentDown),binValue=new Sum(upValue.snapshot());binValue.merge(downValue)
+    const u=upValue.total,d=downValue.total,volume=clean(binValue.total)
     actual.add(volume);actualUp.add(u);actualDown.add(d)
     return {lower:low+i*width,upper:i===rows-1?high:low+(i+1)*width,volume,up:u,down:d}
   })
   if(Math.abs(actual.total-total.total)>tolerance||Math.abs(actualUp.total-upTotal.total)>tolerance||Math.abs(actualDown.total-downTotal.total)>tolerance)throw Error('成交量分布未通过总量守恒检查')
   let pocIndex=0
-  const center=(i:number)=>bins[i].lower/2+bins[i].upper/2,mid=low/2+high/2
-  for(let i=1;i<rows;i++)if(bins[i].volume>bins[pocIndex].volume||bins[i].volume===bins[pocIndex].volume&&Math.abs(center(i)-mid)<Math.abs(center(pocIndex)-mid))pocIndex=i
-  let a=pocIndex,b=pocIndex,covered=bins[pocIndex].volume
-  while(covered<total.total*valueArea&&(a>0||b<rows-1)){
-    if(b===rows-1||a>0&&bins[a-1].volume>=bins[b+1].volume)covered+=bins[--a].volume
-    else covered+=bins[++b].volume
+  const center=(i:number)=>bins[i].lower/2+bins[i].upper/2,distance=(i:number)=>Math.abs(2*i+1-rows)
+  for(let i=1;i<rows;i++)if(bins[i].volume>bins[pocIndex].volume||bins[i].volume===bins[pocIndex].volume&&distance(i)<distance(pocIndex))pocIndex=i
+  let a=pocIndex,b=pocIndex
+  const covered=new Sum();covered.add(bins[pocIndex].volume)
+  while(covered.total<total.total*valueArea&&(a>0||b<rows-1)){
+    if(b===rows-1||a>0&&bins[a-1].volume>=bins[b+1].volume)covered.add(bins[--a].volume)
+    else covered.add(bins[++b].volume)
   }
-  return {bins,volume:total.total,poc:center(pocIndex),val:bins[a].lower,vah:bins[b].upper,valueArea:covered/total.total,pocIndex,vaFrom:a,vaTo:b}
+  return {bins,volume:total.total,poc:center(pocIndex),val:bins[a].lower,vah:bins[b].upper,valueArea:covered.total/total.total,pocIndex,vaFrom:a,vaTo:b}
 }

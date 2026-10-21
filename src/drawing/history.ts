@@ -210,6 +210,7 @@ export class DrawingHistory {
   submitBatch(requests:BatchRequest[]|(()=>BatchRequest[]),source:DrawingSource):Promise<DrawingCommandResult>{
     const captured=typeof requests==='function'?requests:copy(requests),context=copy(this.options.context())
     return this.enqueue(async generation=>{
+      const started=performance.now()
       const requested=copy(typeof captured==='function'?captured():captured)
       const seen=new Set<string>()
       for(const request of requested){
@@ -221,7 +222,7 @@ export class DrawingHistory {
       }
       const transaction:Transaction={changes:[]},items:DrawingItemResult[]=[]
       const cooperative=requested.length>=128&&requested.every(request=>(request.after??this.drawings.get(request.logicalId))?.owner==='local')
-      let stopped=false,checkpoint=performance.now()
+      let stopped=false,checkpoint=started
       for(const request of requested){
         if(this.disposed||generation!==this.generation)throw abort(this.options.locale?.()??'zh-CN')
         if(stopped){items.push({logicalId:request.logicalId,status:'not-attempted'});continue}
@@ -246,6 +247,7 @@ export class DrawingHistory {
   private travel(direction:'undo'|'redo'):Promise<DrawingCommitResult|undefined>{
     const context=copy(this.options.context())
     return this.enqueue(async generation=>{
+      const started=performance.now()
       const from=direction==='undo'?this.past:this.future,to=direction==='undo'?this.future:this.past
       const transaction=from.at(-1);if(!transaction){this.finish([]);return}
       if(transaction.operation){
@@ -258,7 +260,7 @@ export class DrawingHistory {
       const entries=direction==='undo'?[...transaction.changes].reverse():[...transaction.changes]
       const completed:Transaction={changes:[]},items:DrawingItemResult[]=[]
       const cooperative=entries.length>=128&&entries.every(entry=>(entry.after??entry.before)?.owner==='local')
-      let last:DrawingCommitResult|undefined,stopped=false,checkpoint=performance.now()
+      let last:DrawingCommitResult|undefined,stopped=false,checkpoint=started
       for(const entry of entries){
         if(this.disposed||generation!==this.generation)throw abort(this.options.locale?.()??'zh-CN')
         if(stopped){items.push({logicalId:entry.logicalId,status:'not-attempted'});continue}

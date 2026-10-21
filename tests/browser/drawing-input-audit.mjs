@@ -12,7 +12,8 @@ try{
    pro.restoreDrawings(owner,[drawing]);await pro.executeDrawingCommand({type:'select',ids:[id]});return pro.getDrawings()[0]
  },{name,owner,axisId})
  const handle=()=>page.getByRole('button',{name:/^绘图控制点 1 ·/})
- const drag=async(dx,dy,cancel=false)=>{const h=await handle().boundingBox();await page.mouse.move(h.x+22,h.y+22);await page.mouse.down();await page.mouse.move(h.x+22+dx,h.y+22+dy,{steps:4});if(cancel)await handle().dispatchEvent('pointercancel',{pointerId:1,pointerType:'mouse'});await page.mouse.up()}
+ const handleBounds=async()=>{const name=await page.evaluate(()=>pro.getDrawings().find(d=>d.logicalId===pro.getDrawingState().selectedIds[0])?.overlay.name);assert.ok(name);const target=page.getByRole('button',{name:`绘图控制点 1 · ${name}`,exact:true});await target.waitFor({state:'visible'});const box=await target.boundingBox();assert.ok(box);return box}
+ const drag=async(dx,dy,cancel=false)=>{const h=await handleBounds();await page.mouse.move(h.x+22,h.y+22);await page.mouse.down();await page.mouse.move(h.x+22+dx,h.y+22+dy,{steps:4});if(cancel)await handle().dispatchEvent('pointercancel',{pointerId:1,pointerType:'mouse'});await page.mouse.up()}
  for(const name of ['segment','horizontalSegment','verticalSegment']){
   const before=await seed(name);await drag(60,20);await page.waitForFunction(before=>JSON.stringify(pro.getDrawings()[0].anchors)!==JSON.stringify(before.anchors),before)
   const after=await page.evaluate(()=>pro.getDrawings()[0]);assert.notEqual(after.anchors[0].timestamp,before.anchors[0].timestamp);assert.notEqual(after.anchors[0].value,before.anchors[0].value)
@@ -27,7 +28,7 @@ try{
   const actual=await page.evaluate(()=>({drawing:pro.getDrawings()[0],range:pro.getChart().getVisibleRange(),writes:commits.length,panCalls,scroll:pro.getChart().isScrollEnabled(),focus:document.activeElement?.className}));assert.deepEqual(actual.drawing.anchors,before.anchors);assert.equal(actual.writes,body.writes);assert.notEqual(actual.range.realFrom,body.range.realFrom)
   results.push({scenario:`space-body-pan-${owner}-no-content-write`,passed:true})
  }
- const before=await seed('segment'),h=await handle().boundingBox();await page.mouse.move(h.x+22,h.y+22);await page.mouse.down();await page.mouse.move(h.x+42,h.y+42)
+ const before=await seed('segment'),h=await handleBounds();await page.mouse.move(h.x+22,h.y+22);await page.mouse.down();await page.mouse.move(h.x+42,h.y+42)
  const canonical=await page.evaluate(()=>{const d=pro.getDrawings()[0];d.anchors=d.anchors.map(a=>({...a,value:a.value+3}));d.overlay.points=d.overlay.points.map(p=>({...p,value:p.value+3}));pro.restoreDrawings('local',[d]);return pro.getDrawings()[0]})
  await handle().dispatchEvent('pointercancel',{pointerId:1,pointerType:'mouse'});await page.mouse.up()
  assert.deepEqual(await page.evaluate(()=>pro.getDrawings()[0].anchors),canonical.anchors)

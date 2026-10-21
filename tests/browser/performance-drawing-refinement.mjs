@@ -2,8 +2,10 @@ import {launchBrowser} from './support.mjs'
 import assert from 'node:assert/strict'
 import {readFileSync,writeFileSync} from 'node:fs'
 const budgets=JSON.parse(readFileSync(new URL('./drawing-refinement-budgets.json',import.meta.url))),baseline=process.env.TC_DR_BASELINE==='1',diagnostic=!!process.env.TC_DR_DIAGNOSTIC
-const actions=baseline?['reorder']:diagnostic?process.env.TC_DR_DIAGNOSTIC.split(','):budgets.actions,histories=baseline?[10000]:diagnostic?[10000]:budgets.history,rounds=baseline||diagnostic?1:budgets.rounds
+const actions=baseline?['reorder']:diagnostic?process.env.TC_DR_DIAGNOSTIC.split(','):budgets.actions,histories=baseline?[10000]:diagnostic?(process.env.TC_DR_DIAGNOSTIC_HISTORY?process.env.TC_DR_DIAGNOSTIC_HISTORY.split(',').map(Number):[10000]):budgets.history,rounds=baseline||diagnostic?1:budgets.rounds
 assert.ok(actions.every(action=>budgets.actions.includes(action)))
+assert.ok(histories.every(history=>budgets.history.includes(history)))
+assert.ok(baseline||diagnostic||!['TC_DR_PROFILE','TC_DR_TIMELINE','TC_DR_DOM'].some(key=>process.env[key]==='1'),'Formal samples must not enable diagnostic instrumentation')
 const result={syntheticInputs:true,scope:'chart-local',mode:baseline?'baseline-first-reorder':diagnostic?'diagnostic':'formal',budgets,samples:[],gates:[],errors:[]},save=()=>writeFileSync(process.argv[2],JSON.stringify(result,null,2)+'\n'),browser=await launchBrowser()
 try{
  const page=await browser.newPage({viewport:{width:1280,height:1400}});page.on('pageerror',e=>result.errors.push(e.message));result.browser=browser.version()
@@ -61,7 +63,10 @@ try{
       try{
        const pro=drawingBench.charts[0],state=pro.getDrawingHistoryState();if(state.pending){requestAnimationFrame(check);return}
        const objects=pro.getDrawings(),native=pro.getChart().getOverlays(),a=objects.find(d=>d.logicalId==='bench-0000'),b=objects.find(d=>d.logicalId==='bench-0500')
-       const ready=action==='delete'?objects.length===0&&native.length===0:action==='reorder'?a?.presentation.order>b?.presentation.order:action==='undo'?objects.length===1002&&objects.every(d=>d.overlay.styles?.line?.color!=='#f44336'):action==='style'||action==='redo'?objects.length===1002&&objects.every(d=>d.overlay.styles?.line?.color==='#f44336'):objects.length===1002&&native.length===1002&&!!pro.getAnalysisContext()&&document.querySelector('.tc-workspace-notice')?.textContent.includes('已恢复')
+       let ready=action==='delete'?objects.length===0&&native.length===0:action==='reorder'?a?.presentation.order>b?.presentation.order:action==='undo'?objects.length===1002&&objects.every(d=>d.overlay.styles?.line?.color!=='#f44336'):action==='style'||action==='redo'?objects.length===1002&&objects.every(d=>d.overlay.styles?.line?.color==='#f44336'):objects.length===1002&&native.length===1002&&!!pro.getAnalysisContext()&&document.querySelector('.tc-workspace-notice')?.textContent.includes('已恢复')
+       if(action==='style'||action==='redo')ready&&=native.every(overlay=>overlay.styles?.line?.color==='#f44336')
+       if(action==='undo')ready&&=native.every(overlay=>overlay.styles?.line?.color!=='#f44336')
+       if(action==='reorder')ready&&=native.find(o=>o.id===a.logicalId)?.zLevel===a.presentation.order&&native.find(o=>o.id===b.logicalId)?.zLevel===b.presentation.order
        if(!ready){requestAnimationFrame(check);return}
        sample.after=objects.length;sample.afterIds=objects.map(d=>d.logicalId);sample.nativeCount=native.length;sample.historyState=state;const command=pro.getDrawingState().lastResult;sample.status=action==='restore'?'restored':command?.status;sample.itemStatuses=command?.items.map(item=>item.status)
        sample.changed=objects.filter(d=>orders.get(d.logicalId)!==d.presentation?.order).length;sample.order=action==='reorder'?{source:a.presentation.order,target:b.presentation.order}:undefined
@@ -81,10 +86,14 @@ try{
    if(process.env.TC_DR_PROFILE==='1'){profiler=await page.context().newCDPSession(page);await profiler.send('Profiler.enable');await profiler.send('Profiler.start');if(process.env.TC_DR_TIMELINE==='1'){const events=[];profiler.on('Tracing.dataCollected',data=>events.push(...data.value));profiler._traceEvents=events;await profiler.send('Tracing.start',{categories:'devtools.timeline,blink.user_timing,disabled-by-default-devtools.timeline',transferMode:'ReportEvents'})}}
    await trigger.click();await page.waitForFunction(()=>window.drSample?.complete,{},{timeout:60000});sample=await page.evaluate(()=>{if(window.drDebugSnap){drSample.debug.after=drDebugSnap();drDebugObserver.disconnect()}return window.drSample})
    if(profiler){if(process.env.TC_DR_TIMELINE==='1'){const done=new Promise(resolve=>profiler.once('Tracing.tracingComplete',resolve));await profiler.send('Tracing.end');await done;writeFileSync(process.argv[2]+`.${action}.timeline.json`,JSON.stringify(profiler._traceEvents))}const {profile}=await profiler.send('Profiler.stop');writeFileSync(process.argv[2]+`.${action}.cpuprofile`,JSON.stringify(profile));await profiler.detach()}
-   assert.equal(sample.trusted,true);assert.equal(sample.observerSupported,true);assert.ok(Number.isFinite(sample.latency));assert.ok(Number.isFinite(sample.maximumLongTask));assert.ok(sample.renderCalls>0);assert.equal(sample.historyState.pending,0);assert.equal(sample.historyState.uncertainLogicalIds.length,0);assert.equal(sample.historyState.error,undefined);assert.equal(sample.error,undefined)
+   assert.equal(sample.trusted,true);assert.equal(sample.observerSupported,true);assert.ok(Number.isFinite(sample.latency));assert.ok(Number.isFinite(sample.maximumLongTask));assert.ok(sample.renderCalls>0);assert.equal(sample.historyState.pending,0);assert.equal(sample.historyState.uncertainLogicalIds.length,0);assert.equal(sample.historyState.error,undefined);assert.deepEqual(sample.historyState.projectionErrors,{});assert.equal(sample.error,undefined)
    assert.equal(sample.before,action==='restore'?0:1002);assert.equal(sample.after,action==='delete'?0:1002);assert.equal(sample.nativeCount,sample.after);assert.equal(sample.status,action==='restore'?'restored':'completed')
    if(action==='reorder')assert.ok(sample.changed>=1000)
-   if(['style','delete','undo','redo'].includes(action))assert.equal(sample.itemStatuses.length,1002)
+   if(['style','delete','undo','redo'].includes(action)){assert.equal(sample.itemStatuses.length,1002);assert.ok(sample.itemStatuses.every(status=>status==='confirmed'))}
+   const delta=field=>sample.metricsAfter[field]-sample.metricsBefore[field]
+   if(['style','undo','redo'].includes(action))assert.equal(delta('update'),1002)
+   if(action==='delete')assert.equal(delta('delete'),1002)
+   if(action==='restore'||action==='reorder')assert.equal(delta('update'),0)
   }catch(error){await page.evaluate(()=>window.finishDR?.()).catch(()=>{});const actual=await page.evaluate(()=>window.drSample).catch(()=>undefined);sample={...sample,...actual,history,action,round,error:error.stack}}
   finally{sample.cleanup=await page.evaluate(()=>drawingBench.dispose()).catch(error=>({error:error.message}));sample.passed=!sample.error&&sample.cleanup.subscriptions===0&&sample.cleanup.dom===0&&Number.isFinite(sample.latency)&&sample.latency<=(action==='restore'?budgets.maximumRestoreLatency:budgets.maximumLatency)&&sample.maximumLongTask<=budgets.maximumLongTask;result.samples.push(sample);save();console.log(JSON.stringify({history,action,round,latency:sample.latency,longtask:sample.maximumLongTask,passed:sample.passed,error:sample.error?.split('\n')[0]}))}
  }

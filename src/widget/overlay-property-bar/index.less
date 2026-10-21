@@ -1,7 +1,7 @@
 @import (reference) '../../base.less';
 .@{prefix-cls}-overlay-property-bar {
  position:absolute;z-index:32;display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding:6px;contain:layout style;
- max-width:calc(100% - 16px);width:min(660px,calc(100% - 16px));box-sizing:border-box;border:1px solid var(--klinecharts-pro-border-color);border-radius:6px;
+ max-width:calc(100% - var(--tc-drawing-property-inset,8px) - 8px);width:min(660px,calc(100% - var(--tc-drawing-property-inset,8px) - 8px));box-sizing:border-box;border:1px solid var(--klinecharts-pro-border-color);border-radius:6px;
  background:var(--klinecharts-pro-popover-background-color);color:var(--klinecharts-pro-text-color);box-shadow:0 4px 16px #0004;
  button,select {min-width:44px;min-height:44px;max-width:180px;cursor:pointer;background:var(--klinecharts-pro-popover-background-color);color:inherit;border:1px solid var(--klinecharts-pro-border-color);border-radius:4px;padding:4px;}
  label {display:flex;align-items:center;gap:4px;}
@@ -9,7 +9,7 @@
  button:focus-visible,select:focus-visible {outline:2px solid var(--klinecharts-pro-primary-color);outline-offset:1px;}
  small {flex-basis:100%;}
  .tc-drawing-color-swatch {display:inline-block;width:16px;height:16px;border:1px solid currentColor;vertical-align:middle;}
- &.tc-drawing-property-docked {left:8px!important;right:8px;top:auto!important;bottom:48px;width:auto;max-height:190px;overflow:auto;}
+ &.tc-drawing-property-docked {left:var(--tc-drawing-property-inset,8px)!important;right:8px;top:auto!important;bottom:48px;width:auto;max-height:190px;overflow:auto;}
 }
 .tc-drawing-color-palette {
  display:grid;grid-template-columns:repeat(6,44px);gap:2px;padding:6px;max-width:100%;max-height:280px;overflow:auto;

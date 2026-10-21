@@ -7,20 +7,20 @@ export async function volumeRefinement(page,results){
   const chart=pro.getChart(),bars=chart.getDataList(),samples=name==='anchoredVwap'?[bars.at(-40)]:[bars.at(-40),bars.at(-20)],id='refinement-volume',anchors=samples.map(bar=>({kind:'market',timestamp:bar.timestamp,value:bar.close}))
   pro.restoreDrawings('local',[{logicalId:id,owner:'local',anchors,parameters:name==='anchoredVwap'?{source:'close'}:{},overlay:{id,name,paneId:'candle_pane',groupId:'drawing_tools',points:anchors.map(a=>({timestamp:a.timestamp,value:a.value})),visible:true,lock:false,styles:null,extendData:null}}]);await pro.executeDrawingCommand({type:'select',ids:[id]})
  },name)
- const capture=()=>page.evaluate(async()=>{
-  const chart=pro.getChart(),overlay=chart.getOverlays({id:'refinement-volume'})[0],draw=overlay.createPointFigures;let figures
-  overlay.createPointFigures=args=>{figures=draw(args);return figures};chart.resize();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));overlay.createPointFigures=draw
+ const capture=(prices=[])=>page.evaluate(async prices=>{
+  const chart=pro.getChart(),overlay=chart.getOverlays({id:'refinement-volume'})[0],draw=overlay.createPointFigures;let figures,projected
+  overlay.createPointFigures=args=>{figures=draw(args);projected=prices.map(value=>args.yAxis.convertToPixel(value));return figures};chart.resize();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));overlay.createPointFigures=draw
   if(!figures)throw Error('实际 figure 回调没有执行')
-  return {figures,summary:pro.getDrawingState().analytics['refinement-volume'],width:chart.getSize('candle_pane','main').width}
- })
+  return {figures,projected,summary:pro.getDrawingState().analytics['refinement-volume'],width:chart.getSize('candle_pane','main').width}
+ },prices)
  await seed('anchoredVwap');await bar.getByRole('button',{name:'绘图设置',exact:true}).click()
  await manager.getByRole('combobox',{name:'VWAP 带模式',exact:true}).selectOption('standard-deviation')
  await manager.getByRole('button',{name:'确认修改',exact:true}).click();await page.waitForFunction(()=>pro.getDrawingState().analytics['refinement-volume']?.bands?.values.length===3)
- const expected=await page.evaluate(()=>{const chart=pro.getChart(),bars=chart.getDataList(),data=bars.slice(-40),volume=data.reduce((sum,b)=>sum+b.volume,0),center=data.reduce((sum,b)=>sum+b.close*b.volume,0)/volume,sigma=Math.sqrt(data.reduce((sum,b)=>sum+b.volume*(b.close-center)**2,0)/volume),axis=chart.getYAxes({paneId:'candle_pane'})[0];return {center,sigma,y:[1,2,3].flatMap(m=>[axis.convertToPixel(center-m*sigma),axis.convertToPixel(center+m*sigma)])}})
- const actual=await capture();assert.ok(Number.isFinite(actual.summary.summary.vwap));assert.ok(Math.abs(actual.summary.summary.vwap-expected.center)<1e-10)
+ const expected=await page.evaluate(()=>{const chart=pro.getChart(),bars=chart.getDataList(),data=bars.slice(-40),volume=data.reduce((sum,b)=>sum+b.volume,0),center=data.reduce((sum,b)=>sum+b.close*b.volume,0)/volume,sigma=Math.sqrt(data.reduce((sum,b)=>sum+b.volume*(b.close-center)**2,0)/volume);return {center,sigma,prices:[1,2,3].flatMap(m=>[center-m*sigma,center+m*sigma])}})
+ const actual=await capture(expected.prices);assert.ok(Number.isFinite(actual.summary.summary.vwap));assert.ok(Math.abs(actual.summary.summary.vwap-expected.center)<1e-10)
  assert.equal(actual.figures.filter(f=>f.type==='line').length,7);assert.equal(actual.figures.filter(f=>f.type==='polygon').length,6)
  for(let i=0;i<3;i++){const value=actual.summary.bands.values[i];assert.ok(Number.isFinite(value.lower)&&Number.isFinite(value.upper));assert.ok(Math.abs(value.upper-(expected.center+(i+1)*expected.sigma))<1e-10)}
- for(const y of expected.y)assert.ok(actual.figures.some(f=>f.type==='line'&&Math.abs(f.attrs.coordinates.at(-1).y-y)<1e-6))
+ for(const y of actual.projected)assert.ok(actual.figures.some(f=>f.type==='line'&&Math.abs(f.attrs.coordinates.at(-1).y-y)<1e-6))
  results.push({scenario:'trusted-vwap-settings-three-bands-actual-figures-independent-oracle',passed:true})
  await bar.getByRole('button',{name:'绘图设置',exact:true}).click();await manager.getByRole('combobox',{name:'VWAP 带模式',exact:true}).selectOption('percentage')
  await manager.getByRole('checkbox',{name:'带倍数 1',exact:true}).uncheck();await manager.getByRole('checkbox',{name:'带倍数 3',exact:true}).uncheck()

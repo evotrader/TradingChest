@@ -959,12 +959,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const selectedPropertyControls=createMemo(()=>commonStyleControls(selectedPropertyDrawings().map(object=>drawingCatalog.find(tool=>tool.overlayName===object.overlay.name))))
   const selectedPropertyValues=createMemo(()=>{
     const values:Partial<Record<DrawingStyleControl,string|number|undefined>>={}
+    const defaults=widget?.getStyles().overlay??{}
     for(const control of selectedPropertyControls()){
       const selected=selectedPropertyDrawings().map(object=>{
-        const defaults=widget?.getStyles().overlay??{},own=engineDrawing(object.logicalId)?.styles??{},styles:any={...defaults}
+        const own=engineDrawing(object.logicalId)?.styles??{},styles:any={...defaults}
         for(const [group,fields] of Object.entries(own))styles[group]={...styles[group],...(fields as object)}
         const groups=new Set<string>(),actual=engineDrawing(object.logicalId)
-        for(const figure of actual?drawingFigures.get(actual)??[]:[]){const group=figure.type==='rectText'?'text':figure.type;if(!groups.has(group)){groups.add(group);styles[group]={...styles[group],...(figure.styles as object)}}}
+        for(const figure of actual?drawingFigures.get(actual)??[]:[]){const group=figure.type==='rectText'?'text':figure.type;if(!groups.has(group)){groups.add(group);if(figure.styles)styles[group]={...styles[group],...(figure.styles as object)}}}
         return drawingStyleValue(object,control,styles)
       })
       values[control]=selected.every(value=>value===selected[0])?selected[0]:undefined
@@ -1572,6 +1573,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         {/* Drawing properties */}
         <OverlayPropertyBar
           locale={locale()}
+          insetLeft={drawingBarVisible()?56:8}
           position={{x:selectedOverlay()?.x??8,y:selectedOverlay()?.y??10}}
           objects={workbenchState()?.hidden||workbenchState()?.toolId?[]:selectedPropertyDrawings()}
           controls={selectedPropertyControls()}

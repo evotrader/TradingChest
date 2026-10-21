@@ -8,6 +8,7 @@ import {ColorPalette} from './ColorPalette'
 export interface OverlayPropertyBarProps {
   locale:string
   position:{x:number;y:number}
+  insetLeft?:number
   objects:DrawingSnapshot[]
   handles:Array<{x:number;y:number}>
   controls:DrawingStyleControl[]
@@ -47,13 +48,13 @@ const OverlayPropertyBar:Component<OverlayPropertyBarProps>=props=>{
    onCleanup(()=>{canceled=true;observer?.disconnect()})
  })
  const position=createMemo(()=>{
-   const size=layout(),width=Math.min(660,size.width-16),left=Math.max(8,Math.min(props.position.x,size.width-width-8)),height=size.barHeight
+   const size=layout(),inset=props.insetLeft??8,width=Math.min(660,size.width-inset-8),left=Math.max(inset,Math.min(props.position.x,size.width-width-8)),height=size.barHeight
    const points=props.handles.filter(point=>point.x>=left-22&&point.x<=left+width+22),clamp=(top:number)=>Math.max(8,Math.min(top,size.height-height-8))
    const candidates=[props.position.y,...(points.length?[Math.min(...points.map(point=>point.y))-height-26,Math.max(...points.map(point=>point.y))+26]:[]),8,size.height-height-8].map(clamp)
    const top=candidates.find(top=>points.every(point=>point.y<top-22||point.y>top+height+22))??candidates[0]
    return {left,top}
  })
- return <Show when={props.objects.length}><div ref={element} role="region" aria-label={t('绘图属性','Drawing properties')} class={`klinecharts-pro-overlay-property-bar${narrow()?' tc-drawing-property-docked':''}`} style={{left:`${position().left}px`,top:`${position().top}px`}} onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();if(palette())closePalette();else props.onClose()}}}>
+ return <Show when={props.objects.length}><div ref={element} role="region" aria-label={t('绘图属性','Drawing properties')} class={`klinecharts-pro-overlay-property-bar${narrow()?' tc-drawing-property-docked':''}`} style={{'--tc-drawing-property-inset':`${props.insetLeft??8}px`,left:`${position().left}px`,top:`${position().top}px`}} onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();if(palette())closePalette();else props.onClose()}}}>
   <span>{t('已选','Selected')} {props.objects.length}</span>
   <For each={props.controls}>{control=><Show when={['stroke','fill','textColor'].includes(control)} fallback={<label>{labels()[control]}<select aria-label={labels()[control]} disabled={!!props.reason} value={props.values[control]??''} onChange={event=>void changeStyle(control,control==='lineStyle'?event.currentTarget.value:Number(event.currentTarget.value),event.currentTarget)}>
     <option value="" disabled>{t('混合','Mixed')}</option>

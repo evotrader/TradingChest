@@ -351,3 +351,16 @@ See [drawing documents and shared sessions](./drawings.md) for commands, v4/v2, 
 Optional `DrawingState.analytics: Record<string, DrawingAnalyticsState>` exposes copied summaries derived from confirmed OHLCV. Types are exported from root, chart and solid. Period may be absent before confirmation; status does not persist. See [volume drawings](./drawings.md#volume-drawings) for algorithms, replay and sampling limits.
 
 `DrawingCommand` adds `{type:'reorder', ids:string[], targetId:string, position:'before'|'after'}` alongside the existing direction branch. Execution rechecks the current document/scope/pane/group and permissions through existing confirmation history.
+
+## 0.12 drawing catalog and summary additions
+
+```typescript
+import type {
+  DrawingStyleControl, DrawingToolDescriptor,
+  VwapBandMode, VwapBandBoundary, VwapBandsSummary,
+} from 'trading-chest/chart'
+```
+
+These types are exported from root, `chart` and `solid`. React forwards the original `onDrawingStateChange`; no framework-specific styling or datafeed API is added. Optional `DrawingToolDescriptor.styleControls` declares actual capabilities. Omission preserves legacy stroke/width/style, while an empty array disables quick styles. `DrawingParameter.kind` adds `color`, accepting six/eight-digit hex or transparent. Unknown/duplicate controls and undeclared/invalid parameters fail explicitly without discarding the original definition.
+
+Optional `DrawingAnalyticsState.bands` exposes the selected mode, fixed method, up to three finite boundaries and an optional reason. Old definitions disable bands; original VWAP centers and FRVP mathematics remain unchanged. See [drawing refinement](./drawings.md#drawing-refinement) for formulas, parameters, curve click order and peer registration. Documents remain v4/workspace v2/shared v1/preferences v1, persisting definitions rather than derived caches.

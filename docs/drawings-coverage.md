@@ -1,6 +1,6 @@
 # 绘图覆盖与对标差距
 
-目录含 0.10 的 51 工具及新增 2 个量价工具，共 53 项。所有工具使用同一命令、确认历史、设置和持久化路径。逐工具浏览器脚本检查创建、取消编辑、确认编辑、撤销重做、删除和恢复；Fib、通道／音叉、回归、多空头另有独立数值预期。目录覆盖不表示所有 TradingView 工具等价。
+目录含 51 个旧普通工具、2 个量价工具和3种曲线，共56项。所有工具使用同一命令、确认历史、设置和持久化路径。逐工具浏览器脚本检查创建、取消编辑、确认编辑、撤销重做、删除和恢复；Fib、通道／音叉、回归、多空头另有独立数值预期。目录覆盖不表示所有 TradingView 工具等价。
 
 | 稳定工具 ID | 名称 | 点数 |
 | --- | --- | --- |
@@ -29,6 +29,9 @@
 | triangle | 三角形 | 3 |
 | ellipse | 椭圆 | 2 |
 | rotatedRect | 旋转矩形 | 3 |
+| curve | 曲线 | 3 |
+| doubleCurve | 双控制点曲线 | 4 |
+| arc | 圆弧 | 3 |
 | fibonacciLine | 斐波那契回撤 | 2 |
 | fibonacciSegment | 斐波那契线段 | 2 |
 | fibonacciCircle | 斐波那契圆 | 2 |
@@ -80,7 +83,7 @@
 
 ## 明确差距
 
-TradingChest 共享限于已确认价格身份的本地主图市场锚点，后端标注保留原业务权威。多空头绘图不计算账户数量、资金或杠杆。更细周期／逐笔成交量分布、更多 Gann/Fib/波浪、曲线圆弧、图片贴纸、画线报警和订单联动仍为后续候选。没有承诺逐像素外观或账户模型一致。
+TradingChest 共享限于已确认价格身份的本地主图市场锚点，后端标注保留原业务权威。多空头绘图不计算账户数量、资金或杠杆。更细周期／逐笔成交量分布、更多 Gann/Fib/波浪、曲线无限延伸／端点标记／背景填充、图片贴纸、画线报警和订单联动仍为后续候选。没有承诺逐像素外观或账户模型一致。
 
 对标参考：[TradingView drawings](https://www.tradingview.com/charting-library-docs/latest/ui_elements/drawings/), [tool families](https://www.tradingview.com/charting-library-docs/latest/ui_elements/drawings/Drawings-List/), [position tool](https://www.tradingview.com/support/solutions/43000517002-long-position-drawing-tool/).
 
@@ -95,3 +98,16 @@ TradingChest 共享限于已确认价格身份的本地主图市场锚点，后�
 | 选择锚点并调整 VWAP | [AVWAP](https://www.tradingview.com/support/solutions/43000669764-anchored-vwap-drawing-tool/) 从用户选点开始绘制 | 图上选点、曲线命中、时间编辑、价格源及真实样本摘要；按当前周期 OHLCV 估算 |
 | 选区间并修改分布 | [FRVP](https://www.tradingview.com/support/solutions/43000480324-fixed-range-volume-profile-indicator/) 有分箱与分辨率选择规则 | 两点区间、行数、POC／价值区、单根单价；采用公开 bar-range-uniform-v1，不请求更细周期，不声称数值等价 |
 | 整理与保存绘图 | [Drawings](https://www.tradingview.com/charting-library-docs/latest/ui_elements/drawings/) 提供绘图及对象管理能力 | 分组折叠、虚拟树、搜索、拖排／键盘目标选择；原 v4／v2 保存与共享 |
+
+## 0.12 同类任务对照
+
+2026-10-21实际访问TradingView匿名图表成功；尝试创建水平线时出现要求注册／登录的提示，因此未完成其绘图同任务流程。以下依据官方资料和本地真实流程，不报告TradingView操作步数、耗时或算法等价。
+
+| 任务 | 官方参考 | TradingChest范围 |
+| --- | --- | --- |
+| 多选→模板→撤销／重开 | [同类工具批量模板](https://www.tradingview.com/support/solutions/43000677801-how-to-apply-a-template-to-several-tools-of-the-same-type-at-once/) | 混合值、共同能力、同工具参数模板／跨工具共同样式、确认历史及原生IDB |
+| AVWAP带开关 | [带与倍数](https://www.tradingview.com/blog/en/vwap-improvements-across-the-board-28974/) | 三组自有公开公式，未主张与其数值相同 |
+| FRVP显示设置 | [参数与Extend Right](https://www.tradingview.com/support/solutions/43000480324-fixed-range-volume-profile-indicator/) | 左右／宽度／价位线样式；本库延长不扩统计范围，官方Extend Right会纳入右端之后的bar |
+| 曲线控制点 | [Curve/Double curve](https://www.tradingview.com/support/solutions/43000791740-curve-and-double-curve-drawing-tools/) | 二／三次贝塞尔及三点圆弧；屏幕几何，不含无限延伸、端点标记和曲线背景 |
+
+本地证人包含`drawing-refinement`、`drawing-curves`和安装版`drawing-comparison`／第三方示例。正式完成状态及失败记录以本轮实施SUMMARY为准；入口存在不代表全部验收通过。

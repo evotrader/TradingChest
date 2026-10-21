@@ -15,6 +15,10 @@
   <img src="docs/public/image.png" alt="TradingChest Screenshot" width="800" />
 </p>
 
+## 0.12.0 drawing refinement
+
+A shared single/multiselection editor uses declared style capabilities and mixed values. Anchored VWAP adds up to three explicit deviation/percentage bands; FRVP adds display-only placement and level styles. Three screen-projected curve tools bring the catalog to 56. A peer `registerOverlay` example demonstrates generic third-party tools. See [0.12 migration](docs/en-US/upgrade/0.12.0.md) and [drawing usage](docs/en-US/drawings.md). Existing datafeed and document formats remain unchanged; local candidate artifacts do not imply npm publication.
+
 ## 0.11.0 volume drawings
 
 Anchored VWAP and fixed range volume profiles use each chart’s confirmed OHLCV, with explicit sampling and coverage limits. A virtualized object tree adds collapsible groups and confirmed drag/keyboard reordering. The catalog contains 53 tools. See [0.11 migration](docs/en-US/upgrade/0.11.0.md) and the [volume drawing contract](docs/en-US/drawings.md#volume-drawings). Local builds do not imply npm publication.
@@ -50,7 +54,7 @@ This describes the 0.9.0 source contract. Local source/tarball validation does n
 - Customizable indicator parameters
 - Lazy-loaded indicator registration for faster startup
 
-### Drawing Tools (53)
+### Drawing Tools (56)
 
 | Category | Tools |
 |----------|-------|
@@ -122,7 +126,7 @@ Candle Solid, Candle Hollow, Up Hollow, Down Hollow, OHLC, Area, **Heikin Ashi**
 ## Install
 
 ```bash
-npm install trading-chest@0.11.0 klinecharts@10.1.0
+npm install trading-chest@0.12.0 klinecharts@10.1.0
 ```
 
 ## React usage

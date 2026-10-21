@@ -94,3 +94,34 @@ Position follows displayed order. Objects must share document, scope, pane and g
 The canvas and control-point keyboard paths both move volume drawings by one actual bar, or ten with Shift. Time handles follow the current bar display without writing a display price into the saved definition. A failed read remains stale during a pending retry or a failed subscription restore; the visible retry also handles source-status errors, while public retryData remains idempotent when no query has failed.
 
 Reorder keeps integer order values in the existing schema. When an insertion needs renumbering, all affected objects pass the existing write checks before the single history operation. Long names remain accessible while fixed rows keep actions aligned with their own object.
+
+## 0.12 styling and volume refinement {#drawing-refinement}
+
+Single and multiselection share the drawing property bar. Only common declared capabilities appear; unequal values display Mixed. Text color is separate from stroke, and transparent fills can be set and cleared. Palette buttons, custom RGB input and native selectors support keyboard focus and Escape. Narrow charts dock the bar at the bottom with targets of at least 44px. Locks, migration, uncertain results, mixed documents and unconfirmed settings drafts show explicit write restrictions. One common style command is one confirmed undo transaction, retaining actual per-item failures.
+
+`DrawingToolDescriptor.styleControls` supports `stroke`, `fill`, `lineWidth`, `lineStyle`, `textColor` and `fontSize`. Omitting it preserves legacy stroke/width/style controls; `[]` means none. Tools without style settings expose none. Templates consume standard `overlay.styles.line/polygon/rect/circle/arc/text` fields. Parameter templates require the same tool; common-style-only templates copy the capability intersection without copying text, anchors, axes or parameters.
+
+Old AVWAP definitions default to `bandMode:'none'`. The source and public center remain `mu=sum(p*v)/sum(v)`. Standard deviation half-width is `multiplier*sqrt(sum(v*(p-mu)^2)/sum(v))`: the volume-weighted population deviation of source prices, without n-1. It is not the sample deviation of a VWAP sequence. Percentage half-width is `abs(mu)*multiplier/100`, including negative and zero centers.
+
+| Parameter | Default and domain |
+| --- | --- |
+| `bandMode` | `none`, `standard-deviation` or `percentage` |
+| `bandMultipliers` | `[1,2,3]`; 1–3 distinct finite positive values, ≤10 for deviation or ≤100 for percentage |
+| `bandFill` / `bandOpacity` | `true` / `0.12`; finite opacity in [0,1] |
+| `bandAlgorithm` | Fixed `ohlcv-vwap-bands-v1` |
+
+Zero volume contributes nothing; invalid samples retain the original unavailable semantics. Disabled bands do not accumulate moments. Replacements, append, pagination and replay use the confirmed range. Unrepresentable bands retain a finite center and an explicit reason, never fabricated zero width. Log axes display only projectable continuous boundaries. Optional `analytics[id].bands` contains `{mode,method,values:[{multiplier,lower,upper}],reason?}`. Absence means disabled; selected but unavailable bands contain empty values and a reason. No moment arrays are public.
+
+FRVP adds `profileSide:'left'|'right'` (left), finite `profileWidth` in (0,1] (0.3), and `levelExtent:'profile'|'range'|'pane-right'` (profile). Width is relative to the selected interval, at least 24px and bounded by the pane. `showPoc/showVah/showVal` default true; flat `poc/vah/valColor`, `Width` and `Style` fields accept #RRGGBB/#RRGGBBAA/transparent, finite [1,4], and solid/dashed/dotted. Display edits reuse the computed profile. Rightward level extension does not include bars beyond the second anchor. Coincident level labels combine without moving prices.
+
+## Curves and arcs {#curves}
+
+`curve` clicks start P0, end P1, then control P2 and evaluates quadratic P0/P2/P1. `doubleCurve` adds P3 and evaluates cubic P0/P2/P3/P1. `arc` clicks start, end and a third point on the arc, defining a circle in the current screen projection. Selection shows original controls and event-ignoring assist lines. Body/control dragging, keyboard editing, styles, templates, cloning, undo and saving use the original command chain.
+
+Persistent anchors remain authoritative. Curvature is reprojected for axes, zoom, pane size and DPR; this is not a price-domain circle. Rendering and hit testing share bounded segments with ≤0.5 CSS px error and a maximum of 2048 segments. Degenerate, nonfinite or unresolved geometry retains definitions and editable controls with an explicit reason. Future logical anchors remain local; sharing retains the original main-pane market-anchor restrictions.
+
+## Third-party drawing tools {#third-party-drawings}
+
+Call the peer engine's public `registerOverlay` before constructing charts with the matching stable namespaced name and catalog descriptor. A missing template fails before DOM construction. Multiple charts reuse registration, and disposing one chart does not unregister it. Catalogs do not persist functions or account data, and global registration does not grant access to system overlays.
+
+Copyable native JS/TS integration is in the [drawing-workbench example](https://github.com/evotrader/TradingChest/tree/main/examples/drawing-workbench). `EXAMPLE/AnalysisZone` uses only `trading-chest/chart`, the peer engine, ordinary OHLCV and native IndexedDB, with no EvoTrader DTOs, URLs or framework-specific API.

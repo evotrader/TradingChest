@@ -92,3 +92,34 @@ await chart.executeDrawingCommand({
 位置按树显示顺序解释。仅同文档、同 scope、同 pane、同组可排序；不隐式改组，锁定／迁移／uncertain 对象拒绝。多选相对顺序保留，确认、undo/redo 与旧 direction 命令共用原历史。
 
 重排保持原整数 order；插入处间隔不足时经所有受影响对象的权限检查统一重编号，仍可保存／共享和撤销重做。长名称在固定行内截断，完整名称可通过悬停或可访问名称读取，动作按钮保持本对象归属。
+
+## 0.12 属性与量价精修 {#drawing-refinement}
+
+单选和多选共用“绘图属性”栏：多选只显示工具能力交集，不同值显示“混合”。文字颜色独立于描边；透明填充可以设置后清除。颜色按钮、原生自定义颜色输入、线宽／线型／字号选择器支持键盘，Esc关闭色板并返回触发按钮。窄图停靠底部，目标至少44px。锁定、迁移、uncertain、混合文档或尚未确认的设置草稿会显示禁用原因。一次共同样式操作沿原命令确认并形成一笔撤销；失败保留逐对象真实结果。
+
+自定义 `DrawingToolDescriptor.styleControls` 可声明 `stroke/fill/lineWidth/lineStyle/textColor/fontSize`。省略时沿旧常规描边／线宽／线型，`[]`表示无快捷样式；没有style设置的工具不显示这些控件。模板应消费标准 `overlay.styles.line/polygon/rect/circle/arc/text` 键。工具参数模板只适用于同工具；“只应用共同样式”仅复制能力交集，不改正文、锚点、独立轴或参数。
+
+AVWAP旧定义缺少新字段时等价于 `bandMode:'none'`。开启带后，价格源仍为原source，公开中心仍为 `mu=sum(p*v)/sum(v)`。标准差半宽为 `multiplier*sqrt(sum(v*(p-mu)^2)/sum(v))`，即source价格的volume加权总体标准差，不使用n-1，也不是VWAP序列的样本标准差。百分比半宽为 `abs(mu)*multiplier/100`，负中心和零中心均按此公式处理。
+
+| 参数 | 默认与允许范围 |
+| --- | --- |
+| `bandMode` | `none`；或`standard-deviation`、`percentage` |
+| `bandMultipliers` | `[1,2,3]`；1–3个互异有限正数；标准差模式≤10，百分比模式≤100 |
+| `bandFill` / `bandOpacity` | `true` / `0.12`；透明度为有限[0,1] |
+| `bandAlgorithm` | 固定`ohlcv-vwap-bands-v1` |
+
+零量不贡献；坏样本沿原不可用语义处理。未开启带不累计矩；同根替换、追加、分页和回放使用原确认范围。有限中心但带不可表达时保留中心并给出带不可用原因，不伪造零宽带；对数轴只显示可投影的连续边界。`analytics[id].bands`是可选摘要 `{mode,method,values:[{multiplier,lower,upper}],reason?}`，缺失表示未启用；已选但无可用边界返回空values和原因。不公开矩数组。
+
+FRVP新增 `profileSide:'left'|'right'`（默认left）、`profileWidth`有限(0,1]（默认0.3）以及 `levelExtent:'profile'|'range'|'pane-right'`（默认profile）。宽度按所选时间区间的屏幕宽度计算，最小24px并限制在pane内。`showPoc/showVah/showVal`默认true；各自的 `poc/vah/valColor`、`Width`、`Style`是平坦parameters：颜色为#RRGGBB/#RRGGBBAA/transparent，宽度有限[1,4]，线型为solid/dashed/dotted。显示变化不重新分箱；向右延长只改变价位线显示，不把第二锚点之后的行情纳入统计。重合价位标签合并说明，价位本身不偏移。
+
+## 曲线与圆弧 {#curves}
+
+`curve`依次点击起点P0、终点P1、控制点P2，按P0/P2/P1绘制二次贝塞尔；`doubleCurve`再增加P3，按P0/P2/P3/P1绘制三次贝塞尔。`arc`依次点击起点、终点、弧上第三点，在当前屏幕投影中求经过三点的圆弧。选中显示辅助连线和原控制点；辅助线不抢占曲线命中。整体／控制点拖动、键盘、样式、模板、克隆、撤销和保存走原命令链。
+
+锚点是持久权威，屏幕曲率随价格轴、缩放、pane尺寸和DPR重新投影；这不是价格域的圆。绘制和命中共用误差≤0.5 CSS px、最多2048段的线段。共线、重合、非有限或细分不足时保留定义与可编辑控制点并报告原因，不画假直线。未来logical锚点只限本图；共享仍只接受原主图market锚点。
+
+## 第三方工具接入 {#third-party-drawings}
+
+先从peer `klinecharts`调用公开 `registerOverlay`，再把稳定命名空间名称和目录传给构造器。未注册模板在创建DOM实例前明确失败；多个图可复用登记，销毁一图不删除全局模板。目录定义不保存函数或账户数据，也不因全局注册取得系统对象的编辑权限。
+
+原生JS及TS可复制接入见[绘图工作台示例](https://github.com/evotrader/TradingChest/tree/main/examples/drawing-workbench)。示例的`EXAMPLE/AnalysisZone`仅使用公开`trading-chest/chart`、peer引擎、普通OHLCV和原生IndexedDB，无EvoTrader DTO、地址或专属框架API。

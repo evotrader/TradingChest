@@ -35,7 +35,7 @@ if(process.argv.includes('--test')){
   let file=path.resolve(website,decodeURIComponent(url.pathname.slice(base.length)))
   if(!file.startsWith(website+path.sep)&&file!==website){res.writeHead(404);res.end();return}
   if(existsSync(file)&&statSync(file).isDirectory())file=path.join(file,'index.html')
-  else if(!path.extname(file))file+='.html'
+  else if(!existsSync(file)&&existsSync(file+'.html'))file+='.html'
   if(!existsSync(file)){res.writeHead(404);res.end();return}
   res.setHeader('Content-Type',mime[path.extname(file)]||'application/octet-stream');res.end(readFileSync(file))
  })
@@ -44,7 +44,9 @@ if(process.argv.includes('--test')){
  page.on('pageerror',error=>errors.push(error.message));page.on('response',r=>{if(r.status()>=400)bad.push({url:r.url(),status:r.status()})});page.on('request',r=>{if(r.url().includes('/api/'))api.push(r.url())})
  try{
   await page.goto(origin+base);await page.getByRole('link',{name:'接入指南',exact:true}).click();await page.getByRole('link',{name:'React / Next / Vue',exact:true}).click();await page.getByRole('heading',{name:/^React \/ Next.js \/ Vue 接入/}).waitFor()
+  await page.getByRole('link',{name:'升级到 0.12.0',exact:true}).click();await page.getByRole('heading',{name:/^升级到 0\.12\.0\b/,level:1}).waitFor();await page.getByRole('link',{name:'公式与完整参数',exact:true}).click();await page.getByRole('heading',{name:/^0\.12 属性与量价精修/,level:2}).waitFor()
   await page.goto(origin+base+'en-US/frameworks.html');await page.getByRole('link',{name:'API',exact:true}).click();await page.getByRole('heading',{name:/^API/}).waitFor()
+  await page.getByRole('link',{name:'Upgrade to 0.12.0',exact:true}).click();await page.getByRole('heading',{name:/^Upgrade to 0\.12\.0\b/,level:1}).waitFor();await page.getByRole('link',{name:'formulas and parameters',exact:true}).click();await page.getByRole('heading',{name:/^0\.12 styling and volume refinement/,level:2}).waitFor()
   await page.goto(origin+base+'demos/');const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('link',{name:'下载 Next.js 源码包',exact:true}).click()]);assert.equal(download.suggestedFilename(),'next-app-source.tar.gz');assert.equal(await download.failure(),null);await page.getByRole('link',{name:'JS 分析图层',exact:true}).click();await page.waitForFunction(()=>window.analysisDemo?.ready)
   await page.getByRole('button',{name:'添加两个指标实例',exact:true}).click();await page.getByRole('status').filter({hasText:'已添加两个独立实例'}).waitFor()
   await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'JS 数据与工作台',exact:true}).click();await page.waitForFunction(()=>window.dataWorkspaceDemo?.ready)

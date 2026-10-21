@@ -1,6 +1,6 @@
 # Drawing coverage and differences
 
-The catalog contains the 51 tools from 0.10 and two new volume drawings, for 53 total. Every tool uses the shared command, confirmed history, editor and persistence paths. The all-tool browser runner creates, cancels edits, confirms edits, undoes/redoes, deletes and restores each tool; numerical tests cover Fibonacci, channels/forks, regression and positions separately. This catalog is not a claim of full TradingView parity.
+The catalog contains 51 existing ordinary tools, two volume drawings and three curves, for 56 total. Every tool uses the shared command, confirmed history, editor and persistence paths. The all-tool browser runner creates, cancels edits, confirms edits, undoes/redoes, deletes and restores each tool; numerical tests cover Fibonacci, channels/forks, regression and positions separately. This catalog is not a claim of full TradingView parity.
 
 | Tool ID | Label | Points |
 | --- | --- | --- |
@@ -29,6 +29,9 @@ The catalog contains the 51 tools from 0.10 and two new volume drawings, for 53 
 | triangle | Triangle | 3 |
 | ellipse | Ellipse | 2 |
 | rotatedRect | Rotated rectangle | 3 |
+| curve | Curve | 3 |
+| doubleCurve | Double curve | 4 |
+| arc | Arc | 3 |
 | fibonacciLine | Fibonacci retracement | 2 |
 | fibonacciSegment | Fibonacci segment | 2 |
 | fibonacciCircle | Fibonacci circles | 2 |
@@ -80,7 +83,7 @@ The catalog contains the 51 tools from 0.10 and two new volume drawings, for 53 
 
 ## Deliberate differences
 
-TradingChest shares only local main-pane market anchors with confirmed price identity. Host annotations retain their original backend authority. Position drawings do not compute account size, quantity or leverage. Finer-timeframe/trade-level volume profiles, additional Gann/Fib/wave tools, curves/arcs, images/stickers, drawing alerts and order integration remain later candidates. No pixel-identical rendering or matching account calculations is promised.
+TradingChest shares only local main-pane market anchors with confirmed price identity. Host annotations retain their original backend authority. Position drawings do not compute account size, quantity or leverage. Finer-timeframe/trade-level volume profiles, additional Gann/Fib/wave tools, curve extension/endpoint markers/background fill, images/stickers, drawing alerts and order integration remain later candidates. No pixel-identical rendering or matching account calculations is promised.
 
 Reference: [TradingView drawings](https://www.tradingview.com/charting-library-docs/latest/ui_elements/drawings/), [tool families](https://www.tradingview.com/charting-library-docs/latest/ui_elements/drawings/Drawings-List/), [position tool](https://www.tradingview.com/support/solutions/43000517002-long-position-drawing-tool/).
 
@@ -89,3 +92,16 @@ The installed-package `tests/integration/drawing-comparison.mjs` performs the sa
 ## 0.11 equivalent tasks
 
 This comparison reviews official documentation and executes local TradingChest tasks. It does not claim live TradingView testing or measured speed improvements. [AVWAP](https://www.tradingview.com/support/solutions/43000669764-anchored-vwap-drawing-tool/) documents choosing a start point; TradingChest adds time editing and current-period OHLCV summaries. [FRVP](https://www.tradingview.com/support/solutions/43000480324-fixed-range-volume-profile-indicator/) documents its resolution and row rules; TradingChest uses its own explicit uniform bar-range algorithm, with rows, POC and value area, without finer-timeframe requests or numerical equivalence claims. [Drawings](https://www.tradingview.com/charting-library-docs/latest/ui_elements/drawings/) provides drawing-management reference; local tasks cover groups, search, virtual rows, confirmed reorder and existing v4/v2 saving.
+
+## 0.12 equivalent tasks
+
+The anonymous TradingView chart was reachable on 2026-10-21, but attempting a horizontal drawing required joining/signing in. Its drawing task was not completed. The comparison therefore uses official documentation and local tasks, without TradingView step counts, timing or numerical parity claims.
+
+| Task | Official reference | TradingChest scope |
+| --- | --- | --- |
+| Multiselect, template, undo/reopen | [Same-type batch templates](https://www.tradingview.com/support/solutions/43000677801-how-to-apply-a-template-to-several-tools-of-the-same-type-at-once/) | Mixed values, capability intersection, parameter/common-style templates, confirmed history and native IDB |
+| AVWAP bands | [Bands and multiplier](https://www.tradingview.com/blog/en/vwap-improvements-across-the-board-28974/) | Three groups using the library's explicit formula; no numerical equivalence claim |
+| FRVP display | [Inputs and Extend Right](https://www.tradingview.com/support/solutions/43000480324-fixed-range-volume-profile-indicator/) | Placement, width and level styles. Library level extension does not expand statistics; official Extend Right includes subsequent bars |
+| Curve controls | [Curve/Double curve](https://www.tradingview.com/support/solutions/43000791740-curve-and-double-curve-drawing-tools/) | Quadratic/cubic Bezier and three-point screen arc; no infinite extension, endpoint markers or curve background |
+
+Local witnesses include drawing-refinement, drawing-curves, installed-package drawing-comparison and the third-party example. Actual completion and failures belong to the implementation SUMMARY; an available entry does not imply all acceptance gates passed.

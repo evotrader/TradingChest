@@ -391,3 +391,16 @@ ESM／CJS 和声明直接使用生产历史校验实现，不载入 DOM／Solid�
 `DrawingState.analytics?: Record<string, DrawingAnalyticsState>` 按 logicalId 返回当前已确认 OHLCV 的派生摘要；类型从根、chart、solid 导出。period 未确认时可缺失，状态不进入持久化。两新工具及估算／回放／范围限制见[量价绘图](./drawings.md#volume-drawings)。
 
 `DrawingCommand` 新增 `{type:'reorder', ids:string[], targetId:string, position:'before'|'after'}`，保留旧 direction 分支；目标集合在执行时按同文档／scope／pane／group 和权限重新核对，使用原确认历史。
+
+## 0.12 绘图目录与摘要增量
+
+```typescript
+import type {
+  DrawingStyleControl, DrawingToolDescriptor,
+  VwapBandMode, VwapBandBoundary, VwapBandsSummary,
+} from 'trading-chest/chart'
+```
+
+根、`chart`和`solid`入口导出上述类型；React沿原`onDrawingStateChange`透传状态，不增加专属样式或数据源接口。`DrawingToolDescriptor.styleControls?: DrawingStyleControl[]`声明真实能力；未声明沿旧描边／线宽／线型，空数组不提供快捷样式。`DrawingParameter.kind`新增`color`，仅接受六／八位hex或transparent。未知、重复控件及未声明／无效参数明确拒绝，保留原定义。
+
+`DrawingAnalyticsState.bands?: VwapBandsSummary`在启用AVWAP带时提供mode、固定method、最多三组有限上下界和可选reason。旧定义不开启带，原summary.vwap和FRVP数学保持。新参数、公式、曲线点击顺序和第三方注册顺序见[绘图精修](./drawings.md#drawing-refinement)。文档仍为v4/workspace v2/shared v1/preferences v1；只保存定义，不保存派生缓存。

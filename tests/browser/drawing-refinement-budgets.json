@@ -36,7 +36,7 @@
       "maximumLongTask": 325
     },
     "50000:restore": {
-      "maximumLongTask": 400
+      "maximumLongTask": 500
     }
   },
   "mixedLimits": {

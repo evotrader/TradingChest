@@ -36,6 +36,15 @@ describe('drawing alert confirmed runtime',()=>{
   const s=setup();s.create('once');s.consume(9);s.consume(11);s.runtime.execute({type:'pause',id:'r'})
   expect(s.runtime.execute({type:'resume',id:'r'}).status).toBe('rejected');s.runtime.execute({type:'rearm',id:'r'});s.consume(11);s.consume(9);expect(s.trigger).toHaveBeenCalledTimes(2)
  })
+ it('preserves the active comparison and status when only the message changes',()=>{
+  const s=setup();s.create();s.consume(9);expect(s.runtime.getState()[0].status).toBe('monitoring')
+  s.runtime.execute({type:'update',id:'r',patch:{message:'新的消息'}})
+  expect(s.runtime.getState()[0].status).toBe('monitoring');s.consume(11);expect(s.trigger).toHaveBeenCalledTimes(1);expect(s.trigger.mock.calls[0][0].message).toBe('新的消息')
+  s.consume(11,100,{error:'读取失败'});s.runtime.execute({type:'update',id:'r',patch:{message:'再次编辑'}})
+  expect(s.runtime.getState()[0]).toMatchObject({status:'data-unavailable',reason:'读取失败'})
+  s.runtime.execute({type:'update',id:'r',patch:{condition:'crossing-down'}})
+  expect(s.runtime.getState()[0]).toMatchObject({status:'data-unavailable',reason:'读取失败'})
+ })
  it.each([{connection:'disconnected'},{connection:'reconnecting'},{connection:'failed'},{error:'读取失败'},{revisionRequired:true},{dataStatus:'unconfirmed'},{dataStatus:'empty'}] as const)('clears the comparison for unavailable data %o',patch=>{
   const s=setup();s.create();s.consume(9);s.consume(11,100,patch);s.consume(11);expect(s.trigger).not.toHaveBeenCalled();s.consume(9);expect(s.trigger).toHaveBeenCalledTimes(1)
  })

@@ -103,9 +103,10 @@ export class DrawingAlertRuntime {
         if(!command.patch||Object.keys(command.patch).some(key=>!['condition','frequency','message'].includes(key)))throw Error('不能通过更新更换提醒来源或身份')
         const next={...entry.rule,...clone(command.patch)};validateDrawingAlertRule(next)
         this.geometry(this.getSource(next))
-        if(next.condition!==entry.rule.condition||next.frequency!==entry.rule.frequency)this.clear(entry)
+        const comparisonChanged=next.condition!==entry.rule.condition||next.frequency!==entry.rule.frequency
+        if(comparisonChanged)this.clear(entry)
         entry.rule=next
-        if(entry.enabled){const current=entry[this.currentMode];current.status=next.frequency==='once'&&current.hasTriggered?'triggered':'waiting'}
+        if(entry.enabled&&comparisonChanged){const current=entry[this.currentMode];if(['monitoring','waiting','triggered'].includes(current.status))current.status=next.frequency==='once'&&current.hasTriggered?'triggered':'waiting'}
       }else if(command.type==='pause'){
         entry.enabled=false;this.clear(entry);for(const mode of ['live','replay'] as const){entry[mode].status='paused';entry[mode].reason='已暂停'}
       }else if(command.type==='resume'||command.type==='rearm'){

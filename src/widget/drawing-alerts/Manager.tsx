@@ -24,7 +24,7 @@ const Manager:Component<{
   const send=(command:DrawingAlertCommand)=>{const result=props.execute(command);setNotice(result.status==='completed'?'':result.message??t('操作被拒绝','Operation rejected'));return result}
   const save=()=>{
     const command:DrawingAlertCommand=editing()?{type:'update',id:editing()!,patch:{condition:condition(),frequency:frequency(),message:message()}}:{type:'create',drawingLogicalId:source(),condition:condition(),frequency:frequency(),message:message()}
-    if(send(command).status==='completed'){reset();setNotice(t('提醒已保存；等待新样本建立比较点','Alert saved; waiting for a new observation'))}
+    if(send(command).status==='completed'){reset();setNotice(t('提醒已保存','Alert saved'))}
   }
   const labels=()=>({paused:t('已暂停','Paused'),waiting:t('等待有效观测','Waiting'),monitoring:t('监控中','Monitoring'),triggered:t('已触发','Triggered'),'source-missing':t('来源已消失','Source missing'),unsupported:t('来源暂不支持','Unsupported source'),'data-unavailable':t('行情或来源不可用','Data unavailable'),'context-mismatch':t('等待原标的／周期','Waiting for original series/period')})
   const conditionLabel=(value:DrawingAlertCondition)=>value==='crossing-up'?t('向上穿越','Crossing up'):value==='crossing-down'?t('向下穿越','Crossing down'):t('双向穿越','Crossing')

@@ -52,6 +52,17 @@ try{
    const projected=await capture(),path=projected.figures.find(f=>f.type==='line'&&!f.ignoreEvent)?.attrs.coordinates;assert.deepEqual(path[0],projected.points[0]);assert.deepEqual(path.at(-1),projected.points[1])
   }
   await page.evaluate(()=>{const c=pro.getChart();c.overrideYAxis({id:c.getYAxes({paneId:'candle_pane'})[0].id,paneId:'candle_pane',name:'normal'});c.setBarSpace(10);c.scrollToRealTime(0);c.resize()})
+  const combinationAnchors=(await capture()).drawing.anchors
+  for(const start of ['none','arrow','circle'])for(const end of ['none','arrow','circle']){
+   await bar.getByRole('button',{name:'绘图设置',exact:true}).click();await manager.getByLabel('起点标记',{exact:true}).selectOption(start);await manager.getByLabel('终点标记',{exact:true}).selectOption(end);await manager.getByRole('button',{name:'确认修改',exact:true}).click();await manager.getByRole('button',{name:'关闭绘图管理',exact:true}).click()
+   const actual=await capture(),path=actual.figures.find(figure=>figure.type==='line'&&!figure.ignoreEvent).attrs.coordinates,markers=actual.figures.filter(figure=>['polygon','circle'].includes(figure.type)&&!figure.ignoreEvent)
+   assert.equal(markers.length,Number(start!=='none')+Number(end!=='none'));assert.deepEqual(actual.drawing.anchors,combinationAnchors)
+   let index=0
+   for(const [kind,tip] of [[start,path[0]],[end,path.at(-1)]])if(kind!=='none'){
+    const marker=markers[index++];assert.equal(marker.type,kind==='arrow'?'polygon':'circle')
+    assert.deepEqual(kind==='arrow'?marker.attrs.coordinates[0]:{x:marker.attrs.x,y:marker.attrs.y},tip)
+   }
+  }
   await page.getByRole('button',{name:'绘图管理',exact:true}).click();await manager.getByRole('button',{name:'克隆',exact:true}).click();await page.waitForFunction(()=>pro.getDrawings().length===2)
   await page.getByRole('button',{name:'撤销绘图',exact:true}).click();await page.waitForFunction(()=>pro.getDrawings().length===1)
   const saved=await page.evaluate(async()=>{const {captureLayout,restoreLayout}=await import('/src/persistence/v4.ts'),layout=captureLayout(pro);await pro.executeDrawingCommand({type:'delete',ids:pro.getDrawings().map(d=>d.logicalId)});await restoreLayout(pro,layout);return {anchors:layout.drawings[0].anchors,parameters:layout.drawings[0].parameters}})

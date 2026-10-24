@@ -24,7 +24,10 @@ window.sampleDrawingAlerts=async({count,rules,append})=>{
   for(let i=0;i<100;i++){
    const previous=bars.at(-1),close=i%2?101:99,bar={...previous,timestamp:previous.timestamp+(append?60000:0),open:close,high:close+1,low:close-1,close}
    if(append)bars.push(bar);else bars[bars.length-1]=bar
-   const start=performance.now();push(bar);await frame();output.updates.push(performance.now()-start)
+   const expected=bars.slice(-5).reduce((sum,value)=>sum+value.close,0)/5,start=performance.now();push(bar)
+   const deadline=performance.now()+10000
+   while(true){const chart=pro.getChart(),ma=chart.getIndicators({name:'MA'})[0];if(['MA','VOL','MACD'].every(name=>chart.getIndicators({name})[0]?.result.length===bars.length)&&Math.abs((ma.result.at(-1).ma1??ma.result.at(-1).ma5)-expected)<1e-9)break;if(performance.now()>deadline)throw Error('更新后的实际指标未完成');await new Promise(resolve=>setTimeout(resolve,1))}
+   await frame();output.updates.push(performance.now()-start)
   }
   const expected=rules*(append?99:1);if(events!==expected)throw Error(`穿越事件数量不符：${events}/${expected}`)
   output.events=events;output.actualRules=pro.getDrawingAlertState().length;output.sourceCount=pro.getDrawings().length;output.confirmedBars=pro.getChart().getDataList().length

@@ -51,6 +51,13 @@ describe('portable observed-close drawing evaluation',()=>{
   expect(evaluateDrawingAlert({...value,previous:{timestamp:10,close:9},current:{timestamp:10,close:11}}).event?.barTimestamp).toBe(10)
   expect([...triggeredBarTimestamps]).toEqual([1001,9000])
  })
+ it.each(['straightLine','rayLine'] as const)('preserves exact log equality beyond a horizontal two-anchor %s',toolId=>{
+  const bars=Array.from({length:6},(_,timestamp)=>({timestamp})),geometry={toolId,anchors:[{kind:'market' as const,timestamp:0,value:10},{kind:'market' as const,timestamp:1,value:10}]}
+  for(const [before,now,crosses] of [[9,10,true],[11,10,true],[10,11,false],[10,9,false]] as const){
+   const result=evaluateDrawingAlert(input({axis:'log',bars,rule:{...rule,toolId},geometry,previous:{timestamp:5,close:before},current:{timestamp:5,close:now}}))
+   expect(!!result.event).toBe(crosses);if(result.event)expect(result.event.referencePrice).toBe(10)
+  }
+ })
  it('treats percentage as an affine price axis',()=>{
   expect(evaluateDrawingAlert(input({axis:'percentage'})).event?.referencePrice).toBe(10)
  })

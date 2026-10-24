@@ -2,7 +2,7 @@ import {launchBrowser} from './support.mjs'
 import assert from 'node:assert/strict'
 import {writeFileSync} from 'node:fs'
 import {mixedLimits} from './drawing-refinement-limits.mjs'
-const diagnostic=process.env.TC_MIXED_DIAGNOSTIC==='1',rounds=diagnostic?1:10,browser=await launchBrowser(),result={syntheticInputs:true,mode:diagnostic?'diagnostic':'formal',workload:{curve:200,doubleCurve:200,arc:200,ordinary:400,avwap:1,bands:3,frvp:1,rows:192,levelExtent:'pane-right'},cases:{},gates:[],errors:[],measurement:'真实控制点事件至几何更新和后续帧；自有处理/绘制CPU、同根更新和对象树。非物理屏幕延迟。'}
+const diagnostic=process.env.TC_MIXED_DIAGNOSTIC==='1',rounds=diagnostic?1:10,browser=await launchBrowser(),result={syntheticInputs:true,mode:diagnostic?'diagnostic':'formal',workload:{curve:200,doubleCurve:200,arc:200,markers:'all-nine-combinations',backgroundOpacity:.2,ordinary:400,avwap:1,bands:3,frvp:1,rows:192,levelExtent:'pane-right'},cases:{},gates:[],errors:[],measurement:'真实控制点事件至几何更新和后续帧；自有处理/绘制CPU、同根更新和对象树。非物理屏幕延迟。'}
 const stats=xs=>{assert.ok(xs.length&&xs.every(Number.isFinite));const sorted=[...xs].sort((a,b)=>a-b);return {n:xs.length,p50:sorted[Math.ceil(xs.length*.5)-1],p95:sorted[Math.ceil(xs.length*.95)-1]}},save=()=>writeFileSync(process.argv[2],JSON.stringify(result,null,2)+'\n')
 try{
  const page=await browser.newPage({viewport:{width:1280,height:1400},deviceScaleFactor:1});page.on('pageerror',e=>result.errors.push(e.message));await page.goto(`${process.env.TC_BROWSER_BASE}/tests/browser/drawing-refinement-mixed.html`);await page.waitForFunction(()=>window.ready);result.browser=browser.version()
@@ -17,7 +17,7 @@ try{
    await page.mouse.up();await page.evaluate(()=>drawingBench.stop());await page.waitForFunction(()=>drawingBench.charts[0].getDrawingHistoryState().pending===0)
    const moves=await page.evaluate(()=>drawingBench.moves);assert.equal(moves.length,100)
    for(const [i,m]of moves.entries()){
-    assert.ok(m.renderCallbacks>0&&m.bandLines>=7,JSON.stringify(m));for(const name of ['anchoredVwap','fixedRangeVolumeProfile'])assert.ok(m.volumeFigures?.[`0:${name}`]>0);for(const name of ['curve','doubleCurve','arc'])assert.ok(m.curveFigures?.[name]>0)
+    assert.ok(m.curveMarkers>0&&m.curveBackgrounds>0);assert.ok(m.renderCallbacks>0&&m.bandLines>=7,JSON.stringify(m));for(const name of ['anchoredVwap','fixedRangeVolumeProfile'])assert.ok(m.volumeFigures?.[`0:${name}`]>0);for(const name of ['curve','doubleCurve','arc'])assert.ok(m.curveFigures?.[name]>0)
     assert.ok(m.geometry?.length>=3);if(i)assert.notDeepEqual(m.geometry,moves[i-1].geometry,'每次拖动必须真实改变目标几何')
    }
    await page.evaluate(()=>drawingBench.resetVolumeRange());const updates=[];for(let i=0;i<100;i++)updates.push(await page.evaluate(()=>drawingBench.updateVolume()))

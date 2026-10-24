@@ -30,7 +30,7 @@ function instrumentVolume(){for(const [index,pro] of charts.entries())for(const 
   const figures=draw(args)
   if(current){const key=`${index}:${overlay.name}`;current.volumeFigures??={};current.volumeFigures[key]=(current.volumeFigures[key]??0)+1
    if(overlay.name==='anchoredVwap')current.bandLines=Math.max(current.bandLines??0,figures.filter(f=>f.type==='line').length)
-   if(['curve','doubleCurve','arc'].includes(overlay.name)){current.curveFigures??={};current.curveFigures[overlay.name]=(current.curveFigures[overlay.name]??0)+figures.filter(f=>f.type==='line').length}
+   if(['curve','doubleCurve','arc'].includes(overlay.name)){current.curveMarkers=(current.curveMarkers??0)+figures.filter(f=>['polygon','circle'].includes(f.type)&&!f.ignoreEvent).length;current.curveBackgrounds=(current.curveBackgrounds??0)+figures.filter(f=>f.type==='polygon'&&f.ignoreEvent).length;current.curveFigures??={};current.curveFigures[overlay.name]=(current.curveFigures[overlay.name]??0)+figures.filter(f=>f.type==='line').length}
   }
   return figures
  }
@@ -42,7 +42,7 @@ function objects(pro,n){
   const fraction=(i-600)/(n-600),name=i<600?['curve','doubleCurve','arc'][Math.floor(i/200)]:fraction<.5?'segment':fraction<.7?(i%2?'rect':'textAnnotation'):fraction<.9?'brush':i%2?'fibonacciLine':'priceChannelLine',start=first+(i*7%Math.floor(span)),value=base+(i%21-10)*step
   const count=name==='doubleCurve'?4:['curve','arc'].includes(name)?3:name==='brush'?64:name==='textAnnotation'?1:name==='priceChannelLine'?3:2
   const anchors=Array.from({length:count},(_,j)=>{const index=Math.min(bars.length-1,start+(name==='arc'?[0,7,3][j]:name==='brush'?j%8:Math.min(j*3,7)));return {kind:'market',timestamp:bars[index].timestamp,value:value+(name==='doubleCurve'?[0,.5,4,-3][j]*step:['curve','arc'].includes(name)?[0,.5,4][j]*step:name==='brush'?Math.sin(j/4)*step*2:j*step*.5)}})
-  return {logicalId:id(i),owner:'local',anchors,presentation:{name:'压测 '+String(i).padStart(4,'0')},overlay:{id:id(i),name,paneId:'candle_pane',groupId:'drawing_tools',points:anchors.map(a=>({timestamp:a.timestamp,value:a.value})),styles:null,extendData:name==='textAnnotation'?'压测文字\n64点笔迹':null,visible:true,lock:false}}
+  return {logicalId:id(i),owner:'local',anchors,...(i<600?{parameters:{startMarker:['none','arrow','circle'][i%3],endMarker:['none','arrow','circle'][Math.floor(i/3)%3],background:true,backgroundOpacity:.2}}:{}),presentation:{name:'压测 '+String(i).padStart(4,'0')},overlay:{id:id(i),name,paneId:'candle_pane',groupId:'drawing_tools',points:anchors.map(a=>({timestamp:a.timestamp,value:a.value})),styles:null,extendData:name==='textAnnotation'?'压测文字\n64点笔迹':null,visible:true,lock:false}}
  })
 }
 window.drawingBench={moves:[],tree:[],get charts(){return charts},arm(id='bench-0000'){dragId=id;current=undefined;this.moves=[];armed=true},stop(){armed=false;current=undefined},armTree(type){uiArm=type},async updateVolume(){

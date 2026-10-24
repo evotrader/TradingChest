@@ -37,7 +37,7 @@ export function evaluateDrawingAlert(input:DrawingAlertEvaluation):DrawingAlertE
       }
       const price=exact??(logarithmic?Math.exp(y):y)
       if(!Number.isFinite(price)||logarithmic&&price<=0)throw Error('参考价格超出可表示范围')
-      return {price,level:y,observed}
+      return {price,level:exact===undefined?y:value(exact),observed}
     }
     const now=reference(current)
     if(!previous)return {state,status:'monitoring',comparison:{...current}}

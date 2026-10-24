@@ -44,6 +44,18 @@ describe('drawing alert confirmed runtime',()=>{
   s.consume(9,100,{}, {symbol:{...symbol,exchange:'other'}});s.consume(11);expect(s.trigger).not.toHaveBeenCalled()
   s.newEpoch();s.consume(9);expect(s.trigger).not.toHaveBeenCalled();s.consume(11);expect(s.trigger).toHaveBeenCalledTimes(1)
  })
+ it('reconfirms unchanged content after a successful reload without retaining the old error or inventing a cross',()=>{
+  const s=setup();s.create();s.consume(9,100,{}, {contentRevision:20,revision:1})
+  s.consume(9,100,{error:'读取失败'},{contentRevision:20,revision:1})
+  expect(s.runtime.getState()[0].status).toBe('data-unavailable')
+  s.consume(9,100,{}, {contentRevision:20,revision:2,writer:'reload',contentChange:'replace'})
+  expect(s.runtime.getState()[0].status).toBe('monitoring');expect(s.runtime.getState()[0].reason).toBeUndefined();expect(s.trigger).not.toHaveBeenCalled()
+  s.consume(11,100,{}, {contentRevision:21,revision:2});expect(s.trigger).toHaveBeenCalledTimes(1)
+  s.consume(9,100,{error:'再次读取失败'},{contentRevision:21,revision:2})
+  s.consume(9,100,{}, {contentRevision:21,revision:3,writer:'reload',contentChange:'replace'})
+  s.consume(11,100,{}, {contentRevision:22,revision:3})
+  expect(s.trigger).toHaveBeenCalledTimes(1);expect(s.runtime.getState()[0].lastBarTimestamp).toBe(100)
+ })
  it('keeps live and replay markers, records and callbacks separate',()=>{
   const s=setup();s.create('once');s.consume(9);s.consume(11);expect(s.trigger).toHaveBeenCalledTimes(1)
   s.consume(9,100,{}, {replay:true,contentChange:'replace'});s.consume(11,100,{}, {replay:true});expect(s.replayTrigger).toHaveBeenCalledTimes(1)

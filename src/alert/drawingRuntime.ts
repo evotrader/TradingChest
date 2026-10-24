@@ -148,7 +148,7 @@ export class DrawingAlertRuntime {
   consume(series:ConfirmedSeries,state:ChartDataState,bars:readonly DrawingAlertSample[],axis:'linear'|'percentage'|'log',axisId?:string):void {
     if(this.disposed)return
     const previousContext=this.context,mode=series.replay?'replay':'live'
-    const contextChanged=!previousContext||previousContext.series.epoch!==series.epoch||!sameDrawingAlertIdentity(identity(previousContext.series.symbol,previousContext.series.basis),identity(series.symbol,series.basis))||!sameDrawingAlertPeriod(previousContext.series.period,series.period)||previousContext.axis!==axis||this.currentMode!==mode
+    const contextChanged=!previousContext||previousContext.series.epoch!==series.epoch||previousContext.series.revision!==series.revision||!sameDrawingAlertIdentity(identity(previousContext.series.symbol,previousContext.series.basis),identity(series.symbol,series.basis))||!sameDrawingAlertPeriod(previousContext.series.period,series.period)||previousContext.axis!==axis||this.currentMode!==mode
     this.context={series,state,bars,axis,axisId};this.currentMode=mode
     if(contextChanged){this.consumed=undefined;for(const entry of this.entries.values())this.clear(entry)}
     if(!this.entries.size)return

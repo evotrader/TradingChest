@@ -49,6 +49,18 @@ describe('drawing alerts consume the actual paired loader seam',()=>{
    await s.snapshot([bar(8,1000),bar(11)],'adjusted');expect(s.event).toHaveBeenCalledTimes(1);expect(s.runtime.getState()[0].status).toBe('context-mismatch')
   }finally{s.dispose()}
  })
+ it('recovers an unchanged confirmed series through the real reload transaction and only seeds the comparison',async()=>{
+  const s=await setup();try{
+   s.loader.push(bar(9));const before=s.commits.at(-1)!
+   s.status({type:'error',code:'SOURCE_UNAVAILABLE',message:'读取失败'})
+   expect(s.runtime.getState()[0].status).toBe('data-unavailable')
+   await s.loader.reload(true)
+   expect(s.commits.at(-1)!.contentRevision).toBe(before.contentRevision)
+   expect(s.commits.at(-1)!.revision).toBeGreaterThan(before.revision)
+   expect(s.runtime.getState()[0].status).toBe('monitoring');expect(s.runtime.getState()[0].reason).not.toContain('读取失败');expect(s.event).not.toHaveBeenCalled()
+   s.loader.push(bar(11));expect(s.event).toHaveBeenCalledTimes(1)
+  }finally{s.dispose()}
+ })
  it.each(['market','exchange','priceCurrency'] as const)('rejects same-ticker snapshots with a different or undeclared %s before engine writes',async key=>{
   const s=await setup();try{
    const original=s.data

@@ -2,6 +2,17 @@ import assert from 'node:assert/strict'
 
 export async function drawingAlertCases(page){
  const scenarios=[]
+ const unchanged=await page.evaluate(async()=>{
+  const id=await alertBench.seed(),price=pro.getDrawings().find(d=>d.logicalId===id).anchors[0].value,before=alertBench.events.length
+  pro.executeDrawingAlertCommand({type:'create',id:'unchanged-reload',drawingLogicalId:id,frequency:'once-per-bar'})
+  alertBench.update(price-1);alertBench.update(price+1);const first=pro.getDrawingAlertState()[0]
+  alertBench.error();const unavailable=pro.getDrawingAlertState()[0].status
+  await pro.reloadData({preserveViewport:true});await alertBench.frame();const restored=pro.getDrawingAlertState()[0]
+  alertBench.update(price-1);alertBench.update(price+1);await alertBench.frame()
+  const events=alertBench.events.length-before;pro.executeDrawingAlertCommand({type:'delete',id:'unchanged-reload'})
+  return {unavailable,status:restored.status,hasTriggered:restored.hasTriggered,retained:restored.lastBarTimestamp===first.lastBarTimestamp,events}
+ })
+ assert.deepEqual(unchanged,{unavailable:'data-unavailable',status:'monitoring',hasTriggered:true,retained:true,events:1});scenarios.push('real-unchanged-reload-clears-error-seeds-comparison-and-preserves-markers')
  for(const [tool,axis,reverse] of [['straightLine','normal',false],['segment','normal',false],['rayLine','normal',false],['straightLine','logarithm',false],['straightLine','logarithm',true]]){
   const actual=await page.evaluate(async({tool,axis,reverse})=>{
    for(const state of pro.getDrawingAlertState())pro.executeDrawingAlertCommand({type:'delete',id:state.rule.id})

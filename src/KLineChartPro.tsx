@@ -62,7 +62,8 @@ export default class KLineChartPro implements ChartPro {
           drawingPreferences={options.drawingPreferences}
           drawingPreferencesStore={options.drawingPreferencesStore}
           drawingPreferencesScope={options.drawingPreferencesScope}
-          onDrawingStateChange={state=>{this._drawingPreferenceShortcuts=state.preferences?.value.shortcuts??{};this._applyDrawingShortcuts();options.onDrawingStateChange?.(state)}}
+          onDrawingStateChange={options.onDrawingStateChange}
+          onDrawingShortcutsChange={shortcuts=>{this._drawingPreferenceShortcuts=shortcuts;this._applyDrawingShortcuts()}}
           analysisLayerListVisible={options.analysisLayerListVisible}
           onAnalysisLayerChange={options.onAnalysisLayerChange}
           onAnalysisEventClick={options.onAnalysisEventClick}

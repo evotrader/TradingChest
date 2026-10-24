@@ -1,5 +1,6 @@
 import {commonStyleControls,templateStylePatch} from './styleControls'
 import {createOpaqueId} from '../ids'
+import {copyCanonical} from '../core/copyCanonical'
 import {copyDrawingCatalog,validateDrawingParameters,type DrawingToolDescriptor} from './catalog'
 import type {DrawingHistory,DrawingWriteGuard} from './history'
 import type {DrawingCoordinator} from './coordinator'
@@ -75,7 +76,7 @@ export class DrawingController {
   getViewState():{hidden:boolean;preventDragging:boolean;magnet:import('./snap').DrawingMagnetMode}{return {magnet:this.magnet,hidden:this.hidden,preventDragging:this.preventDragging}}
   refresh():void {
     if(this.disposed)return
-    const ids=new Set(this.drawings().map(d=>d.logicalId))
+    const ids=new Set([...this.options.history.getDrawingIds(),...this.options.coordinator?.getSharedDrawingIds()??[]])
     const selected=this.selectedIds.filter(id=>ids.has(id))
     if(selected.length!==this.selectedIds.length){this.selectedIds=selected;this.options.selected?.([...selected])}
     this.options.changed?.(this.getState())
@@ -84,7 +85,7 @@ export class DrawingController {
   setStep(step:number):void{if(this.step===step)return;this.step=step;this.refresh()}
   rememberConfirmed(value:DrawingSnapshot):void{
     const preferences=this.options.preferences,tool=this.catalog.find(tool=>tool.overlayName===value.overlay.name);if(!preferences||!tool)return
-    const previous=preferences.getState().value,preset={styles:copy(value.overlay.styles??{}),parameters:copy(value.parameters??{})};if(JSON.stringify(previous.lastStyles?.[tool.toolId])!==JSON.stringify(preset))preferences.update({lastStyles:{...previous.lastStyles,[tool.toolId]:preset}})
+    preferences.rememberStyle(tool.toolId,{styles:value.overlay.styles??{},parameters:value.parameters??{}})
   }
   completed(expectedToolId?:string):void {
     if(expectedToolId&&expectedToolId!==this.toolId)return
@@ -290,7 +291,7 @@ export class DrawingController {
         const affected=command.type==='reorder'?absoluteOrders?all.filter(o=>absoluteOrders!.has(o.logicalId)&&absoluteOrders!.get(o.logicalId)!==o.presentation?.order):all:objects
         return affected.map(before=>{
           if(command.type==='delete')return {before,after:null}
-          let after=copy(before)
+          let after=copyCanonical(before)
           if(command.type==='move-point'){
             if(!this.options.translatePoint)throw Error('控制点坐标尚未就绪');after=this.options.translatePoint(before,command.index,command.dx,command.dy)
           }else if(command.type==='move'||command.type==='nudge-selection'){

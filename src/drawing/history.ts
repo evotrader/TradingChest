@@ -1,5 +1,7 @@
 import {createOpaqueId} from '../ids'
 import i18n from '../i18n'
+import {yieldTask} from '../core/yieldTask'
+import {copyCanonical} from '../core/copyCanonical'
 import type {DrawingChange,DrawingCommitResult,DrawingHistoryState,DrawingOwner,DrawingSnapshot,DrawingSource,DrawingCommandResult,DrawingItemResult} from './types'
 
 interface Options {
@@ -20,18 +22,6 @@ type Operation={ids?:string[];undo:()=>Promise<void>;redo:()=>Promise<void>;avai
 export interface DrawingCheckpoint {documentGeneration?:number;operations?:Map<string,Operation>;drawings:DrawingSnapshot[];past:Transaction[];future:Transaction[]}
 const content=(value:DrawingSnapshot|null)=>{if(!value)return null;const {presentation,...rest}=value;return rest}
 const copy=<T>(value:T):T=>JSON.parse(JSON.stringify(value))
-/** Only clone values already normalized through the JSON boundary above. */
-function copyCanonical<T>(value:T):T {
-  if(value===null||typeof value!=='object')return value
-  if(Array.isArray(value))return value.map(copyCanonical) as T
-  const result:Record<string,unknown>={}
-  for(const key of Object.keys(value)){
-    const next=copyCanonical((value as Record<string,unknown>)[key])
-    if(key==='__proto__')Object.defineProperty(result,key,{value:next,enumerable:true,writable:true,configurable:true})
-    else result[key]=next
-  }
-  return result as T
-}
 /** Compare values after the JSON boundary without sorting or serializing large point arrays. */
 const same=(a:any,b:any):boolean=>{
   if(a===b)return true
@@ -43,11 +33,6 @@ const same=(a:any,b:any):boolean=>{
   for(const key of ['presentation','styles','overlay'])if((key in a||key in b)&&(!Object.hasOwn(a,key)||!Object.hasOwn(b,key)||!same(a[key],b[key])))return false
   return keys.every(key=>Object.hasOwn(b,key)&&(['presentation','styles','overlay'].includes(key)||same(a[key],b[key])))
 }
-const yieldDrawingTask=()=>new Promise<void>(resolve=>{
-  const channel=new MessageChannel()
-  channel.port1.onmessage=()=>{channel.port1.close();channel.port2.close();resolve()}
-  channel.port2.postMessage(null)
-})
 const abort=(locale='zh-CN')=>new DOMException(i18n('drawing_context_changed',locale),'AbortError')
 
 /** History advances only after an explicit confirmation, never on a visual preview. */
@@ -71,7 +56,7 @@ export class DrawingHistory {
   private tail:Promise<unknown>=Promise.resolve()
   private localYieldToken?:symbol
   isYieldingLocalWork():boolean{return this.localYieldToken!==undefined}
-  private async yieldLocalWork():Promise<void>{const token=Symbol('local-drawing-yield');this.localYieldToken=token;try{await yieldDrawingTask()}finally{if(this.localYieldToken===token)this.localYieldToken=undefined}}
+  private async yieldLocalWork():Promise<void>{const token=Symbol('local-drawing-yield');this.localYieldToken=token;try{await yieldTask()}finally{if(this.localYieldToken===token)this.localYieldToken=undefined}}
   private text(key:string){return i18n(key,this.options.locale?.()??'zh-CN')}
   constructor(options:Options){this.options=options}
   getState():DrawingHistoryState{this.pruneOperations();return {pending:this.pending+(this.restoreToken?1:0),canUndo:this.past.length>0,canRedo:this.future.length>0,error:this.error,uncertainLogicalIds:[...this.uncertain.keys()],projectionErrors:Object.fromEntries(this.projectionErrors)}}

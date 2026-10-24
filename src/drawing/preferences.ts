@@ -92,6 +92,10 @@ export class DrawingPreferencesManager {
     if(options.store)this.initialRead=this.load()
   }
   getState():DrawingPreferencesState{return clone(this.state)}
+  /** Compare the canonical preset before copying the complete preferences document. */
+  rememberStyle(toolId:string,preset:DrawingStylePreset):void {
+    if(!equal(this.state.value.lastStyles?.[toolId],preset))this.update({lastStyles:{...this.state.value.lastStyles,[toolId]:preset}})
+  }
   private emit(){if(!this.disposed)this.options.changed?.(this.getState())}
   private async load(){
     try{

@@ -1,4 +1,5 @@
 import {createOpaqueId} from '../ids'
+import {yieldTask} from '../core/yieldTask'
 import {DrawingSessionRegistry} from '../drawing/session'
 import type { Chart, Crosshair } from 'klinecharts'
 import type { ChartPro, Period, SymbolInfo } from '../types'
@@ -320,7 +321,7 @@ export class ChartWorkspace {
     if(!id)throw this.failure('workspace_choose_saved')
     this.deleteDialog?.remove()
     this.lastStorageAction=()=>this.load(id)
-    return this.runStorage('read',async(store,signal)=>{const raw=await this.abortable(store.read(this.options.context,id,signal),signal);if(!raw)throw this.storageFailure('WORKSPACE_NOT_FOUND',this.t('workspace_no_saved'));const stored=this.stored(raw,id);signal.throwIfAborted();await this.restore(stored.document,()=>!signal.aborted&&!this.disposed,signal);signal.throwIfAborted();this.selected=this.summary(stored);this.nameInput.value=stored.name;this.renderSaved();this.message(this.notice,'workspace_restored')})
+    return this.runStorage('read',async(store,signal)=>{const raw=await this.abortable(store.read(this.options.context,id,signal),signal);if(!raw)throw this.storageFailure('WORKSPACE_NOT_FOUND',this.t('workspace_no_saved'));await yieldTask();signal.throwIfAborted();const stored=this.stored(raw,id);signal.throwIfAborted();await yieldTask();signal.throwIfAborted();await this.restore(stored.document,()=>!signal.aborted&&!this.disposed,signal);signal.throwIfAborted();this.selected=this.summary(stored);this.nameInput.value=stored.name;this.renderSaved();this.message(this.notice,'workspace_restored')})
   }
   async renameSaved(id:string,name:string):Promise<WorkspaceSummary> {
     name=this.name(name);const expected=this.selected?.id===id?this.selected:this.saved.find(v=>v.id===id)
@@ -369,11 +370,17 @@ export class ChartWorkspace {
     if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
     if(this.cells.some(c=>c.pro&&(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)))throw this.failure('workspace_drawing_load')
     try{doc=migrateWorkspaceDocument(doc)}catch{throw this.failure('workspace_invalid_document')}
+    if(doc.cells.reduce((n,c)=>n+c.chart.drawings.length,0)>=128){
+      await yieldTask()
+      if(this.disposed||!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
+      if(this.busy)throw this.failure('workspace_busy')
+      this.assertDrawingIdle(this.cells)
+    }
     for(const cell of doc.cells){if(!this.options.symbols.some(s=>s.ticker===cell.symbol.ticker))throw this.failure('workspace_symbol_missing',{ticker:cell.symbol.ticker});const context=cell.cellId==='primary'?this.options.context:`${this.options.context}:${cell.cellId}`;if(cell.context!==context)throw this.failure('workspace_context_mismatch')}
     const stagedSessions=new DrawingSessionRegistry({scope:'workspace',documents:doc.sharedDrawings})
     this.busy=true;for(const c of this.cells){c.body.inert=true;c.pro?.getShortcutManager()?.setEnabled(false)}++this.alignment;const staged:Runtime[]=[];const stage=document.createElement('div');stage.style.cssText='position:absolute;visibility:hidden;pointer-events:none;width:'+this.grid.clientWidth+'px';this.root.append(stage)
     try{
-      for(const cell of doc.cells){if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');const c=await this.createCell(cell,stage,true,false,signal,stagedSessions);staged.push(c);if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');if(!c.pro)throw this.failure('workspace_restored_not_ready');await this.abortable(restoreLayout(c.pro,cell.chart),signal??c.controller.signal);c.restoredIds=cell.chart.drawings.map(d=>d.logicalId)}
+      for(const cell of doc.cells){if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');const c=await this.createCell(cell,stage,true,false,signal,stagedSessions);staged.push(c);if(cell.chart.drawings.length>=128)await yieldTask();if(this.disposed||!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');if(!c.pro)throw this.failure('workspace_restored_not_ready');await this.abortable(restoreLayout(c.pro,cell.chart),signal??c.controller.signal);c.restoredIds=cell.chart.drawings.map(d=>d.logicalId)}
       if(this.disposed||!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
       this.assertDrawingIdle(this.cells)
       for(const c of this.cells)this.disposeCell(c)

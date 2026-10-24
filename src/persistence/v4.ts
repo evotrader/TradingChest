@@ -1,4 +1,5 @@
 import {createOpaqueId} from '../ids'
+import {yieldTask} from '../core/yieldTask'
 import type {ChartPro} from '../types'
 import type {KLineData} from 'klinecharts'
 import type {DrawingSnapshot,DrawingPresentation} from '../drawing/types'
@@ -112,6 +113,7 @@ export async function restoreLayout(pro:ChartPro,layout:ChartLayoutV4):Promise<v
   try{
     const axisIds=await restoreEngineLayout(pro,{...base,version:3,overlayData:[]},transaction)
     assertCurrent()
+    if(drawings.length>=128){await yieldTask();assertCurrent()}
     transaction.restore('local',copy(drawings).map(d=>({...d,yAxisId:d.yAxisId?axisIds.get(d.yAxisId)??d.yAxisId:undefined})))
     applyReferences?.apply()
     transaction.restore('backend',pro.getDrawings().filter(d=>d.owner==='backend').map(d=>({...d,presentation:drawingPresentation[d.logicalId]??d.presentation})))

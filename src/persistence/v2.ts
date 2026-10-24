@@ -46,6 +46,7 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string')
 const optionalString = (v: unknown) => v === undefined || typeof v === 'string'
 const keys = (v: Record<string, unknown>, allowed: string[]) => Object.keys(v).every(k => allowed.includes(k))
+const reservedJsonKey=/^(?:__proto__|prototype|constructor|password|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|credentials)$/i
 /** Reject runtime objects/cycles and conventional credential fields, rather than silently stripping them. */
 export function jsonSafe(v: unknown, seen = new Set<object>()): boolean {
   if (v === null || typeof v === 'string' || typeof v === 'boolean') return true
@@ -53,8 +54,13 @@ export function jsonSafe(v: unknown, seen = new Set<object>()): boolean {
   if (!Array.isArray(v) && !object(v)) return false
   if (seen.has(v)) return false
   seen.add(v)
-  const safe = Array.isArray(v) ? v.every(x => jsonSafe(x, seen)) : Object.entries(v).every(([key, value]) =>
-    !/^(?:__proto__|prototype|constructor|password|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|credentials)$/i.test(key) && jsonSafe(value, seen))
+  // Avoid allocating an entry tuple and callback for every coordinate property.
+  let safe=true
+  if(Array.isArray(v)){
+    for(let index=0;index<v.length;index++)if(index in v&&!jsonSafe(v[index],seen)){safe=false;break}
+  }else{
+    for(const key of Object.keys(v))if(reservedJsonKey.test(key)||!jsonSafe((v as Record<string,unknown>)[key],seen)){safe=false;break}
+  }
   seen.delete(v)
   return safe
 }

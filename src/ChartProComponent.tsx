@@ -110,6 +110,7 @@ export interface ChartProComponentProps extends Required<Omit<ChartProOptions, '
   onDataState?: ChartProOptions['onDataState']
   onDataReady?: ChartProOptions['onDataReady']
   ref: (chart: ChartComponentApi) => void
+  onDrawingShortcutsChange?:(shortcuts:Record<string,string>)=>void
   /** 内部回调：实时数据到达时通知外层（用于报警检测） */
   onPriceUpdate?: (price: number, timestamp: number) => void
   onReplayPriceUpdate?: (price: number, timestamp: number) => void
@@ -944,7 +945,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if(result.status==='confirmed'){drawingController.completed(tool.toolId);void drawingController.execute({type:'select',ids:[id]})}
     return {status:result.status==='confirmed'?'completed':result.status,items:[{logicalId:id,status:result.status,...(result.status==='confirmed'?{}:{message:result.message})}]}
   }
-  const drawingPreferences=new DrawingPreferencesManager({catalog:drawingCatalog,initial:props.drawingPreferences,store:props.drawingPreferencesStore,scope:props.drawingPreferencesScope,changed:()=>drawingController?.refresh()})
+  const drawingPreferences=new DrawingPreferencesManager({catalog:drawingCatalog,initial:props.drawingPreferences,store:props.drawingPreferencesStore,scope:props.drawingPreferencesScope,changed:state=>{props.onDrawingShortcutsChange?.(state.value.shortcuts);drawingController?.refresh()}})
+  props.onDrawingShortcutsChange?.(drawingPreferences.getState().value.shortcuts)
   drawingController=new DrawingController({analytics:drawings=>drawingAnalytics.summaries(drawings),history:drawingHistory,coordinator:drawingCoordinator,finish:finishDrawing,translate:translateDrawing,translateNudge:nudgeDrawing,translatePoint:(before,index,dx,dy)=>{const point=projectDrawingPoints(before)[index];if(!point)throw Error('控制点不存在');const pixel=drawingToPixel(point,before);if(isVolumeDrawing(before.overlay.name)){if(!dx)return structuredClone(before);const bars=widget!.getDataList(),target=Math.round(marketIndex(point.timestamp!,bars))+dx,bar=bars[target];if(!bar)throw Error('量价控制点只能移动到已加载历史');return controlPointProposal(before,index,drawingToPixel({timestamp:bar.timestamp,dataIndex:target,value:point.value},before))}return controlPointProposal(before,index,{x:pixel.x+dx,y:pixel.y+dy})},preferences:drawingPreferences,catalog:drawingCatalog,
     editable:value=>editable(value.overlay),validate:value=>drawingCoordinator.validate(value),validateBatch:values=>drawingCoordinator.validateBatch(values),
     create:tool=>{const preferences=drawingPreferences.getState().value,preset=preferences.lastStyles?.[tool.toolId]??preferences.defaults[tool.toolId];createDrawing({name:tool.overlayName,groupId:'drawing_tools',styles:preset?.styles,extendData:preset?.parameters?{drawingParameters:preset.parameters}:undefined})},cancel:cancelDrawing,

@@ -1,4 +1,5 @@
 import {marketIndex} from '../core/marketIndex'
+import {drawingLogPrice} from './drawingLogPrice'
 import type {DrawingAlertEvaluation,DrawingAlertEvaluationResult,DrawingAlertSample} from './drawingTypes'
 
 /** Evaluate only observed closes. A bar's high/low never invents a price path. */
@@ -22,7 +23,7 @@ export function evaluateDrawingAlert(input:DrawingAlertEvaluation):DrawingAlertE
       return {x:marketIndex(timestamp,bars),y:value(anchor.value),price:anchor.value}
     })
     const reference=(sample:DrawingAlertSample)=>{
-      const observed=value(sample.close)
+      value(sample.close)
       const x=marketIndex(sample.timestamp,bars)
       let y=points[0].y
       let exact:number|undefined=points[0].price
@@ -32,12 +33,12 @@ export function evaluateDrawingAlert(input:DrawingAlertEvaluation):DrawingAlertE
         const u=(x-points[0].x)/dx
         if(!Number.isFinite(u))throw Error('参考位置超出可表示范围')
         if(geometry.toolId==='segment'&&(u<0||u>1)||geometry.toolId==='rayLine'&&u<0)throw Error('观测价格位于绘图有效范围之外，请使用直线或射线持续监控')
-        y=(1-u)*points[0].y+u*points[1].y
         exact=u===0?points[0].price:u===1?points[1].price:points[0].price===points[1].price?points[0].price:undefined
+        if(exact===undefined)y=logarithmic?drawingLogPrice(points[0].price,points[1].price,x-points[0].x,dx,sample.close):(1-u)*points[0].y+u*points[1].y
       }
-      const price=exact??(logarithmic?Math.exp(y):y)
+      const price=exact??y
       if(!Number.isFinite(price)||logarithmic&&price<=0)throw Error('参考价格超出可表示范围')
-      return {price,level:exact===undefined?y:value(exact),observed}
+      return {price,level:price,observed:sample.close}
     }
     const now=reference(current)
     if(!previous)return {state,status:'monitoring',comparison:{...current}}

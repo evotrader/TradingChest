@@ -91,3 +91,65 @@ export async function drawingAlertCases(page){
  assert.deepEqual(replayBars.repeated,replayBars.expected);assert.deepEqual(replayBars.rearmed,[...replayBars.expected,replayBars.expected[0]]);assert.equal(replayBars.live,0);scenarios.push('once-per-bar-fixed-history-seek-deduplication-and-explicit-rearm')
  return scenarios
 }
+
+export async function drawingAlertFixCases(page){
+ const scenarios=[]
+ for(const tool of ['straightLine','rayLine'])for(const reverse of [false,true])for(const condition of ['crossing-up','crossing-down']){
+  const actual=await page.evaluate(async({tool,reverse,condition})=>{
+   for(const state of pro.getDrawingAlertState())pro.executeDrawingAlertCommand({type:'delete',id:state.rule.id})
+   const chart=pro.getChart(),bars=chart.getDataList(),n=bars.length
+   chart.overrideYAxis({id:chart.getYAxes({paneId:'candle_pane'})[0].id,paneId:'candle_pane',name:'logarithm',reverse});chart.resize();await alertBench.frame()
+   const id=await alertBench.seed(tool,[{kind:'market',timestamp:bars[n-3].timestamp,value:1},{kind:'market',timestamp:bars[n-2].timestamp,value:3}])
+   const from=condition==='crossing-up'?8:10,other=condition==='crossing-up'?10:8
+   // Make the post-create seed a real content change, regardless of the prior case.
+   alertBench.update(from+2)
+   const created=pro.executeDrawingAlertCommand({type:'create',id:'log-fix',drawingLogicalId:id,condition,frequency:'once-per-bar'})
+   if(created.status!=='completed')throw Error(created.message)
+   const before=alertBench.events.length
+   alertBench.update(from);alertBench.update(9);await alertBench.frame()
+   const arrival=alertBench.events.slice(before)
+   pro.executeDrawingAlertCommand({type:'rearm',id:'log-fix'});alertBench.update(other);alertBench.update(9);alertBench.update(other);await alertBench.frame()
+   return {arrival,leaving:alertBench.events.length-before-arrival.length,native:!!chart.getOverlays({id})[0],projection:pro.getDrawingHistoryState().projectionErrors}
+  },{tool,reverse,condition})
+  assert.equal(actual.native,true);assert.deepEqual(actual.projection,{});assert.equal(actual.arrival.length,1,JSON.stringify(actual));assert.equal(actual.arrival[0].referencePrice,9);assert.equal(actual.leaving,0,JSON.stringify(actual))
+  scenarios.push(`log-extrapolation-equality-${tool}-${condition}-${reverse?'reverse':'normal'}`)
+ }
+ const source=await page.evaluate(async()=>{
+  for(const state of pro.getDrawingAlertState())pro.executeDrawingAlertCommand({type:'delete',id:state.rule.id})
+  const chart=pro.getChart(),bars=chart.getDataList()
+  chart.overrideYAxis({id:chart.getYAxes({paneId:'candle_pane'})[0].id,paneId:'candle_pane',name:'normal',reverse:false});chart.resize();await alertBench.frame()
+  const anchor={kind:'market',timestamp:bars.at(-20).timestamp,value:bars.at(-1).close,interpolation:{nextTimestamp:bars.at(-19).timestamp,fraction:.5}},id=await alertBench.seed('horizontalStraightLine',[anchor])
+  const created=pro.executeDrawingAlertCommand({type:'create',id:'interpolated-fix',drawingLogicalId:id})
+  if(created.status!=='completed')throw Error(created.message)
+  const original=chart.scrollToDataIndex
+  window.locateScrolls=[];chart.scrollToDataIndex=function(index,...args){locateScrolls.push(index);return original.call(this,index,...args)}
+  await pro.executeDrawingCommand({type:'select',ids:[]});return {id,anchor,index:bars.length-20+.5}
+ })
+ await page.getByRole('button',{name:'提醒管理',exact:true}).click()
+ const manager=page.getByRole('complementary',{name:'画线提醒管理',exact:true}),row=manager.locator('[data-drawing-alert-id="interpolated-fix"]'),select=manager.getByLabel('提醒来源',{exact:true})
+ await row.getByRole('button',{name:'定位',exact:true}).click();await page.evaluate(()=>alertBench.frame())
+ assert.deepEqual(await page.evaluate(()=>pro.getDrawingState().selectedIds),[source.id]);assert.equal(await page.evaluate(()=>locateScrolls.at(-1)),source.index)
+ assert.deepEqual(await page.evaluate(id=>pro.getDrawings().find(value=>value.logicalId===id).anchors[0],source.id),source.anchor)
+ scenarios.push('interpolated-source-locate-selects-and-scrolls-fractional-index-without-changing-anchors')
+ await select.selectOption(source.id)
+ await page.evaluate(async id=>{await pro.executeDrawingCommand({type:'update',ids:[id],patch:{overlay:{styles:{line:{color:'#ff0000'}}}}});await alertBench.frame()},source.id)
+ assert.equal(await select.inputValue(),source.id)
+ await page.evaluate(async()=>{alertBench.update(8,{append:true});await alertBench.frame()});assert.equal(await select.inputValue(),source.id)
+ await page.evaluate(async id=>{await pro.executeDrawingCommand({type:'presentation',ids:[id],patch:{name:'更新后的来源'}});await alertBench.frame()},source.id)
+ assert.equal(await select.inputValue(),source.id);assert.match(await select.locator('option:checked').textContent(),/更新后的来源/)
+ await manager.getByRole('button',{name:'创建提醒',exact:true}).click()
+ const created=await page.evaluate(()=>pro.getDrawingAlertState().find(value=>value.rule.id!=='interpolated-fix').rule)
+ assert.equal(created.drawingLogicalId,source.id)
+ const edited=manager.locator(`[data-drawing-alert-id="${created.id}"]`)
+ await edited.getByRole('button',{name:'编辑',exact:true}).click();await manager.getByLabel('提醒消息',{exact:true}).fill('保留编辑草稿')
+ await page.evaluate(async id=>{await pro.executeDrawingCommand({type:'delete',ids:[id]});await alertBench.frame()},source.id)
+ assert.equal(await select.inputValue(),source.id);assert.equal(await select.isDisabled(),true);assert.equal(await manager.getByRole('button',{name:'保存修改',exact:true}).isDisabled(),true)
+ assert.equal(await manager.getByLabel('提醒消息',{exact:true}).inputValue(),'保留编辑草稿')
+ await manager.getByRole('button',{name:'取消编辑',exact:true}).click()
+ assert.equal(await select.inputValue(),'');assert.equal(await manager.getByRole('button',{name:'创建提醒',exact:true}).isDisabled(),true)
+ await page.evaluate(async()=>{await pro.executeDrawingCommand({type:'undo'});await alertBench.frame()})
+ assert.equal(await select.inputValue(),'');await select.selectOption(source.id);assert.equal(await manager.getByRole('button',{name:'创建提醒',exact:true}).isEnabled(),true)
+ scenarios.push('stable-source-selection-through-style-append-rename-create-edit-delete-and-undo')
+ await manager.getByRole('button',{name:'关闭提醒管理',exact:true}).click()
+ return scenarios
+}

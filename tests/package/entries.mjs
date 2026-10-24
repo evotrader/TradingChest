@@ -16,6 +16,7 @@ const run = (command, args, cwd = dir) => execFileSync(command, args, {cwd, stdi
 try {
   const packed = JSON.parse(run(npm, ['pack','--json','--pack-destination',dir], root))[0]
   assert.ok(!packed.files.some(file=>file.path.split('/').some(part=>part.startsWith('.'))),'Package included local build metadata')
+  assert.ok(packed.files.some(file=>file.path==='THIRD_PARTY_NOTICES.md'),'Bundled decimal.js license notice is missing')
   writeFileSync(path.join(dir,'package.json'), JSON.stringify({private:true,type:'module'}))
   run(npm, ['install','--ignore-scripts','--no-audit','--no-fund',path.join(dir,packed.filename),'jsdom@30.0.1','klinecharts@10.1.0','@types/react@18.3.31'])
   assert.equal(existsSync(path.join(dir,'node_modules/react')), false, 'chart-only install pulled React')
@@ -24,6 +25,14 @@ try {
   console.log(run(process.execPath,['testing.mjs']))
   writeFileSync(path.join(dir,'alerts.mjs'),`import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {evaluateDrawingAlert,validateDrawingAlertDocument} from 'trading-chest/alerts';assert.equal(globalThis.window,undefined);assert.equal(globalThis.document,undefined);const rule={id:'rule',drawingLogicalId:'line',sourceOwner:'local',toolId:'straightLine',identity:{ticker:'PORTABLE',market:'test',priceCurrency:'USD'},period:{multiplier:1,timespan:'minute'},condition:'crossing-up',frequency:'once'};const input={rule,geometry:{toolId:'straightLine',anchors:[{kind:'market',timestamp:0,value:10},{kind:'market',timestamp:1000,value:30}]},bars:[{timestamp:0},{timestamp:10},{timestamp:1000},{timestamp:1001}],previous:{timestamp:1001,close:39},current:{timestamp:1001,close:41},state:{hasTriggered:false}};const esm=evaluateDrawingAlert(input),cjs=createRequire(import.meta.url)('trading-chest/alerts').evaluateDrawingAlert(input);assert.deepEqual(cjs,esm);assert.equal(esm.event.referencePrice,40);validateDrawingAlertDocument({version:1,scope:'opaque',rules:[{rule,hasTriggered:true,lastBarTimestamp:1001}]},'opaque');console.log('DOM-free alerts ESM/CJS without chart/framework runtimes PASS');`)
   // Make the runtime peers genuinely unavailable in this isolated installation.
+  writeFileSync(path.join(dir,'alerts.mjs'),readFileSync(path.join(dir,'alerts.mjs'),'utf8')+`
+for(const evaluate of [evaluateDrawingAlert,createRequire(import.meta.url)('trading-chest/alerts').evaluateDrawingAlert]){
+ for(const [last,x,expected] of [[9,1,3],[3,4,9]])for(const [condition,before,now,crosses] of [['crossing-up',expected-1,expected,true],['crossing-up',expected,expected+1,false],['crossing-down',expected+1,expected,true],['crossing-down',expected,expected-1,false]]){
+  const result=evaluate({...input,rule:{...rule,condition},axis:'log',geometry:{toolId:'straightLine',anchors:[{kind:'market',timestamp:0,value:1},{kind:'market',timestamp:2,value:last}]},bars:[0,1,2,3,4].map(timestamp=>({timestamp})),previous:{timestamp:x,close:before},current:{timestamp:x,close:now}});
+  assert.equal(!!result.event,crosses);if(result.event)assert.equal(result.event.referencePrice,expected);
+ }
+}
+console.log('Packed log interpolation/extrapolation equality ESM/CJS PASS');`)
   const {renameSync}=await import('node:fs'),held=path.join(dir,'held-peers');mkdirSync(held)
   for(const name of ['klinecharts','solid-js'])renameSync(path.join(dir,'node_modules',name),path.join(held,name))
   try{console.log(run(process.execPath,['alerts.mjs']))}finally{for(const name of ['klinecharts','solid-js'])renameSync(path.join(held,name),path.join(dir,'node_modules',name))}

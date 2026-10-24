@@ -1,7 +1,7 @@
 import {launchBrowser} from './support.mjs'
 import assert from 'node:assert/strict'
 import {writeFileSync} from 'node:fs'
-import {drawingAlertCases} from './drawing-alerts-cases.mjs'
+import {drawingAlertCases,drawingAlertFixCases} from './drawing-alerts-cases.mjs'
 const browser=await launchBrowser(),result={passed:false,syntheticInputs:true,scope:'native-engine-fixture',scenarios:[],errors:[]}
 const save=()=>writeFileSync(process.argv[2],JSON.stringify(result,null,2)+'\n')
 try{
@@ -45,6 +45,6 @@ try{
  await page.keyboard.press('Escape');await manager.waitFor({state:'detached'});assert.equal(await page.getByRole('button',{name:'提醒管理',exact:true}).evaluate(node=>node===document.activeElement),true)
  result.scenarios.push('keyboard-ime-escape-focus-return-and-320px-44px-targets')
  await page.setViewportSize({width:1280,height:1100});await page.getByRole('button',{name:'提醒管理',exact:true}).click();await manager.getByRole('button',{name:'删除',exact:true}).click();assert.equal(await page.evaluate(()=>pro.getDrawingAlertState().length),0)
- await manager.getByRole('button',{name:'关闭提醒管理',exact:true}).click();result.scenarios.push(...await drawingAlertCases(page))
+ await manager.getByRole('button',{name:'关闭提醒管理',exact:true}).click();result.scenarios.push(...await drawingAlertCases(page),...await drawingAlertFixCases(page))
  await page.evaluate(()=>pro.dispose());assert.equal(await page.evaluate(()=>alertBench.subscriptions),0);assert.deepEqual(result.errors,[]);result.passed=true;save();console.log(JSON.stringify(result))
 }catch(error){result.error=error.stack;save();throw error}finally{await browser.close()}

@@ -1,4 +1,4 @@
-import {createSignal,createEffect,onMount,onCleanup,For,Show,type Component} from 'solid-js'
+import {createSignal,createEffect,createMemo,onMount,onCleanup,For,Show,type Component} from 'solid-js'
 import type {DrawingAlertCommand,DrawingAlertCommandResult,DrawingAlertCondition,DrawingAlertFrequency,DrawingAlertState} from '../../alert/drawingTypes'
 import type {DrawingSnapshot} from '../../drawing/types'
 import './style.less'
@@ -20,9 +20,14 @@ const Manager:Component<{
   onCleanup(()=>document.removeEventListener('keydown',escape,true))
   onCleanup(()=>{alive=false})
   createEffect(()=>{setSource(props.sourceId??'');setEditing(undefined);setNotice('')})
+  const objects=createMemo(()=>new Map(props.objects.map(object=>[object.logicalId,object])))
+  const sourceIds=createMemo(()=>{const ids=[...objects().keys()];if(editing()&&source()&&!objects().has(source()))ids.push(source());return ids})
+  createEffect(()=>{if(source()&&!editing()&&!objects().has(source())){setSource('');setNotice(t('原来源已消失，请重新选择绘图','The source is no longer available; select another drawing'))}})
+  const sourceError=createMemo(()=>{objects();props.states;return source()?props.sourceReason(source()):undefined})
   const reset=()=>{setEditing(undefined);setMessage('');setCondition('crossing');setFrequency('once')}
   const send=(command:DrawingAlertCommand)=>{const result=props.execute(command);setNotice(result.status==='completed'?'':result.message??t('操作被拒绝','Operation rejected'));return result}
   const save=()=>{
+    if(!source()||sourceError()){setNotice(sourceError()??t('请选择绘图','Select a drawing'));return}
     const command:DrawingAlertCommand=editing()?{type:'update',id:editing()!,patch:{condition:condition(),frequency:frequency(),message:message()}}:{type:'create',drawingLogicalId:source(),condition:condition(),frequency:frequency(),message:message()}
     if(send(command).status==='completed'){reset();setNotice(t('提醒已保存','Alert saved'))}
   }
@@ -35,13 +40,13 @@ const Manager:Component<{
     <Show when={props.replay}><p role="status">{t('当前为回放；状态、记录及回调与实时监控隔离','Replay mode: state, records and callbacks are separate from live monitoring')}</p></Show>
     <form onSubmit={event=>{event.preventDefault();save()}}>
       <fieldset><legend>{editing()?t('编辑提醒','Edit alert'):t('添加提醒','Add alert')}</legend>
-        <label>{t('绘图来源','Drawing source')}<select aria-label={t('提醒来源','Alert source')} disabled={!!editing()} value={source()} onChange={event=>setSource(event.currentTarget.value)}><option value="">{t('请选择绘图','Select a drawing')}</option><For each={props.objects}>{object=><option value={object.logicalId}>{object.presentation?.name??object.logicalId} · {object.overlay.name}</option>}</For></select></label>
+        <label>{t('绘图来源','Drawing source')}<select aria-label={t('提醒来源','Alert source')} disabled={!!editing()} value={source()} onChange={event=>setSource(event.currentTarget.value)}><option value="">{t('请选择绘图','Select a drawing')}</option><For each={sourceIds()}>{id=><option value={id} disabled={!objects().has(id)}>{objects().get(id)?.presentation?.name??id} · {objects().get(id)?.overlay.name??t('来源不可用','Source unavailable')}</option>}</For></select></label>
         <p>{t('支持本图已确认的水平线、直线、线段及射线；线段保留有限范围。其它工具、共享作用域和独立价格轴暂不支持。','Supports confirmed chart-local horizontal lines, extended lines, segments and rays. Segments keep their finite domain. Other tools, shared scopes and independent axes are unsupported.')}</p>
-        <Show when={source()&&props.sourceReason(source())}>{reason=><p role="status">{reason()}</p>}</Show>
+        <Show when={sourceError()}>{reason=><p role="status">{reason()}</p>}</Show>
         <label>{t('条件','Condition')}<select aria-label={t('提醒条件','Alert condition')} value={condition()} onChange={event=>setCondition(event.currentTarget.value as DrawingAlertCondition)}><For each={['crossing','crossing-up','crossing-down'] as const}>{value=><option value={value}>{conditionLabel(value)}</option>}</For></select></label>
         <label>{t('频率','Frequency')}<select aria-label={t('提醒频率','Alert frequency')} value={frequency()} onChange={event=>setFrequency(event.currentTarget.value as DrawingAlertFrequency)}><option value="once">{t('仅一次','Once')}</option><option value="once-per-bar">{t('每根 K 线最多一次','Once per bar')}</option></select></label>
         <label>{t('消息','Message')}<textarea aria-label={t('提醒消息','Alert message')} value={message()} onInput={event=>setMessage(event.currentTarget.value)}/></label>
-        <button type="submit" disabled={!source()||!!props.sourceReason(source())}>{editing()?t('保存修改','Save changes'):t('创建提醒','Create alert')}</button><Show when={editing()}><button type="button" onClick={reset}>{t('取消编辑','Cancel editing')}</button></Show>
+        <button type="submit" disabled={!source()||!!sourceError()}>{editing()?t('保存修改','Save changes'):t('创建提醒','Create alert')}</button><Show when={editing()}><button type="button" onClick={reset}>{t('取消编辑','Cancel editing')}</button></Show>
       </fieldset>
     </form>
     <Show when={notice()}><p role="status">{notice()}</p></Show>

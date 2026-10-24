@@ -6,6 +6,7 @@ const bars=[0,10,1000,1001,9000].map(timestamp=>({timestamp}))
 const rule:DrawingAlertRule={id:'r',drawingLogicalId:'d',sourceOwner:'local',toolId:'horizontalStraightLine',identity:{ticker:'A'},period:{multiplier:1,timespan:'minute'},condition:'crossing',frequency:'once-per-bar'}
 const anchor=(index:number,value:number)=>({kind:'market' as const,timestamp:bars[index].timestamp,value})
 function input(patch:Partial<DrawingAlertEvaluation>={}):DrawingAlertEvaluation{return {rule,geometry:{toolId:rule.toolId,anchors:[anchor(0,10)]},bars,previous:{timestamp:1001,close:9},current:{timestamp:1001,close:10},state:{hasTriggered:false},...patch}}
+const neighbour=(price:number,up:boolean)=>{const data=new DataView(new ArrayBuffer(8));data.setFloat64(0,price);data.setBigUint64(0,data.getBigUint64(0)+(up?1n:-1n));return data.getFloat64(0)}
 describe('portable observed-close drawing evaluation',()=>{
  it('crosses from below to equality, with immutable inputs and real event identity',()=>{
   const value=input(),before=structuredClone(value),result=evaluateDrawingAlert(value)
@@ -60,6 +61,30 @@ describe('portable observed-close drawing evaluation',()=>{
  })
  it('treats percentage as an affine price axis',()=>{
   expect(evaluateDrawingAlert(input({axis:'percentage'})).event?.referencePrice).toBe(10)
+ })
+ it.each([
+  {a:0,b:2,first:1,last:9,x:1,expected:3},
+  {a:0,b:2,first:2,last:50,x:1,expected:10},
+  {a:0,b:2,first:49,last:81,x:1,expected:63},
+  {a:0,b:3,first:1,last:27,x:1,expected:3},
+  {a:0,b:1,first:1,last:3,x:2,expected:9},
+  {a:1,b:2,first:3,last:9,x:0,expected:1},
+  {a:2,b:0,first:9,last:1,x:1,expected:3},
+  {a:0,b:2,first:1e-200,last:9e-200,x:1,expected:3e-200},
+  {a:0,b:2,first:1e200,last:9e200,x:1,expected:3e200},
+  {a:0,b:2,first:1e-300,last:1e300,x:1,expected:1}
+ ])('keeps log interpolation/extrapolation equality and distinct adjacent doubles: %o',({a,b,first,last,x,expected})=>{
+  const bars=[0,1,2,3].map(timestamp=>({timestamp})),low=neighbour(expected,false),high=neighbour(expected,true)
+  for(const toolId of ['straightLine','segment','rayLine'] as const){
+   const u=(x-a)/(b-a)
+   if(toolId==='segment'&&(u<0||u>1)||toolId==='rayLine'&&u<0)continue
+   const geometry={toolId,anchors:[{kind:'market' as const,timestamp:a,value:first},{kind:'market' as const,timestamp:b,value:last}]}
+   for(const [before,now,condition,crosses] of [[low,expected,'crossing-up',true],[high,expected,'crossing-down',true],[expected,high,'crossing-up',false],[expected,low,'crossing-down',false],[low,high,'crossing',true],[high,low,'crossing',true]] as const){
+    const result=evaluateDrawingAlert(input({axis:'log',bars,rule:{...rule,toolId,condition},geometry,previous:{timestamp:x,close:before},current:{timestamp:x,close:now}}))
+    expect(result.reason,`${toolId} ${condition}`).toBeUndefined();expect(!!result.event,`${toolId} ${before} → ${now}`).toBe(crosses)
+    if(result.event)expect(result.event.referencePrice).toBe(expected)
+   }
+  }
  })
  it('preserves a leftward ray direction and rejects its opposite half-plane',()=>{
   const base=input({rule:{...rule,toolId:'rayLine'},geometry:{toolId:'rayLine',anchors:[anchor(3,20),anchor(1,10)]},previous:{timestamp:0,close:4},current:{timestamp:0,close:6}})

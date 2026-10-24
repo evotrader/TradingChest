@@ -22,6 +22,11 @@ try {
   assert.equal(existsSync(path.join(dir,'node_modules/react-dom')), false, 'chart-only install pulled ReactDOM')
   writeFileSync(path.join(dir,'testing.mjs'),`import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {validateHistoryResult,HistoryError} from 'trading-chest/testing';assert.equal(globalThis.window,undefined);assert.equal(typeof createRequire(import.meta.url)('trading-chest/testing').validateHistoryQuery,'function');const result={bars:[],hasMoreBefore:false};assert.equal(validateHistoryResult(result,{kind:'before',before:1,countBack:1}),result);assert.throws(()=>validateHistoryResult({bars:[],hasMoreBefore:true},{kind:'before',before:1,countBack:1}),HistoryError);console.log('DOM-free ESM/CJS production validators PASS');`)
   console.log(run(process.execPath,['testing.mjs']))
+  writeFileSync(path.join(dir,'alerts.mjs'),`import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {evaluateDrawingAlert,validateDrawingAlertDocument} from 'trading-chest/alerts';assert.equal(globalThis.window,undefined);assert.equal(globalThis.document,undefined);const rule={id:'rule',drawingLogicalId:'line',sourceOwner:'local',toolId:'straightLine',identity:{ticker:'PORTABLE',market:'test',priceCurrency:'USD'},period:{multiplier:1,timespan:'minute'},condition:'crossing-up',frequency:'once'};const input={rule,geometry:{toolId:'straightLine',anchors:[{kind:'market',timestamp:0,value:10},{kind:'market',timestamp:1000,value:30}]},bars:[{timestamp:0},{timestamp:10},{timestamp:1000},{timestamp:1001}],previous:{timestamp:1001,close:39},current:{timestamp:1001,close:41},state:{hasTriggered:false}};const esm=evaluateDrawingAlert(input),cjs=createRequire(import.meta.url)('trading-chest/alerts').evaluateDrawingAlert(input);assert.deepEqual(cjs,esm);assert.equal(esm.event.referencePrice,40);validateDrawingAlertDocument({version:1,scope:'opaque',rules:[{rule,hasTriggered:true,lastBarTimestamp:1001}]},'opaque');console.log('DOM-free alerts ESM/CJS without chart/framework runtimes PASS');`)
+  // Make the runtime peers genuinely unavailable in this isolated installation.
+  const {renameSync}=await import('node:fs'),held=path.join(dir,'held-peers');mkdirSync(held)
+  for(const name of ['klinecharts','solid-js'])renameSync(path.join(dir,'node_modules',name),path.join(held,name))
+  try{console.log(run(process.execPath,['alerts.mjs']))}finally{for(const name of ['klinecharts','solid-js'])renameSync(path.join(held,name),path.join(dir,'node_modules',name))}
   // Chart entrypoints are browser modules, including the CJS browser bundle.
   const browserFixture = (name, source) => {
     const entry = path.join(dir, name);
@@ -59,6 +64,12 @@ if(typeof chart.registerIndicatorDefinition!=='function'||!Array.isArray(chart.b
 import { KLineChartPro,registerIndicatorDefinition,builtinIndicatorCatalog,type DatafeedRequestContext,type ChartPro,type IndicatorDescriptor,type IndicatorParameterSchema,type IndicatorHandle,type AnalysisContext,type AnalysisLayerSpec,type AnalysisLayerHandle,type AnalysisEvent,type AnalysisLabelPoint,type HistoryQuery,type HistoryResult,type Datafeed,type WorkspaceStore,type WorkspaceWrite,type StoredWorkspace,createIndexedDBWorkspaceStore,ChartWorkspace } from 'trading-chest/chart';
 import type {AnalysisLayerSpec as RootLayer,IndicatorDescriptor as RootDescriptor} from 'trading-chest';
 import { MetricSeries } from 'trading-chest/solid';
+import type {DrawingAlertState as RootAlert} from 'trading-chest';
+import type {DrawingAlertState as ChartAlert} from 'trading-chest/chart';
+import type {DrawingAlertState as SolidAlert} from 'trading-chest/solid';
+import {evaluateDrawingAlert,type DrawingAlertEvaluation} from 'trading-chest/alerts';
+declare const rootAlert:RootAlert;const chartAlert:ChartAlert=rootAlert;const solidAlert:SolidAlert=chartAlert;void solidAlert;
+declare const evaluation:DrawingAlertEvaluation;void evaluateDrawingAlert(evaluation);
 import type {DrawingStyleControl as RootStyle,DrawingToolDescriptor as RootTool,VwapBandMode as RootMode,VwapBandBoundary as RootBoundary,VwapBandsSummary as RootBands} from 'trading-chest';
 import type {DrawingStyleControl as ChartStyle,DrawingToolDescriptor as ChartTool,VwapBandMode as ChartMode,VwapBandBoundary as ChartBoundary,VwapBandsSummary as ChartBands} from 'trading-chest/chart';
 import type {DrawingStyleControl as SolidStyle,DrawingToolDescriptor as SolidTool,VwapBandMode as SolidMode,VwapBandBoundary as SolidBoundary,VwapBandsSummary as SolidBands} from 'trading-chest/solid';
@@ -80,6 +91,7 @@ const drawingSessions=new DrawingSessionRegistry({scope:'workspace'});
 void rootDrawingSessions;
 declare const workspace:ChartWorkspace;void workspace.listSaved();void workspace.saveAs('name');void workspace.load('id');void workspace.renameSaved('id','name');void workspace.deleteSaved('id');void workspace.importLegacy('old');
 declare const chart:ChartPro;void chart.bindDrawingWorkspace(drawingSessions);
+void chart.executeDrawingAlertCommand({type:'create',drawingLogicalId:'line',frequency:'once-per-bar'});void chart.getDrawingAlertState();const alerts=chart.captureDrawingAlerts();chart.restoreDrawingAlerts(alerts);
 declare const scope:AnalysisContext;
 const layer:AnalysisLayerSpec={id:'labels',label:'Labels',type:'label-series',data:[{id:'date',label:'2026-01-01',value:null}]};
 const rootLayer:RootLayer=layer;void rootLayer;

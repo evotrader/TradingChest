@@ -1,0 +1,7 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TradingChest 画线提醒组合示例</title>
+<style>body{font:14px system-ui;margin:12px}button,input{min-height:44px}button{margin:3px}.alert-example-chart{width:100%;height:850px;min-width:0}#status{overflow-wrap:anywhere}[data-error=true]{color:#b91c1c}</style>
+<h1>画线提醒与布局存储</h1><p>隔离合成行情，不连接真实行情、交易或消息服务。仅本页运行，关闭后停止。恢复规则一律暂停；继续监控保留去重，重置并启用清除去重。</p>
+<p><a href="./index.html">返回共享绘图工作台</a></p>
+<button id="seed">添加水平线及提醒</button><button id="lower">当前 close 降低 20</button><button id="higher">当前 close 提高 20</button><button id="append">新增一根 K 线</button>
+<button id="save">保存布局及提醒</button><button id="restore">恢复布局及提醒</button><button id="cancel" disabled>取消恢复</button><button id="export">导出提醒 JSON</button><label>导入提醒 JSON <input id="import" type="file" accept="application/json,.json"></label>
+<p role="status" id="status">正在初始化</p><div id="charts"></div><script type="module" src="./alerts.mjs"></script></html>

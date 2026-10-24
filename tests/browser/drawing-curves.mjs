@@ -7,11 +7,13 @@ try{
  await page.goto(`${process.env.TC_BROWSER_BASE}/tests/browser/drawing-workbench.html?database=curves-${Date.now()}`);await page.waitForFunction(()=>window.ready&&pro.getChart().getDom('candle_pane','main').getBoundingClientRect().height>200)
  const bar=page.getByRole('region',{name:'绘图属性'}),manager=page.getByRole('complementary',{name:'绘图管理'})
  const capture=()=>page.evaluate(async()=>{
-  const d=pro.getDrawings()[0],chart=pro.getChart(),overlay=chart.getOverlays({id:d.logicalId})[0],draw=overlay.createPointFigures;let figures
-  overlay.createPointFigures=args=>{figures=draw(args);return figures};chart.resize();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));overlay.createPointFigures=draw
+  const {curveGeometry}=await import('/src/extension/curves.ts')
+  const d=pro.getDrawings()[0],chart=pro.getChart(),overlay=chart.getOverlays({id:d.logicalId})[0],draw=overlay.createPointFigures;let figures,geometry
+  overlay.createPointFigures=args=>{geometry=curveGeometry(args);figures=draw(args);return figures};chart.resize();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));overlay.createPointFigures=draw
+  const previous=window.curveGeometryProbe;window.curveGeometryProbe=geometry
   const bars=chart.getDataList(),pane=chart.getDom('candle_pane','main').getBoundingClientRect()
   const points=d.anchors.map(anchor=>{let index;if(anchor.kind==='market'){const time=anchor.timestamp+(anchor.interpolation?(anchor.interpolation.nextTimestamp-anchor.timestamp)*anchor.interpolation.fraction:0);let low=0;while(low<bars.length&&bars[low].timestamp<time)low++;index=bars[low]?.timestamp===time?low:low-1+(time-bars[low-1].timestamp)/(bars[low].timestamp-bars[low-1].timestamp)}else index=bars.findIndex(b=>b.timestamp===anchor.referenceTimestamp)+anchor.offsetBars;return chart.convertToPixel({dataIndex:index,value:anchor.value},{paneId:'candle_pane',yAxisId:d.yAxisId})})
-  return {figures,points,drawing:d,pane:{x:pane.x,y:pane.y,width:pane.width,height:pane.height},handles:[...document.querySelectorAll('.tc-drawing-handle')].map(h=>{const r=h.getBoundingClientRect();return {x:r.x+r.width/2-pane.x,y:r.y+r.height/2-pane.y}})}
+  return {figures,points,drawing:d,geometryReused:previous===geometry,nativeRetained:!window.curveNativeBefore||window.curveNativeBefore===overlay,pane:{x:pane.x,y:pane.y,width:pane.width,height:pane.height},handles:[...document.querySelectorAll('.tc-drawing-handle')].map(h=>{const r=h.getBoundingClientRect();return {x:r.x+r.width/2-pane.x,y:r.y+r.height/2-pane.y}})}
  })
  const distance=(p,a,b)=>{const x=b.x-a.x,y=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*x+(p.y-a.y)*y)/(x*x+y*y)||0));return Math.hypot(p.x-a.x-t*x,p.y-a.y-t*y)}
  for(const [name,label,count] of [['curve','曲线',3],['doubleCurve','双控制点曲线',4],['arc','圆弧',3]]){
@@ -36,6 +38,15 @@ try{
   await page.getByRole('button',{name:'撤销绘图',exact:true}).click();await page.waitForFunction(before=>JSON.stringify(pro.getDrawings()[0].anchors)===JSON.stringify(before),actual.drawing.anchors)
   await handle.focus();await page.keyboard.press('Shift+ArrowRight');await page.waitForFunction(before=>JSON.stringify(pro.getDrawings()[0].anchors)!==JSON.stringify(before),actual.drawing.anchors);await page.getByRole('button',{name:'撤销绘图',exact:true}).click()
   await bar.getByRole('combobox',{name:'线宽',exact:true}).selectOption('3');await page.waitForFunction(()=>pro.getDrawings()[0].overlay.styles.line.size===3)
+  await page.evaluate(()=>window.curveNativeBefore=pro.getChart().getOverlays({id:pro.getDrawings()[0].logicalId})[0]);await capture()
+  await bar.getByRole('button',{name:'绘图设置',exact:true}).click()
+  await manager.getByLabel('起点标记',{exact:true}).selectOption('arrow');await manager.getByLabel('终点标记',{exact:true}).selectOption('circle');await manager.getByRole('checkbox',{name:'填充曲线背景',exact:true}).check();await manager.getByLabel('背景透明度',{exact:true}).selectOption('0.2');await manager.getByRole('button',{name:'确认修改',exact:true}).click()
+  await page.waitForFunction(()=>pro.getDrawings()[0].parameters?.background===true);await manager.getByRole('button',{name:'关闭绘图管理',exact:true}).click()
+  const decorated=await capture(),fill=decorated.figures.find(f=>f.type==='polygon'&&f.ignoreEvent===true),arrow=decorated.figures.find(f=>f.type==='polygon'&&!f.ignoreEvent),circle=decorated.figures.find(f=>f.type==='circle'&&!f.ignoreEvent),curve=decorated.figures.find(f=>f.type==='line'&&!f.ignoreEvent).attrs.coordinates
+  assert.equal(decorated.geometryReused,true);assert.equal(decorated.nativeRetained,true);await page.evaluate(()=>window.curveNativeBefore=undefined)
+  assert.deepEqual(fill.attrs.coordinates,curve);assert.deepEqual(arrow.attrs.coordinates[0],curve[0]);assert.deepEqual({x:circle.attrs.x,y:circle.attrs.y},curve.at(-1));assert.equal(circle.attrs.r,4.5);assert.deepEqual(decorated.drawing.anchors,actual.drawing.anchors)
+  await page.getByRole('button',{name:'撤销绘图',exact:true}).click();await page.waitForFunction(()=>pro.getDrawings()[0].parameters?.background!==true);assert.ok(!(await capture()).figures.some(f=>f.type==='circle'))
+  await page.getByRole('button',{name:'重做绘图',exact:true}).click();await page.waitForFunction(()=>pro.getDrawings()[0].parameters?.background===true)
   for(const action of ['scroll','zoom','axis']){
    await page.evaluate(action=>{const c=pro.getChart();if(action==='scroll')c.scrollByDistance(20);else if(action==='zoom')c.zoomAtCoordinate(.2,{x:400,y:200});else c.overrideYAxis({id:c.getYAxes({paneId:'candle_pane'})[0].id,paneId:'candle_pane',name:'logarithm'});c.resize()},action)
    const projected=await capture(),path=projected.figures.find(f=>f.type==='line'&&!f.ignoreEvent)?.attrs.coordinates;assert.deepEqual(path[0],projected.points[0]);assert.deepEqual(path.at(-1),projected.points[1])
@@ -45,6 +56,7 @@ try{
   await page.getByRole('button',{name:'撤销绘图',exact:true}).click();await page.waitForFunction(()=>pro.getDrawings().length===1)
   const saved=await page.evaluate(async()=>{const {captureLayout,restoreLayout}=await import('/src/persistence/v4.ts'),layout=captureLayout(pro);await pro.executeDrawingCommand({type:'delete',ids:pro.getDrawings().map(d=>d.logicalId)});await restoreLayout(pro,layout);return {anchors:layout.drawings[0].anchors,parameters:layout.drawings[0].parameters}})
   assert.deepEqual(await page.evaluate(()=>pro.getDrawings()[0].anchors),saved.anchors)
+  assert.deepEqual(await page.evaluate(()=>pro.getDrawings()[0].parameters),saved.parameters)
   await manager.getByRole('button',{name:'关闭绘图管理',exact:true}).click()
   await page.evaluate(()=>pro.executeDrawingCommand({type:'delete',ids:pro.getDrawings().map(d=>d.logicalId)}));await page.waitForFunction(()=>pro.getDrawings().length===0)
   results.push({name,create:true,actualFigure:true,bodyDrag:true,controlDrag:true,keyboard:true,style:true,zoomScrollAxis:true,cloneUndo:true,v4:true})

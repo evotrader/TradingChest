@@ -83,7 +83,7 @@ The catalog contains 51 existing ordinary tools, two volume drawings and three c
 
 ## Deliberate differences
 
-TradingChest shares only local main-pane market anchors with confirmed price identity. Host annotations retain their original backend authority. Position drawings do not compute account size, quantity or leverage. Finer-timeframe/trade-level volume profiles, additional Gann/Fib/wave tools, curve extension/endpoint markers/background fill, images/stickers, drawing alerts and order integration remain later candidates. No pixel-identical rendering or matching account calculations is promised.
+TradingChest shares only local main-pane market anchors with confirmed price identity. Host annotations retain their original backend authority. Position drawings do not compute account size, quantity or leverage. Finer-timeframe/trade-level volume profiles, additional Gann/Fib/wave tools, curve extension, images/stickers, alerts for more tools, background notifications and order integration remain later candidates. No pixel-identical rendering or matching account calculations is promised.
 
 Reference: [TradingView drawings](https://www.tradingview.com/charting-library-docs/latest/ui_elements/drawings/), [tool families](https://www.tradingview.com/charting-library-docs/latest/ui_elements/drawings/Drawings-List/), [position tool](https://www.tradingview.com/support/solutions/43000517002-long-position-drawing-tool/).
 
@@ -102,6 +102,8 @@ The anonymous TradingView chart was reachable on 2026-10-21, but attempting a ho
 | Multiselect, template, undo/reopen | [Same-type batch templates](https://www.tradingview.com/support/solutions/43000677801-how-to-apply-a-template-to-several-tools-of-the-same-type-at-once/) | Mixed values, capability intersection, parameter/common-style templates, confirmed history and native IDB |
 | AVWAP bands | [Bands and multiplier](https://www.tradingview.com/blog/en/vwap-improvements-across-the-board-28974/) | Three groups using the library's explicit formula; no numerical equivalence claim |
 | FRVP display | [Inputs and Extend Right](https://www.tradingview.com/support/solutions/43000480324-fixed-range-volume-profile-indicator/) | Placement, width and level styles. Library level extension does not expand statistics; official Extend Right includes subsequent bars |
-| Curve controls | [Curve/Double curve](https://www.tradingview.com/support/solutions/43000791740-curve-and-double-curve-drawing-tools/) | Quadratic/cubic Bezier and three-point screen arc; no infinite extension, endpoint markers or curve background |
+| Curve controls | [Curve/Double curve](https://www.tradingview.com/support/solutions/43000791740-curve-and-double-curve-drawing-tools/) | Quadratic/cubic Bezier and three-point screen arc; 0.13 adds endpoint markers and curve background, without infinite extension |
 
 Local witnesses include drawing-refinement, drawing-curves, installed-package drawing-comparison and the third-party example. Actual completion and failures belong to the implementation SUMMARY; an available entry does not imply all acceptance gates passed.
+
+0.13 alerts cover only horizontal/extended lines, finite segments and directed rays, using observed closes. They do not represent the full TradingView website alert catalog or a background service. Sources must be confirmed chart-local main-axis market drawings; backend sources retain their authority. Curve markers and chord-closed backgrounds do not alter definitions. See[0.13](./upgrade/0.13.0.md).

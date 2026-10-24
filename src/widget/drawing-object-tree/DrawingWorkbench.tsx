@@ -29,6 +29,7 @@ export interface DrawingWorkbenchProps {
   locate:(object:DrawingSnapshot)=>void
   convertAnchor:(object:DrawingSnapshot,index:number,kind:DrawingAnchor['kind'])=>DrawingAnchor
   onClose:()=>void
+  onAlert?:(id:string)=>void
 }
 const clone=<T,>(value:T):T=>structuredClone(value)
 const DrawingWorkbench:Component<DrawingWorkbenchProps>=props=>{
@@ -86,6 +87,7 @@ const DrawingWorkbench:Component<DrawingWorkbenchProps>=props=>{
     <header><strong>{t('绘图管理','Drawing manager')}</strong><button aria-label={t('关闭绘图管理','Close drawing manager')} onClick={close}>×</button></header>
     <Show when={pendingEdit()||closing()}><div role="alertdialog" aria-label={t('尚未确认的设置草稿','Unconfirmed settings draft')}><p>{t('保留当前草稿，或放弃后继续？','Keep the current draft, or discard it and continue?')}</p><button onClick={()=>{setPendingEdit(undefined);setClosing(false);setTab('settings')}}>{t('保留草稿','Keep draft')}</button><button onClick={()=>{const next=pendingEdit(),exit=closing();discardDraft();setPendingEdit(undefined);setClosing(false);if(exit)props.onClose();else if(next)edit(next)}}>{t('放弃草稿并继续','Discard draft and continue')}</button></div></Show>
     <nav aria-label={t('绘图管理页面','Drawing manager pages')}><For each={['objects','settings','templates','preferences'] as const}>{key=><button aria-pressed={tab()===key} disabled={key==='settings'&&!draft()} onClick={()=>setTab(key)}>{({objects:t('对象','Objects'),settings:t('设置','Settings'),templates:t('模板','Templates'),preferences:t('偏好','Preferences')})[key]}</button>}</For></nav>
+    <Show when={props.state.selectedIds.length===1&&props.onAlert}><button onClick={()=>props.onAlert?.(props.state.selectedIds[0])}>{t('添加提醒','Add alert')}</button></Show>
     <Show when={notice()}><p role="alert">{notice()}</p></Show>
     <Show when={props.state.lastResult&&props.state.lastResult.status!=='completed'}><p role="status">{t('已完成','Completed')} {props.state.lastResult!.items.filter(item=>item.status==='confirmed').length}/{props.state.lastResult!.items.length}</p><For each={props.state.lastResult!.items.filter(item=>item.status!=='confirmed')}>{item=><p role="alert">{objects().get(item.logicalId)?.presentation?.name??item.logicalId}: {item.status} {item.message}</p>}</For></Show>
     <Show when={props.state.history.pending}><p role="status">{t('正在确认，请稍候','Confirming, please wait')}</p></Show>

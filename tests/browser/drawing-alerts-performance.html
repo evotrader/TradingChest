@@ -1,0 +1,39 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><body style="margin:0"><p>画线提醒性能验收：隔离合成行情、真实引擎与确认入口。</p><div id="charts" style="width:1280px;height:900px"></div><script type="module">
+import {KLineChartPro} from '/src/chart.ts'
+import {evaluateDrawingAlert} from '/src/alerts.ts'
+import {makeBars} from './syntheticBars.ts'
+const host=document.querySelector('#charts'),frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))),symbol={ticker:'PERF.ALERT',market:'test',exchange:'X',priceCurrency:'USD'},period={multiplier:1,timespan:'minute',text:'1m'}
+window.sampleDrawingAlerts=async({count,rules,append})=>{
+ let bars=makeBars(count),push,subscriptions=0,events=0,resolve
+ const ready=new Promise(done=>resolve=done),container=document.createElement('div');container.style.height='900px';host.append(container)
+ const pro=new KLineChartPro({container,symbol,period,mainIndicators:['MA'],subIndicators:['VOL','MACD'],onDataReady:()=>resolve(),onDrawingAlertTrigger:()=>events++,datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async()=>({bars,basis:'isolated-raw',hasMoreBefore:false}),subscribe:(_s,_p,callback)=>{push=callback;subscriptions++},unsubscribe:()=>{push=undefined;subscriptions--}}})
+ const output={count,rules,append,updates:[],batches:[]}
+ try{
+  await ready;const deadline=performance.now()+10000
+  while(!['MA','VOL','MACD'].every(name=>pro.getChart().getIndicators({name})[0]?.result.length===count)){if(performance.now()>deadline)throw Error('指标未完整计算');await frame()}
+  const id='confirmed-source',anchor={kind:'market',timestamp:bars[0].timestamp,value:100}
+  pro.restoreDrawings('local',[{logicalId:id,owner:'local',anchors:[anchor],overlay:{id,name:'horizontalStraightLine',paneId:'candle_pane',groupId:'drawing_tools',points:[{timestamp:anchor.timestamp,value:100}],visible:true,lock:false,styles:null,extendData:null}}])
+  for(let i=0;i<rules;i++)if(pro.executeDrawingAlertCommand({type:'create',id:'rule-'+i,drawingLogicalId:id,frequency:'once-per-bar'}).status!=='completed')throw Error('提醒未绑定实际已确认来源')
+  if(pro.getDrawingAlertState().length!==rules)throw Error('提醒数不完整')
+  await frame()
+  for(let i=0;i<100;i++){
+   const previous=bars.at(-1),close=i%2?101:99,bar={...previous,timestamp:previous.timestamp+(append?60000:0),open:close,high:close+1,low:close-1,close}
+   if(append)bars.push(bar);else bars[bars.length-1]=bar
+   const start=performance.now();push(bar);await frame();output.updates.push(performance.now()-start)
+  }
+  const expected=rules*(append?99:1);if(events!==expected)throw Error(`穿越事件数量不符：${events}/${expected}`)
+  output.events=events;output.actualRules=pro.getDrawingAlertState().length;output.sourceCount=pro.getDrawings().length;output.confirmedBars=pro.getChart().getDataList().length
+  if(rules){
+   const definitions=pro.captureDrawingAlerts().rules.map(entry=>entry.rule),geometry={toolId:'horizontalStraightLine',anchors:[anchor]},timestamp=bars.at(-1).timestamp
+   for(let i=0;i<100;i++){
+    let actual=0;const start=performance.now()
+    for(const rule of definitions)if(evaluateDrawingAlert({rule,geometry,bars,previous:{timestamp,close:99},current:{timestamp,close:101},state:{hasTriggered:false}}).event)actual++
+    output.batches.push(performance.now()-start);if(actual!==100)throw Error('纯函数批处理未实际评估100条有效规则')
+   }
+  }
+  if(pro.executeDrawingAlertCommand({type:'create',drawingLogicalId:'missing-source'}).status!=='rejected'||pro.getDrawingAlertState().length!==rules)throw Error('无效来源被当成有效负载')
+ }finally{pro.dispose();container.remove();await frame();output.cleanup={subscriptions,dom:host.querySelectorAll('*').length}}
+ return output
+}
+window.ready=true
+</script></body></html>

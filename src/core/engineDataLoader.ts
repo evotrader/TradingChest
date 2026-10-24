@@ -10,7 +10,7 @@ export function toEnginePeriod(period: Period): EnginePeriod {
   return { type: period.timespan as EnginePeriod['type'], span: period.multiplier }
 }
 export function sameSeries(a: {symbol: SymbolInfo; period: Period}, b: {symbol: SymbolInfo; period: Period}): boolean {
-  return a.symbol.ticker === b.symbol.ticker && a.period.timespan === b.period.timespan && a.period.multiplier === b.period.multiplier
+  return (['ticker','market','exchange','priceCurrency'] as const).every(key=>a.symbol[key]===b.symbol[key]) && a.period.timespan === b.period.timespan && a.period.multiplier === b.period.multiplier
 }
 export function validateBars(bars: KLineData[]): void {
   let previous = -Infinity
@@ -26,7 +26,7 @@ export function historySnapshot<T extends HistorySnapshot>(result:T):T {
   return result
 }
 const changed = (a: KLineData, b: KLineData): boolean => ['open','high','low','close','volume'].some(key => a[key] !== b[key])
-export interface ConfirmedSeries {symbol:SymbolInfo;period:Period;basis?:string;confirmed:boolean;epoch:number;revision:number;replay:boolean;cutoff?:number;contentRevision?:number;contentChange?:'replace'|'tail'}
+export interface ConfirmedSeries {symbol:SymbolInfo;period:Period;basis?:string;confirmed:boolean;epoch:number;revision:number;replay:boolean;cutoff?:number;contentRevision?:number;contentChange?:'replace'|'tail';writer?:'stream'|'snapshot'|'initial'|'page'|'reload'|'replay-reset'|'replay-tail'}
 type ReadingState=Pick<ChartDataState,'lastRead'|'connection'|'revisionRequired'|'errorCode'|'operation'>&{hasMoreBefore?:boolean}
 interface Hooks {
   committed?:(state:ConfirmedSeries)=>void
@@ -41,6 +41,7 @@ export class EngineDataLoader implements DataLoader {
   private confirmedBars:KLineData[]=[]
   private contentRevision=0
   private contentChange:'replace'|'tail'='replace'
+  private writer:ConfirmedSeries['writer']='initial'
   private publishing=0
   private alignmentRevision=0
   private identityEpoch=0
@@ -69,7 +70,7 @@ export class EngineDataLoader implements DataLoader {
   constructor(private chart: Chart, private feed: Datafeed, private hooks: Hooks) {bindIdentityEpoch(chart,()=>this.identityEpoch);chart.setDataLoader(this)}
   /** Internal read seam: no unconfirmed engine callback or pending snapshot enters analytics. */
   getConfirmedBars():readonly KLineData[]{return this.confirmedBars}
-  private confirmContent(tail=false):void {
+  private confirmContent(tail=false,writer:ConfirmedSeries['writer']='reload'):void {
     if(this.resumeCheckpoint)return
     const bars=this.chart.getDataList(),old=this.confirmedBars
     const isTail=tail&&old.length>0&&(bars.length===old.length||bars.length===old.length+1)&&bars[0]?.timestamp===old[0]?.timestamp
@@ -79,11 +80,11 @@ export class EngineDataLoader implements DataLoader {
     if(!differs)return
     if(isTail){for(let i=start;i<bars.length;i++)old[i]={...bars[i]};old.length=bars.length}
     else this.confirmedBars=bars.map(bar=>({...bar}))
-    this.contentChange=isTail?'tail':'replace';++this.contentRevision
+    this.contentChange=isTail?'tail':'replace';this.writer=writer;++this.contentRevision
   }
   private emitState():void {
     if(this.resumeCheckpoint||this.publishing)return
-    if(this.current&&!this.disposed)this.hooks.committed?.({...this.current,basis:this.basis,confirmed:this.confirmed,epoch:this.identityEpoch,revision:this.alignmentRevision,replay:!!this.replay,cutoff:this.replay?.at(-1)?.timestamp,contentRevision:this.contentRevision,contentChange:this.contentChange})
+    if(this.current&&!this.disposed)this.hooks.committed?.({...this.current,basis:this.basis,confirmed:this.confirmed,epoch:this.identityEpoch,revision:this.alignmentRevision,replay:!!this.replay,cutoff:this.replay?.at(-1)?.timestamp,contentRevision:this.contentRevision,contentChange:this.contentChange,writer:this.writer})
     if(this.current && !this.disposed)this.hooks.state?.({...this.current,basis:this.basis,timestamp:this.chart.getDataList().at(-1)?.timestamp,restoring:this.restoring,replay:!!this.replay,error:this.readError,...this.reading,dataStatus:!this.confirmed?'unconfirmed':this.chart.getDataList().length?'ready':'empty'})
   }
   private setLoading(active:boolean):void {this.restoring=active;this.hooks.loading(active);this.emitState()}
@@ -107,7 +108,7 @@ export class EngineDataLoader implements DataLoader {
     ++this.identityEpoch
     this.resumeCheckpoint=undefined
     this.confirmed = false
-    this.confirmedBars=[];this.contentChange='replace'
+    this.confirmedBars=[];this.contentChange='replace';this.writer='initial'
     this.prepared = undefined
     this.basis = undefined
     this.pendingSnapshot = undefined
@@ -136,13 +137,14 @@ export class EngineDataLoader implements DataLoader {
     const generation = this.generation, page = ++this.pageSequence
     const active = () => !this.disposed && generation === this.generation && (request.type === 'init' || page === this.pageSequence)
     if (this.replay) {
-      if (request.type === 'init') { this.confirmed = true;++this.publishing;try{request.callback(this.replay, {forward:false, backward:false})}finally{--this.publishing}if(!active())return;this.confirmContent();++this.alignmentRevision;this.emitState() }
+      if (request.type === 'init') { this.confirmed = true;++this.publishing;try{request.callback(this.replay, {forward:false, backward:false})}finally{--this.publishing}if(!active())return;this.confirmContent(false,'replay-reset');++this.alignmentRevision;this.emitState() }
       else request.callback([], {forward:false, backward:false})
       return
     }
     if (request.type !== 'init' && request.type !== 'forward') {request.callback([], {backward:false});return}
     const controller = new AbortController()
     this.requests.add(controller)
+    this.writer=this.prepared?'reload':request.type==='init'?'initial':'page'
     this.setLoading(true)
     let prepared:typeof this.prepared
     let attempt:typeof this.failed
@@ -176,7 +178,7 @@ export class EngineDataLoader implements DataLoader {
       finally{--this.publishing}
       if(this.disposed||generation!==this.generation||controller.signal.aborted){prepared?.completion?.reject(new DOMException('History cancelled','AbortError'));this.emitState();return}
       if(this.failed===attempt)this.failed=undefined
-      this.confirmContent()
+      this.confirmContent(false,prepared?'reload':request.type==='init'?'initial':'page')
       ++this.alignmentRevision
       this.emitState()
       if(!active()||controller.signal.aborted){prepared?.completion?.reject(new DOMException('History cancelled','AbortError'));return}
@@ -248,7 +250,7 @@ export class EngineDataLoader implements DataLoader {
     for(const bar of pending){if(this.disposed||this.subscription!==subscription)return;this.push(bar)}
   }
   unsubscribeBar = (): void => {this.stopSubscription();this.stream=undefined}
-  push(bar: KLineData): void {
+  push(bar: KLineData,writer:'stream'|'snapshot'='stream'): void {
     if (this.disposed || !this.stream || this.replay || this.suspended || this.resumeCheckpoint) return
     try { validateBars([bar]) } catch (error) {this.reportError({type:'invalid-bar',message:String(error),raw:bar});return}
     const latest = this.chart.getDataList().at(-1)
@@ -260,7 +262,7 @@ export class EngineDataLoader implements DataLoader {
     ++this.publishing
     try{this.stream(bar)}finally{--this.publishing}
     if(this.disposed||generation!==this.generation)return
-    this.confirmContent(true)
+    this.confirmContent(true,writer)
     this.emitState()
     this.hooks.price(bar)
   }
@@ -282,7 +284,16 @@ export class EngineDataLoader implements DataLoader {
         const basisChanged=snapshot.basis !== this.basis
         const revision=snapshot.bars.some(bar=>bar.timestamp<last && (!existing.has(bar.timestamp) || changed(existing.get(bar.timestamp)!,bar)))
         if (this.suspended || basisChanged || revision) {await this.reload(true,basisChanged,snapshot.bars[0]?.timestamp);break}
-        for(const bar of snapshot.bars) if(bar.timestamp>=last && (!existing.has(bar.timestamp)||changed(existing.get(bar.timestamp)!,bar)))this.push(bar)
+        const updates=snapshot.bars.filter(bar=>bar.timestamp>=last&&(!existing.has(bar.timestamp)||changed(existing.get(bar.timestamp)!,bar)))
+        if(!updates.length)continue
+        const previousRevision=this.contentRevision,singleTail=updates.filter(bar=>bar.timestamp>last).length<=1&&data.length>0
+        // The complete HTTP snapshot is one observation. Internal per-bar engine
+        // writes may not replay a missing sequence of historical alert events.
+        ++this.publishing
+        try{for(const bar of updates){if(this.disposed||generation!==this.generation)break;this.push(bar,'snapshot')}}finally{--this.publishing}
+        if(this.disposed||generation!==this.generation)return
+        if(this.contentRevision!==previousRevision){this.writer='snapshot';if(!singleTail)this.contentChange='replace'}
+        this.emitState()
       }
     })().finally(()=>{
       if(this.snapshotTask!==task)return
@@ -320,6 +331,7 @@ export class EngineDataLoader implements DataLoader {
     const attempt={query,operation:retryQuery?'load-more' as const:'reload' as const,requireComplete,earliestTimestamp}
     this.failed=attempt
     this.reading.operation=retryQuery?'load-more':'reload'
+    this.writer='reload';this.contentChange='replace'
     try {
       this.setLoading(true)
       if (this.disposed || generation !== this.generation || controller.signal.aborted) throw new DOMException('行情恢复已取消','AbortError')
@@ -398,6 +410,7 @@ export class EngineDataLoader implements DataLoader {
   setReplay(bars: KLineData[]): void {
     if(this.resumeCheckpoint){this.basis=this.resumeCheckpoint.basis;this.confirmed=this.resumeCheckpoint.confirmed;this.resumeCheckpoint=undefined}
     this.invalidate()
+    this.writer='replay-reset';this.contentChange='replace'
     ++this.publishing
     try{
       this.replay = bars
@@ -407,6 +420,6 @@ export class EngineDataLoader implements DataLoader {
     }finally{--this.publishing}
     this.emitState()
   }
-  pushReplay(bar: KLineData): void {if(this.replay){const generation=this.generation;this.replay=[...this.replay,bar];++this.publishing;try{this.stream?.(bar)}finally{--this.publishing}if(this.disposed||generation!==this.generation)return;this.confirmContent(true);this.emitState()}}
+  pushReplay(bar: KLineData): void {if(this.replay){const generation=this.generation;this.replay=[...this.replay,bar];++this.publishing;try{this.stream?.(bar)}finally{--this.publishing}if(this.disposed||generation!==this.generation)return;this.confirmContent(true,'replay-tail');this.emitState()}}
   dispose(): void {if(!this.disposed){this.disposed=true;this.invalidate();this.confirmedBars=[];bindIdentityEpoch(this.chart)}}
 }

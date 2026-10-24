@@ -125,3 +125,11 @@ Persistent anchors remain authoritative. Curvature is reprojected for axes, zoom
 Call the peer engine's public `registerOverlay` before constructing charts with the matching stable namespaced name and catalog descriptor. A missing template fails before DOM construction. Multiple charts reuse registration, and disposing one chart does not unregister it. Catalogs do not persist functions or account data, and global registration does not grant access to system overlays.
 
 Copyable native JS/TS integration is in the [drawing-workbench example](https://github.com/evotrader/TradingChest/tree/main/examples/drawing-workbench). `EXAMPLE/AnalysisZone` uses only `trading-chest/chart`, the peer engine, ordinary OHLCV and native IndexedDB, with no EvoTrader DTOs, URLs or framework-specific API.
+
+## 0.13 drawing alerts and curve appearance {#drawing-alerts}
+
+Select a source in properties or Drawing manager, then Add alert; Drawing alerts also opens independently. Confirmed chart-local horizontal lines, extended lines, segments and rays may retain local or backend ownership. Conditions/frequencies are selectors, default once. Resume retains deduplication, while Reset and enable clears markers and keeps instance history. Runs only on the page, without historical catch-up. Entering a finite segment domain is not a crossing; use an extended line or correctly directed ray for continued monitoring.
+
+Curve settings add none/arrow/circle start/end markers, a background switch and finite[0,1] opacity. Fill closes the curve with its endpoint chord, using standard polygon.color or the actual stroke by default. It ignores hits; markers add no control points. Old definitions remain off. Display changes do not alter curvature or original subdivision bounds. Full parameter templates remain same-tool; explicit cross-tool common styles keep the existing capability intersection.
+
+See [0.13 migration](./upgrade/0.13.0.md) for separate documents, stable scopes, paused restoration, confirmed data, live/replay isolation and the native IndexedDB composition example.

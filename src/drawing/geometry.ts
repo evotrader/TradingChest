@@ -3,16 +3,9 @@ import type {DrawingSnapshot} from './types'
 import type {Period} from '../types'
 import {anchorsFromPoints} from './anchors'
 import {isVolumeDrawing} from './analytics'
+import {marketIndex} from '../core/marketIndex'
+export {marketIndex} from '../core/marketIndex'
 
-/** Locate a market instant geometrically without changing its canonical timestamp. */
-export function marketIndex(timestamp:number,bars:KLineData[]):number {
-  if(!Number.isFinite(timestamp)||!bars.length||timestamp<bars[0].timestamp||timestamp>bars[bars.length-1].timestamp)throw Error('市场锚点不在当前已加载或回放范围，请加载参考历史后重试')
-  let low=0,high=bars.length-1
-  while(low<=high){const middle=(low+high)>>>1,time=bars[middle].timestamp;if(time===timestamp)return middle;if(time<timestamp)low=middle+1;else high=middle-1}
-  const span=bars[low].timestamp-bars[high].timestamp
-  if(span<=0)throw Error('真实历史的时标顺序无效')
-  return high+(timestamp-bars[high].timestamp)/span
-}
 export function constrainedPoint(origin:Coordinate,point:Coordinate,square=false):Coordinate {
   const dx=point.x-origin.x,dy=point.y-origin.y
   if(square){const size=Math.max(Math.abs(dx),Math.abs(dy));return {x:origin.x+Math.sign(dx||1)*size,y:origin.y+Math.sign(dy||1)*size}}

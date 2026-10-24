@@ -15,6 +15,10 @@
   <img src="docs/public/image.png" alt="TradingChest Screenshot" width="800" />
 </p>
 
+## 0.13.0 local candidate
+
+Drawing alerts add observed-close crossings for four confirmed chart-local line tools, separate live/replay state, portable documents and a DOM-free `trading-chest/alerts` evaluator. Curves add endpoint markers and chord-closed backgrounds. Rules are in memory by default; layout-only saves do not include alerts, and closing the page stops monitoring. See [0.13 migration](docs/en-US/upgrade/0.13.0.md). This is a local candidate; the pinned npm installation below remains the published stable version until a separate release.
+
 ## 0.12.0 drawing refinement
 
 A shared single/multiselection editor uses declared style capabilities and mixed values. Anchored VWAP adds up to three explicit deviation/percentage bands; FRVP adds display-only placement and level styles. Three screen-projected curve tools bring the catalog to 56. A peer `registerOverlay` example demonstrates generic third-party tools. See [0.12 migration](docs/en-US/upgrade/0.12.0.md) and [drawing usage](docs/en-US/drawings.md). Existing datafeed and document formats remain unchanged; local candidate artifacts do not imply npm publication.

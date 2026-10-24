@@ -1,0 +1,72 @@
+import {describe,it,expect} from 'vitest'
+import {evaluateDrawingAlert} from '../drawingEvaluator'
+import {validateDrawingAlertDocument} from '../drawingDocument'
+import type {DrawingAlertEvaluation,DrawingAlertRule,DrawingAlertTool} from '../drawingTypes'
+const bars=[0,10,1000,1001,9000].map(timestamp=>({timestamp}))
+const rule:DrawingAlertRule={id:'r',drawingLogicalId:'d',sourceOwner:'local',toolId:'horizontalStraightLine',identity:{ticker:'A'},period:{multiplier:1,timespan:'minute'},condition:'crossing',frequency:'once-per-bar'}
+const anchor=(index:number,value:number)=>({kind:'market' as const,timestamp:bars[index].timestamp,value})
+function input(patch:Partial<DrawingAlertEvaluation>={}):DrawingAlertEvaluation{return {rule,geometry:{toolId:rule.toolId,anchors:[anchor(0,10)]},bars,previous:{timestamp:1001,close:9},current:{timestamp:1001,close:10},state:{hasTriggered:false},...patch}}
+describe('portable observed-close drawing evaluation',()=>{
+ it('crosses from below to equality, with immutable inputs and real event identity',()=>{
+  const value=input(),before=structuredClone(value),result=evaluateDrawingAlert(value)
+  expect(result.event).toEqual({ruleId:'r',drawingLogicalId:'d',identity:{ticker:'A'},period:{multiplier:1,timespan:'minute'},barTimestamp:1001,triggerPrice:10,referencePrice:10,condition:'crossing',mode:'live'})
+  expect(value).toEqual(before);expect(result.state).toEqual({hasTriggered:true,lastBarTimestamp:1001})
+ })
+ it.each([
+  ['crossing-up',9,10,true],['crossing-up',11,10,false],['crossing-down',11,10,true],['crossing-down',9,10,false],['crossing',10,11,false],['crossing',10,9,false],['crossing',9,9,false],['crossing',11,11,false]
+ ] as const)('%s observes %s → %s', (condition,previous,current,expected)=>{
+  expect(!!evaluateDrawingAlert(input({rule:{...rule,condition},previous:{timestamp:1001,close:previous},current:{timestamp:1001,close:current}})).event).toBe(expected)
+ })
+ it('seeds the first sample, deduplicates the current bar and allows the next actual bar',()=>{
+  expect(evaluateDrawingAlert(input({previous:undefined})).event).toBeUndefined()
+  expect(evaluateDrawingAlert(input({state:{hasTriggered:true,lastBarTimestamp:1001}})).event).toBeUndefined()
+  expect(evaluateDrawingAlert(input({state:{hasTriggered:true,lastBarTimestamp:1001},current:{timestamp:9000,close:11}})).event?.barTimestamp).toBe(9000)
+  expect(evaluateDrawingAlert(input({rule:{...rule,frequency:'once'},state:{hasTriggered:true,lastBarTimestamp:10}})).status).toBe('triggered')
+ })
+ it('uses real bar intervals across a long market closure, never a wall-clock slope',()=>{
+  const result=evaluateDrawingAlert(input({rule:{...rule,toolId:'straightLine'},geometry:{toolId:'straightLine',anchors:[anchor(0,10),anchor(2,30)]},previous:{timestamp:1001,close:39},current:{timestamp:1001,close:41}}))
+  expect(result.event?.referencePrice).toBe(40)
+ })
+ it('projects market interpolation through the same real-time lookup as drawing anchors',()=>{
+  const result=evaluateDrawingAlert(input({rule:{...rule,toolId:'straightLine'},geometry:{toolId:'straightLine',anchors:[{...anchor(0,10),interpolation:{nextTimestamp:10,fraction:.5}},anchor(2,40)]},previous:{timestamp:1001,close:59},current:{timestamp:1001,close:61}}))
+  expect(result.event?.referencePrice).toBe(60)
+ })
+ it('evaluates log space with an independently calculated geometric mean',()=>{
+  const result=evaluateDrawingAlert(input({axis:'log',rule:{...rule,toolId:'straightLine'},geometry:{toolId:'straightLine',anchors:[anchor(0,1),anchor(2,100)]},previous:{timestamp:10,close:9},current:{timestamp:10,close:11}}))
+  expect(result.event?.referencePrice).toBeCloseTo(10,12)
+ })
+ it('treats percentage as an affine price axis',()=>{
+  expect(evaluateDrawingAlert(input({axis:'percentage'})).event?.referencePrice).toBe(10)
+ })
+ it('preserves a leftward ray direction and rejects its opposite half-plane',()=>{
+  const base=input({rule:{...rule,toolId:'rayLine'},geometry:{toolId:'rayLine',anchors:[anchor(3,20),anchor(1,10)]},previous:{timestamp:0,close:4},current:{timestamp:0,close:6}})
+  expect(evaluateDrawingAlert(base).event?.referencePrice).toBe(5)
+  const outside=evaluateDrawingAlert({...base,current:{timestamp:9000,close:30}})
+  expect(outside.status).toBe('waiting');expect(outside.comparison).toBeUndefined()
+ })
+ it('keeps a segment bounded, including both endpoints but never inventing an entry crossing',()=>{
+  const base=input({rule:{...rule,toolId:'segment'},geometry:{toolId:'segment',anchors:[anchor(1,10),anchor(3,10)]}})
+  expect(evaluateDrawingAlert(base).event?.referencePrice).toBe(10)
+  for(const patch of [{current:{timestamp:9000,close:11}},{previous:{timestamp:0,close:9}}]){
+   const result=evaluateDrawingAlert({...base,...patch});expect(result.event).toBeUndefined();expect(result.comparison).toBeUndefined()
+  }
+ })
+ it.each([NaN,Infinity,-Infinity])('does not manufacture a reference for nonfinite sample %s',close=>{
+  const result=evaluateDrawingAlert(input({current:{timestamp:1001,close}}));expect(result.status).toBe('waiting');expect(result.event).toBeUndefined()
+ })
+ it('rejects log nonpositive prices, vertical lines, missing history and backwards observations',()=>{
+  const cases=[input({axis:'log',current:{timestamp:1001,close:0}}),input({bars:[]}),input({current:{timestamp:0,close:11}}),input({rule:{...rule,toolId:'straightLine'},geometry:{toolId:'straightLine',anchors:[anchor(1,10),anchor(1,20)]}})]
+  for(const value of cases){expect(evaluateDrawingAlert(value).status).toBe('waiting');expect(evaluateDrawingAlert(value).event).toBeUndefined()}
+ })
+ it('does not mutate once markers when no event occurs and separates replay events',()=>{
+  expect(evaluateDrawingAlert(input({previous:undefined,state:{hasTriggered:true,lastBarTimestamp:10}})).state).toEqual({hasTriggered:true,lastBarTimestamp:10})
+  expect(evaluateDrawingAlert(input({mode:'replay'})).event?.mode).toBe('replay')
+ })
+})
+describe('portable rule document validation',()=>{
+ const document=()=>({version:1 as const,scope:'opaque scope',rules:[{rule:structuredClone(rule),hasTriggered:true,lastBarTimestamp:1001}]})
+ it('accepts undeclared optional identity fields and an opaque scope',()=>{expect(()=>validateDrawingAlertDocument(document(),'opaque scope')).not.toThrow()})
+ it.each([
+  (d:any)=>d.version=2,(d:any)=>d.scope='other',(d:any)=>d.rules.push(d.rules[0]),(d:any)=>d.rules[0].lastBarTimestamp=NaN,(d:any)=>delete d.rules[0].lastBarTimestamp,(d:any)=>d.rules[0].rule.toolId='rect',(d:any)=>d.rules[0].rule.identity.ticker='',(d:any)=>d.rules[0].rule.identity.market=null,(d:any)=>d.rules[0].rule.sourceOwner='backend',(d:any)=>d.rules[0].rule.period.multiplier=0,(d:any)=>d.rules[0].rule.condition='above',(d:any)=>d.rules[0].rule.extra='unknown'
+ ])('rejects a complete invalid document before use',change=>{const value=document();change(value);expect(()=>validateDrawingAlertDocument(value,'opaque scope')).toThrow()})
+})

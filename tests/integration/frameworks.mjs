@@ -5,6 +5,7 @@ import {packedWorkspace,example,command,start,waitHTTP,freePort,evidence} from '
 import {launchBrowser} from '../browser/support.mjs'
 import {runDrawingComparison} from './drawing-comparison.mjs'
 import {runDrawingWorkbenchExample} from './drawing-workbench.mjs'
+import {runDrawingAlertsExample} from './drawing-alerts.mjs'
 const workspace=await packedWorkspace(),results=[],prepareOnly=process.argv.includes('--prepare-only')
 if(prepareOnly)copyFileSync(workspace.tarball,new URL('../../examples/'+path.basename(workspace.tarball),import.meta.url))
 const browser=prepareOnly?undefined:await launchBrowser({traceDir:evidence})
@@ -29,6 +30,7 @@ try{
     if(name==='drawing-workbench'){
       console.log(JSON.stringify(await runDrawingWorkbenchExample(page,url,{http:true})))
       await runDrawingComparison(page,url,evidence)
+      console.log(JSON.stringify(await runDrawingAlertsExample(page,url)))
     }else if(name==='vue-vite'){
       await page.waitForFunction(()=>window.tcVue?.chart?.getChart()?.getDataList().length===300)
       await page.getByRole('button',{name:'卸载',exact:true}).click()

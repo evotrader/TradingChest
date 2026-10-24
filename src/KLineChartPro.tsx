@@ -62,6 +62,10 @@ export default class KLineChartPro implements ChartPro {
           drawingPreferences={options.drawingPreferences}
           drawingPreferencesStore={options.drawingPreferencesStore}
           drawingPreferencesScope={options.drawingPreferencesScope}
+          drawingAlertScope={options.drawingAlertScope}
+          onDrawingAlertStateChange={options.onDrawingAlertStateChange}
+          onDrawingAlertTrigger={options.onDrawingAlertTrigger}
+          onReplayDrawingAlertTrigger={options.onReplayDrawingAlertTrigger}
           onDrawingStateChange={options.onDrawingStateChange}
           onDrawingShortcutsChange={shortcuts=>{this._drawingPreferenceShortcuts=shortcuts;this._applyDrawingShortcuts()}}
           analysisLayerListVisible={options.analysisLayerListVisible}
@@ -508,6 +512,10 @@ export default class KLineChartPro implements ChartPro {
   getDrawingTools(){return this._api().getDrawingTools()}
   getDrawingState(){return this._api().getDrawingState()}
   executeDrawingCommand(command:Parameters<ChartPro['executeDrawingCommand']>[0]){return this._api().executeDrawingCommand(command)}
+  executeDrawingAlertCommand(command:Parameters<ChartPro['executeDrawingAlertCommand']>[0]){return this._api().executeDrawingAlertCommand(command)}
+  getDrawingAlertState(){return this._api().getDrawingAlertState()}
+  captureDrawingAlerts(){return this._api().captureDrawingAlerts()}
+  restoreDrawingAlerts(document:Parameters<ChartPro['restoreDrawingAlerts']>[0]){this._api().restoreDrawingAlerts(document)}
   getDrawings(){return this._api().getDrawings()}
   bindDrawingWorkspace(registry:import('./drawing/session').DrawingSessionRegistry|undefined,resolve?:import('./drawing/session').DrawingShareResolver){return this._api().bindDrawingWorkspace(registry,resolve)}
   getDrawingHistoryState(){return this._api().getDrawingHistoryState()}

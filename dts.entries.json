@@ -68,6 +68,13 @@
       "output": {
         "noBanner": true
       }
+    },
+    {
+      "filePath": "src/alerts.ts",
+      "outFile": "dist/entries/alerts.d.ts",
+      "output": {
+        "noBanner": true
+      }
     }
   ],
   "compilationOptions": {

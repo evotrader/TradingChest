@@ -406,3 +406,22 @@ import type {
 样式读取按实际标准 figure 组解析，不依赖第三方工具名称。设置页和浮动条使用相同默认值，草稿取消不写入默认字段。共同样式模板只转换已保存字段；多组具有不同值时保留各组定义，缺少字段不会用默认线宽或线型覆盖目标。批处理和历史操作在每项写入前重新检查当前宿主可编辑状态；中途失效保留已确认项并返回逐项结果。
 
 `DrawingAnalyticsState.bands?: VwapBandsSummary`在启用AVWAP带时提供mode、固定method、最多三组有限上下界和可选reason。旧定义不开启带，原summary.vwap和FRVP数学保持。新参数、公式、曲线点击顺序和第三方注册顺序见[绘图精修](./drawings.md#drawing-refinement)。文档仍为v4/workspace v2/shared v1/preferences v1；只保存定义，不保存派生缓存。
+
+## 0.13 画线提醒
+
+`ChartProOptions` 新增 `drawingAlertScope?: string`、`onDrawingAlertStateChange(state: DrawingAlertState[])`、`onDrawingAlertTrigger(event)`、`onReplayDrawingAlertTrigger(event)`。仅用当前确认绘图和已确认行情；旧固定价格 `AlertManager`、`feedPrice` 和旧回调保持原语义，不能用 `feedPrice` 绕过新提醒的行情确认。
+
+| 方法 | 返回与行为 |
+| --- | --- |
+| `executeDrawingAlertCommand(command)` | 同步 `{status:'completed'|'rejected',id?,message?}`；create/update/pause/resume/rearm/delete |
+| `getDrawingAlertState()` | 规则及 live/replay 状态副本；记录各最多100条 |
+| `captureDrawingAlerts()` | 独立 `DrawingAlertDocumentV1` 副本，不含价格缓存、比较点或临时记录 |
+| `restoreDrawingAlerts(document)` | 全批预检后替换为暂停；非法版本、规则、scope、重复ID或当前来源绑定失败抛错并保原 |
+
+create 接受 drawingLogicalId、可选 id/condition/frequency/message；默认 crossing/once。update 仅接受 condition/frequency/message，来源身份固定。pause/resume 保留 hasTriggered/lastBarTimestamp；rearm 清这两个标记、保记录。once 已触发的 resume 拒绝。新规则及 resume/rearm 后首个有效样本只建比较点。
+
+`DrawingAlertRule` 包含 id、drawingLogicalId、sourceOwner、backend 来源的 backendId、toolId、identity（ticker/market/exchange/priceCurrency/basis 实际可选值）、period（multiplier/timespan）、condition、frequency 和可选 message。事件含 ruleId/drawingLogicalId、身份、周期、barTimestamp、triggerPrice、referencePrice、condition、mode 和可选 message。scope/backendId 都是不透明值，不推导业务身份。
+
+`trading-chest/alerts` 单独提供无 DOM 的 `evaluateDrawingAlert(input)`、`validateDrawingAlertDocument`、`validateDrawingAlertRule` 及纯类型；不需要图表／React／Solid 运行时。input 含 rule、geometry（toolId/market anchors）、真实 bars 时标序列、previous?/current（timestamp/close）、state（hasTriggered/lastBarTimestamp）、axis?（linear/percentage/log）、mode?。结果含新 state/status/reason、可选 comparison 和至多一个 event。调用方保存返回 comparison 作为下一次 previous；没有 comparison 时清旧点，不能跨无效域比较。
+
+完整边界、快照身份迁移及示例见 [0.13 升级](./upgrade/0.13.0.md)。本节为0.13候选 API，尚未由本地检查获得 npm 发布状态。

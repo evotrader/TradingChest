@@ -83,7 +83,7 @@
 
 ## 明确差距
 
-TradingChest 共享限于已确认价格身份的本地主图市场锚点，后端标注保留原业务权威。多空头绘图不计算账户数量、资金或杠杆。更细周期／逐笔成交量分布、更多 Gann/Fib/波浪、曲线无限延伸／端点标记／背景填充、图片贴纸、画线报警和订单联动仍为后续候选。没有承诺逐像素外观或账户模型一致。
+TradingChest 共享限于已确认价格身份的本地主图市场锚点，后端标注保留原业务权威。多空头绘图不计算账户数量、资金或杠杆。更细周期／逐笔成交量分布、更多 Gann/Fib/波浪、曲线无限延伸、图片贴纸、更多工具的画线提醒、后台通知和订单联动仍为后续候选。没有承诺逐像素外观或账户模型一致。
 
 对标参考：[TradingView drawings](https://www.tradingview.com/charting-library-docs/latest/ui_elements/drawings/), [tool families](https://www.tradingview.com/charting-library-docs/latest/ui_elements/drawings/Drawings-List/), [position tool](https://www.tradingview.com/support/solutions/43000517002-long-position-drawing-tool/).
 
@@ -108,6 +108,8 @@ TradingChest 共享限于已确认价格身份的本地主图市场锚点，后�
 | 多选→模板→撤销／重开 | [同类工具批量模板](https://www.tradingview.com/support/solutions/43000677801-how-to-apply-a-template-to-several-tools-of-the-same-type-at-once/) | 混合值、共同能力、同工具参数模板／跨工具共同样式、确认历史及原生IDB |
 | AVWAP带开关 | [带与倍数](https://www.tradingview.com/blog/en/vwap-improvements-across-the-board-28974/) | 三组自有公开公式，未主张与其数值相同 |
 | FRVP显示设置 | [参数与Extend Right](https://www.tradingview.com/support/solutions/43000480324-fixed-range-volume-profile-indicator/) | 左右／宽度／价位线样式；本库延长不扩统计范围，官方Extend Right会纳入右端之后的bar |
-| 曲线控制点 | [Curve/Double curve](https://www.tradingview.com/support/solutions/43000791740-curve-and-double-curve-drawing-tools/) | 二／三次贝塞尔及三点圆弧；屏幕几何，不含无限延伸、端点标记和曲线背景 |
+| 曲线控制点 | [Curve/Double curve](https://www.tradingview.com/support/solutions/43000791740-curve-and-double-curve-drawing-tools/) | 二／三次贝塞尔及三点圆弧；屏幕几何；0.13增加端点标记和曲线背景，仍不含无限延伸 |
 
 本地证人包含`drawing-refinement`、`drawing-curves`和安装版`drawing-comparison`／第三方示例。正式完成状态及失败记录以本轮实施SUMMARY为准；入口存在不代表全部验收通过。
+
+0.13 首批画线提醒只覆盖水平线、直线、有限线段和有向射线，基于已观测 close；不等同 TradingView 网站全部技术提醒，也不提供后台服务。仅本图、主价格轴 market 锚点；backend 只读原确认来源。曲线端点及闭合背景不改变定义。具体边界见[0.13说明](./upgrade/0.13.0.md)。

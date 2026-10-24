@@ -1,6 +1,8 @@
 import {describe,it,expect} from 'vitest'
 import type {Coordinate,OverlayCreateFiguresCallbackParams} from 'klinecharts'
-import curves,{bezierCoordinates,arcCoordinates,curveGeometry,clearCurveGeometry,curveSelection} from '../curves'
+import curves,{bezierCoordinates,arcCoordinates,curveGeometry,clearCurveGeometry,curveSelection,curveDecorations} from '../curves'
+import {builtinDrawingCatalog,validateDrawingParameters} from '../../drawing/catalog'
+import {drawingStyleValue} from '../../drawing/styleControls'
 const distance=(p:Coordinate,a:Coordinate,b:Coordinate)=>{const x=b.x-a.x,y=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*x+(p.y-a.y)*y)/(x*x+y*y)||0));return Math.hypot(p.x-a.x-t*x,p.y-a.y-t*y)}
 const toLine=(point:Coordinate,line:Coordinate[])=>Math.min(...line.slice(1).map((b,i)=>distance(point,line[i],b)))
 const quadratic=(a:Coordinate,c:Coordinate,b:Coordinate,t:number)=>({x:(1-t)**2*a.x+2*(1-t)*t*c.x+t*t*b.x,y:(1-t)**2*a.y+2*(1-t)*t*c.y+t*t*b.y})
@@ -40,5 +42,38 @@ describe('bounded screen-space drawing curves',()=>{
   value.coordinates[2].y++;const moved=curveGeometry(value);expect(moved).not.toBe(resized)
   value.yAxis!.name='logarithm';const axis=curveGeometry(value);expect(axis).not.toBe(moved)
   clearCurveGeometry(value.chart,'a');expect(curveGeometry(value)).not.toBe(axis);const next=curveGeometry(value);clearCurveGeometry(value.chart);expect(curveGeometry(value)).not.toBe(next)
+ })
+ it.each(['curve','doubleCurve','arc'])('%s derives visible markers and a noninteractive fill from the same cached curve',name=>{
+  const value=args(name),template=curves.find(tool=>tool.name===name)!
+  value.overlay.styles={line:{color:'#112233',size:4},polygon:{color:'#abcdef'}}
+  value.overlay.extendData={drawingParameters:{startMarker:'arrow',endMarker:'circle',background:true,backgroundOpacity:.2}}
+  const geometry=curveGeometry(value),figures=[template.createPointFigures!(value)].flat(),line=geometry.coordinates!
+  expect(figures.map(figure=>figure.type)).toEqual(['polygon','line','polygon','circle'])
+  expect((figures[0].attrs as any).coordinates).toBe(line);expect(figures[0].ignoreEvent).toBe(true);expect((figures[0].styles as any).color).toBe('#abcdef33')
+  const arrow=(figures[2].attrs as any).coordinates,tip=line[0],neighbor=line[1],base={x:(arrow[1].x+arrow[2].x)/2,y:(arrow[1].y+arrow[2].y)/2}
+  expect(arrow[0]).toEqual(tip);expect(Math.hypot(base.x-tip.x,base.y-tip.y)).toBeCloseTo(12,10)
+  expect((base.x-tip.x)*(neighbor.x-tip.x)+(base.y-tip.y)*(neighbor.y-tip.y)).toBeGreaterThan(0)
+  expect(figures[2].ignoreEvent).toBeUndefined();expect(figures[3].attrs).toEqual({...line.at(-1),r:6})
+  expect(curveGeometry(value)).toBe(geometry)
+  value.overlay.extendData={drawingParameters:{startMarker:'circle',endMarker:'arrow',background:true,backgroundOpacity:.5}};value.overlay.styles.line!.color='#ff0000'
+  expect(curveGeometry(value)).toBe(geometry);expect([template.createPointFigures!(value)].flat()).toHaveLength(4)
+ })
+ it('defaults a curve fill to its actual stroke, clamps marker size and keeps editable fill semantics unattenuated',()=>{
+  const value=args();value.overlay.styles={line:{color:'#123456',size:20}};value.overlay.extendData={drawingParameters:{startMarker:'circle',endMarker:'arrow',background:true}}
+  const line=curveGeometry(value).coordinates!,d=curveDecorations(value,line),fill=d.background[0]
+  expect((fill.styles as any).color).toBe('#1234561f');expect((d.markers[0].attrs as any).r).toBe(9)
+  expect(drawingStyleValue({overlay:{styles:value.overlay.styles}} as any,'fill',{},d.background as any)).toBe('#123456')
+  value.overlay.styles.line!.size=1;expect((curveDecorations(value,line).markers[0].attrs as any).r).toBe(3)
+  value.overlay.extendData={drawingParameters:{startMarker:'arrow',endMarker:'circle'}}
+  expect(curveDecorations(value,[{x:1,y:1},{x:1,y:1}]).markers).toEqual([])
+ })
+ it('validates display parameters through the original catalog and leaves old definitions unchanged',()=>{
+  for(const name of ['curve','doubleCurve','arc']){
+   const tool=builtinDrawingCatalog.find(tool=>tool.toolId===name)!
+   expect(()=>validateDrawingParameters(tool,{})).not.toThrow();expect(tool.styleControls).toContain('fill')
+   expect(()=>validateDrawingParameters(tool,{startMarker:'arrow',endMarker:'circle',background:true,backgroundOpacity:0})).not.toThrow()
+   for(const parameters of [{startMarker:'triangle'},{backgroundOpacity:NaN},{backgroundOpacity:1.1},{backgroundOpacity:-.1},{background:'yes'}])expect(()=>validateDrawingParameters(tool,parameters)).toThrow()
+   expect([curves.find(tool=>tool.name===name)!.createPointFigures!(args(name))].flat()).toHaveLength(1)
+  }
  })
 })

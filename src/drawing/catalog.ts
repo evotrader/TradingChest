@@ -37,12 +37,13 @@ const builtinStyleControls=(id:string):DrawingStyleControl[]=>{
   if(id==='dateRange')return ['lineWidth']
   if(['priceRange','dateAndPriceRange'].includes(id))return ['lineWidth','lineStyle']
   const controls:DrawingStyleControl[]=['stroke','lineWidth','lineStyle']
-  if(['rect','circle','triangle','parallelogram','ellipse','rotatedRect','gannBox','xabcd','regressionChannel','callout'].includes(id))controls.push('fill')
+  if(['rect','circle','triangle','parallelogram','ellipse','rotatedRect','gannBox','xabcd','regressionChannel','callout','curve','doubleCurve','arc'].includes(id))controls.push('fill')
   if(['callout','trendAngle','fibonacciLine','fibonacciSegment','fibonacciCircle','fibonacciExtension','fibonacciSpeedResistanceFan','xabcd','abcd','threeWaves','fiveWaves','eightWaves','anyWaves','longPosition','shortPosition'].includes(id))controls.push('textColor','fontSize')
   return controls
 }
 export const builtinDrawingCatalog:DrawingToolDescriptor[]=groups.flatMap(([category,items])=>items.map(([toolId,zh,en,points,shortcut])=>{
   const text=['textAnnotation','callout','note','anchoredText'].includes(toolId),variable=['polyline','anyWaves'].includes(toolId)
+  const curve=['curve','doubleCurve','arc'].includes(toolId)
   if(category==='volume')return {toolId,overlayName:toolId,styleControls:builtinStyleControls(toolId),labels:{'zh-CN':zh,'en-US':en},category,icon:toolId,shortcut,mode:'points',minPoints:points,maxPoints:points,settings:['style','coordinates','visibility','parameters'],parameters:toolId==='anchoredVwap'?[
     {key:'source',label:'价格源',kind:'text',choices:['close','hl2','hlc3','ohlc4'],defaultValue:'hlc3'},
     {key:'algorithm',label:'估算算法',kind:'text',choices:['bar-price-volume-v1'],defaultValue:'bar-price-volume-v1'},
@@ -63,8 +64,13 @@ export const builtinDrawingCatalog:DrawingToolDescriptor[]=groups.flatMap(([cate
     ])]} as DrawingToolDescriptor
   return {toolId,overlayName:toolId,styleControls:builtinStyleControls(toolId),labels:{'zh-CN':zh,'en-US':en},category,icon:toolId,shortcut,
     mode:['brush','highlighter'].includes(toolId)?'continuous':text?'text':variable?'variable':'points',minPoints:points,maxPoints:variable||['brush','highlighter'].includes(toolId)?null:points,
-    settings:['style',...(text?['text' as const]:[]),'coordinates','visibility',...(category==='fibonacci'||category==='channels'?['parameters' as const]:[])],
-    parameters:toolId==='fibonacciSpiral'?[{key:'segments',label:'弧段数',kind:'number' as const,min:2,max:32,defaultValue:9}]:toolId.startsWith('regression')?[{key:'source',label:'回归价格',kind:'text' as const,choices:['open','high','low','close'],defaultValue:'close'},{key:'extend',label:'向右延伸',kind:'boolean' as const,defaultValue:true},...(toolId==='regressionChannel'?[{key:'deviations',label:'残差标准差倍数',kind:'number' as const,min:0,max:10,defaultValue:2}]:[])]:category==='fibonacci'?[{key:'levels',label:'级别',kind:'levels' as const,defaultValue:toolId==='gannBox'?[0,.25,.5,.75,1]:[0,.236,.382,.5,.618,.786,1]}]:text?[{key:'textAlign',label:'文字对齐',kind:'text' as const,defaultValue:'left',choices:['left','center','right']}]:[]}
+    settings:['style',...(text?['text' as const]:[]),'coordinates','visibility',...(curve||category==='fibonacci'||category==='channels'?['parameters' as const]:[])],
+    parameters:curve?[
+      {key:'startMarker',label:'起点标记',kind:'text',choices:['none','arrow','circle'],defaultValue:'none'},
+      {key:'endMarker',label:'终点标记',kind:'text',choices:['none','arrow','circle'],defaultValue:'none'},
+      {key:'background',label:'填充曲线背景',kind:'boolean',defaultValue:false},
+      {key:'backgroundOpacity',label:'背景透明度',kind:'number',min:0,max:1,choices:['0','0.05','0.12','0.2','0.3','0.5','1'],defaultValue:.12}
+    ]:toolId==='fibonacciSpiral'?[{key:'segments',label:'弧段数',kind:'number' as const,min:2,max:32,defaultValue:9}]:toolId.startsWith('regression')?[{key:'source',label:'回归价格',kind:'text' as const,choices:['open','high','low','close'],defaultValue:'close'},{key:'extend',label:'向右延伸',kind:'boolean' as const,defaultValue:true},...(toolId==='regressionChannel'?[{key:'deviations',label:'残差标准差倍数',kind:'number' as const,min:0,max:10,defaultValue:2}]:[])]:category==='fibonacci'?[{key:'levels',label:'级别',kind:'levels' as const,defaultValue:toolId==='gannBox'?[0,.25,.5,.75,1]:[0,.236,.382,.5,.618,.786,1]}]:text?[{key:'textAlign',label:'文字对齐',kind:'text' as const,defaultValue:'left',choices:['left','center','right']}]:[]}
 }))
 export function copyDrawingCatalog(input:DrawingToolDescriptor[]=builtinDrawingCatalog):DrawingToolDescriptor[] {
   const ids=new Set<string>(),names=new Set<string>()

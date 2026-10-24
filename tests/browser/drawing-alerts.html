@@ -1,0 +1,26 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><body style="margin:0"><p>画线提醒验收：隔离合成行情，真实图表引擎；不是真实业务行情或后台监控。</p><div id="chart" style="width:100%;height:850px"></div><script type="module">
+import {KLineChartPro,captureLayout,restoreLayout} from '/src/chart.ts'
+import {evaluateDrawingAlert} from '/src/alerts.ts'
+import {makeBars} from './syntheticBars.ts'
+const symbol={ticker:'ALERT.X',market:'test',exchange:'X',priceCurrency:'USD',pricePrecision:6},period={multiplier:1,timespan:'minute',text:'1m'}
+let bars=makeBars(260),push,status,subscriptions=0
+const events=[],replayEvents=[],states=[]
+const feed={searchSymbols:async()=>[symbol],getHistoryKLineData:async()=>({bars:bars.map(bar=>({...bar})),basis:'isolated-raw',hasMoreBefore:false}),subscribe:(_s,_p,callback)=>{push=callback;subscriptions++},unsubscribe:()=>{push=undefined;subscriptions--},subscribeStatus:(_s,_p,callback)=>{status=callback;return()=>{status=undefined}}}
+const pro=new KLineChartPro({container:document.querySelector('#chart'),symbol,period,datafeed:feed,drawingAlertScope:'browser alerts',mainIndicators:[],subIndicators:[],onDataReady:()=>window.ready=true,onDrawingAlertTrigger:event=>events.push(event),onReplayDrawingAlertTrigger:event=>replayEvents.push(event),onDrawingAlertStateChange:state=>states.push(state)})
+window.pro=pro
+window.alertBench={events,replayEvents,states,symbol,period,evaluateDrawingAlert,captureLayout,restoreLayout,
+ get bars(){return bars.map(bar=>({...bar}))},get subscriptions(){return subscriptions},
+ update(close,{append=false,snapshot=false,multiple=0}={}){
+   const previous=bars.at(-1),bar={...previous,timestamp:previous.timestamp+(append?60000:0),open:close,high:close+1,low:close-1,close}
+   if(append)bars.push(bar);else bars[bars.length-1]=bar
+   if(multiple)for(let i=0;i<multiple;i++)bars.push({...bar,timestamp:bars.at(-1).timestamp+60000})
+   return snapshot?pro.applySnapshot({symbol,period,bars:this.bars,basis:'isolated-raw'}):push?.(bar)
+ },connection(state){status?.({type:'connection',state})},error(){status?.({type:'error',code:'ISOLATED_FAILURE',message:'隔离读取失败'})},
+ async seed(name='horizontalStraightLine',anchors){
+   const id='source-'+name,value=bars.at(-1).close
+   anchors??=[{kind:'market',timestamp:bars.at(-20).timestamp,value},...(name==='horizontalStraightLine'?[]:[{kind:'market',timestamp:bars.at(-1).timestamp,value}])]
+   pro.restoreDrawings('local',[...pro.getDrawings().filter(d=>d.logicalId!==id),{logicalId:id,owner:'local',presentation:{name:'测试来源 '+name},anchors,overlay:{id,name,paneId:'candle_pane',groupId:'drawing_tools',points:anchors.map(a=>({timestamp:a.timestamp,value:a.value})),visible:true,lock:false,extendData:null,styles:null}}])
+   await pro.executeDrawingCommand({type:'select',ids:[id]});await this.frame();return id
+ },frame:()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
+}
+</script></body></html>

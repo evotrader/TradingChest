@@ -123,3 +123,11 @@ FRVP新增 `profileSide:'left'|'right'`（默认left）、`profileWidth`有限(0
 先从peer `klinecharts`调用公开 `registerOverlay`，再把稳定命名空间名称和目录传给构造器。未注册模板在创建DOM实例前明确失败；多个图可复用登记，销毁一图不删除全局模板。目录定义不保存函数或账户数据，也不因全局注册取得系统对象的编辑权限。
 
 原生JS及TS可复制接入见[绘图工作台示例](https://github.com/evotrader/TradingChest/tree/main/examples/drawing-workbench)。示例的`EXAMPLE/AnalysisZone`仅使用公开`trading-chest/chart`、peer引擎、普通OHLCV和原生IndexedDB，无EvoTrader DTO、地址或专属框架API。
+
+## 0.13 画线提醒与曲线显示 {#drawing-alerts}
+
+从属性栏或绘图管理选择单个来源，点击“添加提醒”；“提醒管理”始终可单独打开。支持本图已确认的水平线、直线、线段及射线，local/backend 保留原归属。条件与频率使用选择器，默认仅一次。继续监控保留去重，重置并启用清去重并保触发历史。仅本页运行、关闭后停止，未收到的价格不补报。有限线段进入／离开域不算穿越；持续监控请选择直线或正确方向射线。
+
+三曲线的设置增加起点／终点 none/arrow/circle、背景开关与[0,1]透明度。背景由曲线和两端直弦闭合，填充色沿标准 polygon.color，默认沿实际描边；不成为控制点或截获填充区域命中。旧定义保持关闭。显示变更不改变曲率或原细分误差与段数；同工具参数模板保全部参数，跨工具仅共同样式保持原交集语义。
+
+规则文档独立于布局；稳定 scope、恢复暂停、确认数据、实时／回放隔离、后台边界及原生 IndexedDB 组合例子见[0.13 升级说明](./upgrade/0.13.0.md)。

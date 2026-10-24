@@ -21,7 +21,7 @@ export interface TradingChartProps {
 }
 
 // Always install every notification, even when its first React callback is absent.
-const eventKeys:EventKey[]=['onDrawingStateChange','onComparisonChange','onDrawingSelect','onDrawingHistoryChange','onDataState','onDataReady','onPeriodChange','onIndicatorClick','onOverlayCreate','onOverlayUpdate','onOverlayDelete','onAlertTrigger','onReplayAlertTrigger','onError','onAnalysisLayerChange','onAnalysisEventClick','onAnalysisPointSelect']
+const eventKeys:EventKey[]=['onDrawingAlertStateChange','onDrawingAlertTrigger','onReplayDrawingAlertTrigger','onDrawingStateChange','onComparisonChange','onDrawingSelect','onDrawingHistoryChange','onDataState','onDataReady','onPeriodChange','onIndicatorClick','onOverlayCreate','onOverlayUpdate','onOverlayDelete','onAlertTrigger','onReplayAlertTrigger','onError','onAnalysisLayerChange','onAnalysisEventClick','onAnalysisPointSelect']
 
 export const TradingChart=React.forwardRef<ChartPro,TradingChartProps>(function TradingChart(props,ref){
   const container=React.useRef<HTMLDivElement>(null),instance=React.useRef<ChartPro|null>(null)

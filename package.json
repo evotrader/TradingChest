@@ -1,6 +1,6 @@
 {
   "name": "trading-chest",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "通用行情与分析图表组件，基于 KLineChart。",
   "type": "module",
   "main": "./dist/trading-chest.umd.js",
@@ -108,6 +108,11 @@
       "types": "./dist/entries/testing.d.ts",
       "import": "./dist/entries/testing.js",
       "require": "./dist/entries/testing.cjs"
+    },
+    "./alerts": {
+      "types": "./dist/entries/alerts.d.ts",
+      "import": "./dist/entries/alerts.js",
+      "require": "./dist/entries/alerts.cjs"
     }
   },
   "peerDependenciesMeta": {

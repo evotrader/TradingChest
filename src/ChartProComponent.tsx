@@ -41,6 +41,10 @@ import {configureIndicatorTooltip} from './indicator/instances'
 import {builtinIndicatorCatalog,copyIndicatorCatalog,validateIndicatorParams,indicatorInstance,type AddIndicatorOptions,type IndicatorHandle} from './indicator/catalog'
 import AnalysisEventList from './analysis/EventList'
 import { EngineDataLoader } from './core/engineDataLoader'
+import type {ConfirmedSeries} from './core/engineDataLoader'
+import {DrawingAlertRuntime} from './alert/drawingRuntime'
+import type {DrawingAlertCommand,DrawingAlertState} from './alert/drawingTypes'
+import DrawingAlertManager from './widget/drawing-alerts/Manager'
 import i18n from './i18n'
 import {AnalysisManager,type AnalysisView} from './analysis/manager'
 import {isRuntimeAnalysisPane} from './analysis/bindings'
@@ -84,7 +88,7 @@ export interface ChartComponentApi extends ChartPro {
   createDrawing: (overlay: OverlayCreate) => void
 }
 
-export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'analysisLayerListVisible'|'onAnalysisLayerChange'|'onAnalysisEventClick'|'onAnalysisPointSelect'|'indicatorCatalog' | 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'|'comparisonSymbols'|'createComparisonDatafeed'|'onComparisonChange'|'onDrawingSelect'|'drawingOwner'|'isDrawingEditable'|'commitDrawing'|'onDrawingHistoryChange'|'drawingCatalog'|'onDrawingStateChange'|'drawingPreferences'|'drawingPreferencesStore'|'drawingPreferencesScope'|'resolveDrawingShareKey'|'drawingWorkspaceSessions'|'drawingHostSessions'|'createDrawingDocumentId'>> {
+export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'analysisLayerListVisible'|'onAnalysisLayerChange'|'onAnalysisEventClick'|'onAnalysisPointSelect'|'indicatorCatalog' | 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'|'comparisonSymbols'|'createComparisonDatafeed'|'onComparisonChange'|'onDrawingSelect'|'drawingOwner'|'isDrawingEditable'|'commitDrawing'|'onDrawingHistoryChange'|'drawingCatalog'|'onDrawingStateChange'|'drawingPreferences'|'drawingPreferencesStore'|'drawingPreferencesScope'|'resolveDrawingShareKey'|'drawingWorkspaceSessions'|'drawingHostSessions'|'createDrawingDocumentId'|'drawingAlertScope'|'onDrawingAlertStateChange'|'onDrawingAlertTrigger'|'onReplayDrawingAlertTrigger'>> {
   analysisLayerListVisible?:ChartProOptions['analysisLayerListVisible']
   onAnalysisLayerChange?:ChartProOptions['onAnalysisLayerChange']
   onAnalysisEventClick?:ChartProOptions['onAnalysisEventClick']
@@ -111,6 +115,10 @@ export interface ChartProComponentProps extends Required<Omit<ChartProOptions, '
   onDataReady?: ChartProOptions['onDataReady']
   ref: (chart: ChartComponentApi) => void
   onDrawingShortcutsChange?:(shortcuts:Record<string,string>)=>void
+  drawingAlertScope?:ChartProOptions['drawingAlertScope']
+  onDrawingAlertStateChange?:ChartProOptions['onDrawingAlertStateChange']
+  onDrawingAlertTrigger?:ChartProOptions['onDrawingAlertTrigger']
+  onReplayDrawingAlertTrigger?:ChartProOptions['onReplayDrawingAlertTrigger']
   /** 内部回调：实时数据到达时通知外层（用于报警检测） */
   onPriceUpdate?: (price: number, timestamp: number) => void
   onReplayPriceUpdate?: (price: number, timestamp: number) => void
@@ -406,6 +414,17 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const drawingCatalog=copyDrawingCatalog(props.drawingCatalog)
   let drawingController:DrawingController
   let drawingCoordinator:DrawingCoordinator
+  let drawingAlerts:DrawingAlertRuntime|undefined,confirmedAlertSeries:ConfirmedSeries|undefined
+  const [drawingAlertStates,setDrawingAlertStates]=createSignal<DrawingAlertState[]>([])
+  const [drawingAlertOpen,setDrawingAlertOpen]=createSignal(false),[drawingAlertSource,setDrawingAlertSource]=createSignal<string>()
+  let drawingAlertTriggerElement:HTMLElement|undefined
+  const openDrawingAlerts=(id?:string)=>{drawingAlertTriggerElement=document.activeElement as HTMLElement;setDrawingAlertStates(drawingAlerts?.getState()??[]);setDrawingAlertSource(id);setDrawingAlertOpen(true)}
+  const closeDrawingAlerts=()=>{setDrawingAlertOpen(false);setDrawingAlertSource(undefined);queueMicrotask(()=>drawingAlertTriggerElement?.isConnected?drawingAlertTriggerElement.focus():(widgetRef as HTMLDivElement|undefined)?.focus())}
+  const refreshAlertContext=()=>untrack(()=>{
+    const state=dataState(),series=confirmedAlertSeries,axis=widget?.getYAxes({paneId:'candle_pane'})[0]
+    if(state&&series)drawingAlerts?.consume(series,state,loader?.getConfirmedBars()??[],/log/i.test(axis?.name??'')?'log':/percentage/i.test(axis?.name??'')?'percentage':'linear',axis?.id)
+  })
+  const executeDrawingAlert=(command:DrawingAlertCommand)=>{refreshAlertContext();return drawingAlerts!.execute(command)}
   const [workbenchState,setWorkbenchState]=createSignal<import('./drawing/types').DrawingState>()
   let workbenchFrame:number|undefined
   const presentWorkbench=()=>{
@@ -592,7 +611,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       if(!value){remove();if(selected)setSelectedOverlay(null);return null}
       const overlay=value.overlay
       const {styles,...shape}=overlay
-      const shapeKey=JSON.stringify([shape,value.anchors,value.yAxisId,value.parameters]),key=JSON.stringify([shapeKey,styles]),presentation=JSON.stringify(value.presentation??null)
+      const curve=isCurveDrawing(overlay.name)
+      const shapeKey=JSON.stringify([shape,value.anchors,value.yAxisId,curve?undefined:value.parameters]),key=JSON.stringify([shapeKey,styles,curve?value.parameters:undefined]),presentation=JSON.stringify(value.presentation??null)
       const previous=projectedDrawingDefinitions.get(id)
       if(current&&previous?.key===key&&previous.presentation!==presentation){
         // Presentation does not change canonical geometry or the figure wrapper's inputs.
@@ -611,7 +631,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         const points=projectDrawingPoints(value)
         points.forEach((point,index)=>{if(value.anchors?.[index]?.kind!=='viewport')drawingToPixel(point,value)})
         current.styles=structuredClone(templateStyles.get(Template)??null)
-        try{widget.overrideOverlay({id,points,styles:styles??{},zLevel:value.presentation?.order??0,fixedZLevel:true,visible:overlay.visible&&!view?.hidden&&intervalVisible(value.presentation?.intervals,period()),lock:overlay.lock||view?.preventDragging||temporaryPan()})}catch(error){current.styles=oldStyles;throw error}
+        try{widget.overrideOverlay({id,points,styles:styles??{},...(curve?{extendData:engineDrawingData(overlay.extendData,value.parameters)??null}:{}),zLevel:value.presentation?.order??0,fixedZLevel:true,visible:overlay.visible&&!view?.hidden&&intervalVisible(value.presentation?.intervals,period()),lock:overlay.lock||view?.preventDragging||temporaryPan()})}catch(error){current.styles=oldStyles;throw error}
         projectedDrawingDefinitions.set(id,{key,shapeKey,presentation,document:value})
         if(selected)markSelectedOverlay(current,false)
         return value
@@ -669,7 +689,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     locale,
     validate:validateDrawingTarget,validateTransfer:values=>validateProjectionRestore(values),
     context:()=>({symbol:symbol(),period:period()}),apply:applyDrawing,commit:change=>props.commitDrawing?props.commitDrawing(change):Promise.resolve({status:'rejected',message:i18n('drawing_message_3',locale())}),
-    onChange:state=>{if(disposed)return;setDrawingState(state);if(drawingPresentationFrame===undefined){
+    onChange:state=>{if(disposed)return;drawingAlerts?.refreshSources();setDrawingState(state);if(drawingPresentationFrame===undefined){
       const present=()=>{
         if(disposed){drawingPresentationFrame=undefined;return}
         if(drawingHistory.isYieldingLocalWork()){drawingPresentationFrame=requestAnimationFrame(present);return}
@@ -984,6 +1004,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     return values
   })
 
+  drawingAlerts=new DrawingAlertRuntime({scope:props.drawingAlertScope,source:id=>drawingCoordinator.getDrawing(id),uncertain:id=>drawingHistory.getState().uncertainLogicalIds.includes(id),restoring:()=>drawingHistory.isLayoutRestoring(),invalidated:read=>untrack(()=>{if(drawingAlertOpen())setDrawingAlertStates(read());if(props.onDrawingAlertStateChange)props.onDrawingAlertStateChange(read())}),trigger:props.onDrawingAlertTrigger?event=>props.onDrawingAlertTrigger?.(event):undefined,replayTrigger:props.onReplayDrawingAlertTrigger?event=>props.onReplayDrawingAlertTrigger?.(event):undefined,error:error=>props.onError?.({type:'drawing-alert-callback',message:error instanceof Error?error.message:String(error),raw:error})})
   drawingController.refresh()
   props.ref({
     getAnalysisContext:()=>analysis.getContext(),
@@ -998,6 +1019,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     getDrawingTools:()=>copyDrawingCatalog(drawingCatalog),
     getDrawingState:()=>drawingController.getState(),
     executeDrawingCommand:command=>drawingController.execute(command),
+    executeDrawingAlertCommand:executeDrawingAlert,
+    getDrawingAlertState:()=>drawingAlerts!.getState(),
+    captureDrawingAlerts:()=>drawingAlerts!.capture(),
+    restoreDrawingAlerts:document=>{refreshAlertContext();drawingAlerts!.restore(document)},
     bindDrawingWorkspace:async(registry,resolve)=>{
       settleWorkspaceBinding(new DOMException('共享绑定请求已被替换','AbortError'))
       workspaceSessions=registry;if(resolve)shareResolver=resolve
@@ -1165,6 +1190,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if(widget)drawingAnalyticsRuntimes.set(widget,drawingAnalytics)
     if (widget) loader = new EngineDataLoader(widget, props.datafeed, {
       committed:state=>{
+        confirmedAlertSeries=state
         drawingProjectionData=JSON.stringify([state.epoch,state.revision,state.confirmed,state.replay,state.cutoff])
         if(drawingController.getSelectedIds().length&&handleLayoutFrame===undefined)handleLayoutFrame=requestAnimationFrame(()=>{handleLayoutFrame=undefined;refreshDrawingHandles()})
         const old=analysis.getContext()?.token;analysis.sync(state)
@@ -1183,7 +1209,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           }
         })
       },
-      state: state=>{if(drawingAnalytics.setDataState(state)&&drawingCoordinator.getDrawings().some(d=>isVolumeDrawing(d.overlay.name))){drawingController.refresh();widget?.resize()}if(state.error)settleWorkspaceBinding(Error(state.error));setDataState(state);setLoadError(state.error?`${state.errorCode??state.operation??'data'}: ${state.error}`:'');comparisons.mainChanged();props.onDataState?.(state)},
+      state: state=>{if(drawingAnalytics.setDataState(state)&&drawingCoordinator.getDrawings().some(d=>isVolumeDrawing(d.overlay.name))){drawingController.refresh();widget?.resize()}if(state.error)settleWorkspaceBinding(Error(state.error));setDataState(state);setLoadError(state.error?`${state.errorCode??state.operation??'data'}: ${state.error}`:'');comparisons.mainChanged();refreshAlertContext();props.onDataState?.(state)},
       loading: active => {setLoading(active);setLoadingVisible(active)},
       ready: identity => {setLoadError('');refreshSharedDrawings();if(!resuming())props.onDataReady?.(identity)},
       error: error => {settleWorkspaceBinding(Error(error.message));setLoadError(error.message);props.onError?.(error)},
@@ -1228,6 +1254,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   onCleanup(() => {
     disposed = true
+    drawingAlerts?.dispose();confirmedAlertSeries=undefined
     settleWorkspaceBinding(new DOMException('图表已关闭，共享绑定已取消','AbortError'));cancelSharedBinding()
     handleDrag=undefined;nativeDrawingDrag=undefined;temporaryPanGesture=undefined;drawingPreviews.clear()
     if(drawingPresentationFrame!==undefined)cancelAnimationFrame(drawingPresentationFrame)
@@ -1284,7 +1311,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   createEffect((prev?: PrevSymbolPeriod) => {
     const s = symbol(), p = period()
     if(!engineReady())return undefined
-    if (prev) untrack(()=>{settleWorkspaceBinding(new DOMException('图表身份已改变，共享绑定已取消','AbortError'));analysis.clear();++indicatorGeneration;++factoryGeneration;comparisons.clear();cancelDrawing();cancelSharedBinding();drawingCoordinator.detach();const retained=JSON.stringify(prev.symbol)===JSON.stringify(s)?drawingHistory.getDrawings().filter(d=>d.owner==='local'):[];drawingHistory.reset(true);if(retained.length)drawingHistory.reconcile('local',retained);setSelectedOverlay(null);props.onDataReset?.(s)})
+    if (prev) untrack(()=>{drawingAlerts?.contextChanging();settleWorkspaceBinding(new DOMException('图表身份已改变，共享绑定已取消','AbortError'));analysis.clear();++indicatorGeneration;++factoryGeneration;comparisons.clear();cancelDrawing();cancelSharedBinding();drawingCoordinator.detach();const retained=JSON.stringify(prev.symbol)===JSON.stringify(s)?drawingHistory.getDrawings().filter(d=>d.owner==='local'):[];drawingHistory.reset(true);if(retained.length)drawingHistory.reconcile('local',retained);setSelectedOverlay(null);props.onDataReset?.(s)})
     setLoadError('')
     loader?.activate(s,p)
     return {symbol:s,period:p}
@@ -1477,6 +1504,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         <button aria-label={i18n('drawing_undo',locale())} disabled={!drawingState().canUndo||drawingState().pending>0} onClick={()=>void drawingController.execute({type:'undo'})}>{workbenchState()?.historyScope&&workbenchState()?.historyScope!=='chart'?(locale()==='en-US'?'Undo shared drawing':'撤销共享绘图'):i18n('drawing_undo',locale())}</button>
         <button aria-label={i18n('drawing_redo',locale())} disabled={!drawingState().canRedo||drawingState().pending>0} onClick={()=>void drawingController.execute({type:'redo'})}>{workbenchState()?.historyScope&&workbenchState()?.historyScope!=='chart'?(locale()==='en-US'?'Redo shared drawing':'重做共享绘图'):i18n('drawing_redo',locale())}</button>
         <button aria-expanded={workbenchOpen()} onClick={()=>setWorkbenchOpen(!workbenchOpen())}>{locale()==='en-US'?'Drawing manager':'绘图管理'}</button>
+        <button class="tc-drawing-alert-toggle" aria-expanded={drawingAlertOpen()} style={{'min-height':'44px','min-width':'44px'}} onClick={()=>openDrawingAlerts()}>{locale()==='en-US'?'Drawing alerts':'提醒管理'}</button>
         <Show when={drawingState().pending>0}><span role="status">{i18n('drawing_pending',locale())}: {drawingState().pending}</span></Show>
         <Show when={drawingState().error}><span role="alert">{drawingState().error}</span></Show>
       </div>
@@ -1549,6 +1577,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         <Show when={loadingVisible()}>
           <Loading/>
         </Show>
+        <Show when={drawingAlertOpen()}><DrawingAlertManager locale={locale()} states={drawingAlertStates()} sourceId={drawingAlertSource()} objects={workbenchState()?.objects??[]} replay={replayState().active} execute={executeDrawingAlert} sourceReason={id=>drawingAlerts?.sourceReason(id)} locate={id=>{const value=drawingCoordinator.getDrawing(id);if(!value||!drawingIsVisible(value))return false;const point=projectDrawingPoints(value)[0];if(point?.timestamp===undefined)return false;const index=widget?.getDataList().findIndex(bar=>bar.timestamp===point.timestamp);if(index===undefined||index<0)return false;widget?.scrollToDataIndex(index,0);void drawingController.execute({type:'select',ids:[id]});return true}} close={closeDrawingAlerts}/></Show>
         <Show when={drawingBarVisible()}>
           <DrawingBar
             locale={locale()}
@@ -1563,7 +1592,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             onRemoveClick={(groupId) => { for(const id of [...ownedDrawingIds]){const overlay=widget?.getOverlays({id})[0];if(overlay&&(!groupId||overlay.groupId===groupId))widget?.removeOverlay({id})} }}/>
         </Show>
         <Show when={drawingBarVisible()&&workbenchState()}>{state=><DrawingFavorites state={state()} catalog={drawingCatalog} locale={locale()} execute={command=>drawingController.execute(command)}/>}</Show>
-        <Show when={workbenchOpen()&&workbenchState()}>{state=><DrawingWorkbench contextKey={JSON.stringify([drawingContextEpoch(),symbol(),period(),dataState()?.basis,workbenchState()?.sharing?.workspace?.key,workbenchState()?.sharing?.host?.key])} locale={locale()} state={state()} catalog={drawingCatalog} period={period()} periods={props.periods} tickSize={symbol().tickSize} styleValue={resolvedDrawingStyle} rotation={{read:object=>{const points=projectDrawingPoints(object).map(point=>drawingToPixel(point,object));return points.length>1?Math.atan2(points[0].y-points[1].y,points[1].x-points[0].x)*180/Math.PI:0},apply:(object,degrees)=>rotatedDrawing(object,degrees,{bars:widget?.getDataList()??[],period:period(),size:drawingSize,toPixel:drawingToPixel,fromPixel:drawingFromPixel,project:projectDrawingPoints})}} editId={workbenchEditing()} page={workbenchPage()} requestVersion={workbenchRequest()} onDirtyChange={setWorkbenchDirty} axes={object=>widget?.getYAxes({paneId:object.overlay.paneId??'candle_pane'}).map(axis=>({id:axis.id,name:axis.name}))??[]} execute={command=>drawingController.execute(command)} convertAnchor={convertDrawingAnchor} locate={object=>{const point=projectDrawingPoints(object)[0];if(point?.timestamp!==undefined){const index=widget?.getDataList().findIndex(bar=>bar.timestamp===point.timestamp);if(index!==undefined&&index>=0)widget?.scrollToDataIndex(index,0)}const rendered=widget?.getOverlays({id:object.logicalId})[0];if(rendered)markSelectedOverlay(rendered,false)}} onClose={()=>{setWorkbenchOpen(false);setWorkbenchEditing(undefined);queueMicrotask(()=>(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.querySelector<HTMLButtonElement>('[aria-label="Drawing properties"] button, [aria-label="绘图属性"] button')?.focus())}}/>}</Show>
+        <Show when={workbenchOpen()&&workbenchState()}>{state=><DrawingWorkbench onAlert={id=>openDrawingAlerts(id)} contextKey={JSON.stringify([drawingContextEpoch(),symbol(),period(),dataState()?.basis,workbenchState()?.sharing?.workspace?.key,workbenchState()?.sharing?.host?.key])} locale={locale()} state={state()} catalog={drawingCatalog} period={period()} periods={props.periods} tickSize={symbol().tickSize} styleValue={resolvedDrawingStyle} rotation={{read:object=>{const points=projectDrawingPoints(object).map(point=>drawingToPixel(point,object));return points.length>1?Math.atan2(points[0].y-points[1].y,points[1].x-points[0].x)*180/Math.PI:0},apply:(object,degrees)=>rotatedDrawing(object,degrees,{bars:widget?.getDataList()??[],period:period(),size:drawingSize,toPixel:drawingToPixel,fromPixel:drawingFromPixel,project:projectDrawingPoints})}} editId={workbenchEditing()} page={workbenchPage()} requestVersion={workbenchRequest()} onDirtyChange={setWorkbenchDirty} axes={object=>widget?.getYAxes({paneId:object.overlay.paneId??'candle_pane'}).map(axis=>({id:axis.id,name:axis.name}))??[]} execute={command=>drawingController.execute(command)} convertAnchor={convertDrawingAnchor} locate={object=>{const point=projectDrawingPoints(object)[0];if(point?.timestamp!==undefined){const index=widget?.getDataList().findIndex(bar=>bar.timestamp===point.timestamp);if(index!==undefined&&index>=0)widget?.scrollToDataIndex(index,0)}const rendered=widget?.getOverlays({id:object.logicalId})[0];if(rendered)markSelectedOverlay(rendered,false)}} onClose={()=>{setWorkbenchOpen(false);setWorkbenchEditing(undefined);queueMicrotask(()=>(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.querySelector<HTMLButtonElement>('[aria-label="Drawing properties"] button, [aria-label="绘图属性"] button')?.focus())}}/>}</Show>
         <div
           ref={widgetRef}
           class='klinecharts-pro-widget'
@@ -1596,6 +1625,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           templates={workbenchState()?.preferences?.value.templates??[]}
           execute={command=>drawingController.execute(command)}
           onStyle={(control,value)=>drawingController.execute({type:'update',ids:drawingController.getSelectedIds(),patch:{overlay:{styles:drawingStylePatch(control,value)}}})}
+          onAlert={()=>openDrawingAlerts(drawingController.getSelectedIds()[0])}
           onSettings={()=>{setWorkbenchPage(drawingController.getSelectedIds().length===1?'settings':'objects');setWorkbenchEditing(drawingController.getSelectedIds().length===1?drawingController.getSelectedIds()[0]:undefined);setWorkbenchRequest(value=>value+1);setWorkbenchOpen(true)}}
           onTemplates={()=>{setWorkbenchEditing(undefined);setWorkbenchPage('templates');setWorkbenchRequest(value=>value+1);setWorkbenchOpen(true)}}
           onClose={()=>void drawingController.execute({type:'select',ids:[]})}

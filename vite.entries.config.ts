@@ -20,7 +20,7 @@ export default defineConfig({
       external: id => (!cjs && id === 'klinecharts') || id === 'react-dom' || id.startsWith('react-dom/') || id === 'react' || id.startsWith('react/') || id === 'solid-js' || id.startsWith('solid-js/'),
     },
     lib: {
-      entry: { index: 'src/index.ts', chart: 'src/chart.ts', solid: 'src/solid.ts', react: 'src/react.ts', testing: 'src/testing.ts' },
+      entry: { index: 'src/index.ts', chart: 'src/chart.ts', solid: 'src/solid.ts', react: 'src/react.ts', testing: 'src/testing.ts', alerts:'src/alerts.ts' },
       formats: [cjs ? 'cjs' : 'es'],
       fileName: (format, name) => `${name}.${format === 'es' ? 'js' : 'cjs'}`,
     },

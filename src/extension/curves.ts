@@ -1,4 +1,6 @@
 import type {Chart,Coordinate,OverlayTemplate,OverlayCreateFiguresCallbackParams,OverlayFigure} from 'klinecharts'
+import {drawingParameters} from '../drawing/content'
+import {drawingStyleAuxiliary,drawingStyleInput,type DrawingStyleFigure} from '../drawing/styleControls'
 
 export const curveSelection=Symbol('drawing-curve-selection')
 export const isCurveDrawing=(name:string)=>['curve','doubleCurve','arc'].includes(name)
@@ -62,11 +64,36 @@ export function curveGeometry(args:OverlayCreateFiguresCallbackParams<unknown>):
  if(entries.size>=2048)entries.delete(entries.keys().next().value!)
  entries.set(overlay.id,{key,geometry});return geometry
 }
+/** Decorations reuse the exact bounded curve, without changing its subdivision cache. */
+export function curveDecorations(args:OverlayCreateFiguresCallbackParams<unknown>,line:Coordinate[]):{background:OverlayFigure[];markers:OverlayFigure[]}{
+ const parameters=drawingParameters(args.overlay.extendData)??{},background:Array<OverlayFigure&DrawingStyleFigure>=[],markers:Array<OverlayFigure&DrawingStyleFigure>=[]
+ const defaults=args.chart.getStyles?.().overlay.line,own=args.overlay.styles?.line,color=own?.color??defaults?.color??'#1677ff',width=own?.size??defaults?.size??2,size=Math.max(6,Math.min(18,3*width))
+ const opacity=parameters.backgroundOpacity??.12
+ if(parameters.background===true&&typeof opacity==='number'&&Number.isFinite(opacity)&&opacity>0&&opacity<=1&&line.length>2){
+  const fill=args.overlay.styles?.polygon?.color??color
+  if(typeof fill==='string'){
+   const paint=/^#[a-f0-9]{6}$/i.test(fill)?`${fill}${Math.round(opacity*255).toString(16).padStart(2,'0')}`:`color-mix(in srgb, ${fill} ${opacity*100}%, transparent)`
+   background.push({type:'polygon',ignoreEvent:true,attrs:{coordinates:line},styles:{style:'fill',color:paint},[drawingStyleInput]:{fill:{group:'polygon',fields:{color:fill}}}})
+  }else background.push({type:'rectText',ignoreEvent:true,attrs:{x:8,y:20,text:'曲线透明背景需要纯色，请选择填充颜色',baseline:'top'},styles:{color:'#ef5350'}})
+ }
+ for(const [side,kind] of [['start',parameters.startMarker],['end',parameters.endMarker]] as const){
+  if(kind!=='arrow'&&kind!=='circle')continue
+  const tip=side==='start'?line[0]:line.at(-1),neighbors=side==='start'?line.slice(1):line.slice(0,-1).reverse(),neighbor=tip&&neighbors.find(point=>point.x!==tip.x||point.y!==tip.y)
+  if(!tip||!neighbor||!Number.isFinite(size))continue
+  if(kind==='circle')markers.push({type:'circle',attrs:{x:tip.x,y:tip.y,r:size/2},styles:{style:'fill',color},[drawingStyleAuxiliary]:true})
+  else{
+   const distance=Math.hypot(tip.x-neighbor.x,tip.y-neighbor.y),dx=(tip.x-neighbor.x)/distance,dy=(tip.y-neighbor.y)/distance
+   const left={x:tip.x-dx*size-dy*size*.45,y:tip.y-dy*size+dx*size*.45},right={x:tip.x-dx*size+dy*size*.45,y:tip.y-dy*size-dx*size*.45}
+   if([tip,left,right].every(finite))markers.push({type:'polygon',attrs:{coordinates:[tip,left,right]},styles:{style:'fill',color},[drawingStyleAuxiliary]:true})
+  }
+ }
+ return {background,markers}
+}
 function curveTemplate(name:string,points:number):OverlayTemplate{return {name,totalStep:points+1,needDefaultPointFigure:true,needDefaultXAxisFigure:true,needDefaultYAxisFigure:true,styles:{line:{size:2}},createPointFigures:args=>{
  const {overlay,coordinates}=args,selected=(args as typeof args&{[curveSelection]?:boolean})[curveSelection]??overlay.currentStep>0,figures:OverlayFigure[]=[]
  if(coordinates.length<points)return coordinates.length>1?[{type:'line',ignoreEvent:true,attrs:{coordinates},styles:{style:'dashed'}}]:[]
  const geometry=curveGeometry(args)
- if(geometry.coordinates)figures.push({type:'line',attrs:{coordinates:geometry.coordinates}})
+ if(geometry.coordinates){const decorations=curveDecorations(args,geometry.coordinates);figures.push(...decorations.background,{type:'line',attrs:{coordinates:geometry.coordinates}},...decorations.markers)}
  else figures.push({type:'rectText',ignoreEvent:true,attrs:{x:8,y:20,text:geometry.reason??'曲线无法投影',baseline:'top'},styles:{color:'#ef5350'}})
  if(selected&&name!=='arc')figures.push({type:'line',ignoreEvent:true,attrs:{coordinates:name==='curve'?[coordinates[0],coordinates[2],coordinates[1]]:[coordinates[0],coordinates[2],coordinates[3],coordinates[1]]},styles:{style:'dashed',size:1,color:'#94a3b8'}})
  return figures

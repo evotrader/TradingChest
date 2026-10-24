@@ -125,6 +125,10 @@ export interface OverlayLifecycleEvent {
 }
 
 export interface ChartProOptions extends AnalysisOptions {
+  drawingAlertScope?:string
+  onDrawingAlertStateChange?:(state:import('./alert/drawingTypes').DrawingAlertState[])=>void
+  onDrawingAlertTrigger?:(event:import('./alert/drawingTypes').DrawingAlertEvent)=>void
+  onReplayDrawingAlertTrigger?:(event:import('./alert/drawingTypes').DrawingAlertEvent)=>void
   resolveDrawingShareKey?:import('./drawing/session').DrawingShareResolver
   drawingWorkspaceSessions?:import('./drawing/session').DrawingSessionRegistry
   createDrawingDocumentId?:(identity:import('./drawing/document').DrawingShareIdentity)=>Promise<string>
@@ -178,6 +182,10 @@ export interface ChartProOptions extends AnalysisOptions {
 }
 
 export interface ChartPro {
+  executeDrawingAlertCommand(command:import('./alert/drawingTypes').DrawingAlertCommand):import('./alert/drawingTypes').DrawingAlertCommandResult
+  getDrawingAlertState():import('./alert/drawingTypes').DrawingAlertState[]
+  captureDrawingAlerts():import('./alert/drawingTypes').DrawingAlertDocumentV1
+  restoreDrawingAlerts(document:import('./alert/drawingTypes').DrawingAlertDocumentV1):void
   bindDrawingWorkspace(registry:import('./drawing/session').DrawingSessionRegistry|undefined,resolve?:import('./drawing/session').DrawingShareResolver):Promise<void>
   getDrawingTools():import('./drawing/catalog').DrawingToolDescriptor[]
   getDrawingState():import('./drawing/types').DrawingState

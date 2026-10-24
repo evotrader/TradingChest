@@ -21,6 +21,7 @@ export interface OverlayPropertyBarProps {
   onStyle:(control:DrawingStyleControl,value:string|number)=>Promise<DrawingCommandResult>
   onSettings:()=>void
   onTemplates:()=>void
+  onAlert?:()=>void
   onClose:()=>void
 }
 const OverlayPropertyBar:Component<OverlayPropertyBarProps>=props=>{
@@ -63,6 +64,7 @@ const OverlayPropertyBar:Component<OverlayPropertyBarProps>=props=>{
   <button type="button" disabled={!!props.lockReason} aria-label={props.objects.every(o=>o.overlay.lock)?t('解锁绘图','Unlock drawings'):t('锁定绘图','Lock drawings')} onClick={()=>void send({type:'update',ids:ids(),patch:{overlay:{lock:!props.objects.every(o=>o.overlay.lock)}}})}>{props.objects.every(o=>o.overlay.lock)?t('解锁','Unlock'):t('锁定','Lock')}</button>
   <button type="button" disabled={!!props.reason} onClick={()=>void send({type:'delete',ids:ids()})}>{t('删除绘图','Delete drawings')}</button>
   <button type="button" onClick={props.onSettings}>{props.objects.length===1?t('绘图设置','Drawing settings'):t('管理选中对象','Manage selection')}</button>
+  <Show when={props.objects.length===1&&props.onAlert}><button type="button" onClick={()=>props.onAlert?.()}>{t('添加提醒','Add alert')}</button></Show>
   <select aria-label={t('快捷绘图模板','Quick drawing template')} disabled={!!props.reason||!props.templates.length} value={template()} onChange={event=>setTemplate(event.currentTarget.value)}><option value="">{props.templates.length?t('选择模板','Choose template'):t('暂无模板','No templates')}</option><For each={props.templates}>{item=><option value={item.id}>{item.name}</option>}</For></select>
   <button type="button" disabled={!!props.reason||!compatible().some(item=>item.id===template())} onClick={()=>void send({type:'template',action:'apply',ids:ids(),templateId:template()})}>{t('应用模板','Apply template')}</button>
   <button type="button" disabled={!!props.reason||!template()||!commonStyleControls([...props.objects.map(object=>props.catalog.find(tool=>tool.overlayName===object.overlay.name)),props.catalog.find(tool=>tool.toolId===props.templates.find(item=>item.id===template())?.toolId)]).length} onClick={()=>void send({type:'template',action:'apply',ids:ids(),templateId:template(),styleOnly:true})}>{t('只应用共同样式','Apply common styles only')}</button>

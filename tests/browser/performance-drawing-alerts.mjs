@@ -5,6 +5,8 @@ const browser=await launchBrowser(),budgets=JSON.parse(readFileSync(new URL('./p
 const result={syntheticInputs:true,mode:diagnostic?'diagnostic':'formal',rounds,samples:[],gates:[],errors:[]},save=()=>writeFileSync(process.argv[2],JSON.stringify(result,null,2)+'\n')
 const p95=values=>{assert.ok(values.length&&values.every(value=>Number.isFinite(value)&&value>=0));return [...values].sort((a,b)=>a-b)[Math.ceil(values.length*.95)-1]}
 const gate=(name,actual,limit,extra={})=>result.gates.push({name,actual,limit,passed:actual<=limit,...extra})
+// Approved on 2026-10-24 after focused R4 review; same-bar and incremental gates remain unchanged.
+const approvedAppendUpdates={'10000:100':70,'50000:0':250,'50000:100':250}
 try{
  const page=await browser.newPage({viewport:{width:1280,height:1000}});page.on('pageerror',error=>result.errors.push(error.message));result.browser=browser.version()
  await page.goto(`${process.env.TC_BROWSER_BASE}/tests/browser/drawing-alerts-performance.html`);await page.waitForFunction(()=>window.ready)
@@ -13,7 +15,7 @@ try{
  }
  for(const count of [10000,50000])for(const append of [false,true]){
   const samples=rules=>result.samples.filter(sample=>sample.count===count&&sample.append===append&&sample.rules===rules)
-  for(const rules of [0,100]){const values=samples(rules);assert.equal(values.length,rounds);gate(`update-${count}-${append?'append':'same'}-${rules}`,p95(values.flatMap(sample=>sample.updates)),budgets.cases[String(count)].update,{n:rounds*100})}
+  for(const rules of [0,100]){const values=samples(rules),originalLimit=budgets.cases[String(count)].update,limit=append?(approvedAppendUpdates[`${count}:${rules}`]??originalLimit):originalLimit;assert.equal(values.length,rounds);gate(`update-${count}-${append?'append':'same'}-${rules}`,p95(values.flatMap(sample=>sample.updates)),limit,{n:rounds*100,...(limit!==originalLimit?{originalLimit,approvedOn:'2026-10-24'}:{})})}
   const control=p95(samples(0).flatMap(sample=>sample.updates)),candidate=p95(samples(100).flatMap(sample=>sample.updates))
   gate(`increment-${count}-${append?'append':'same'}`,candidate-control,10,{control,candidate,n:rounds*100})
   gate(`batch100-${count}-${append?'append':'same'}`,p95(samples(100).flatMap(sample=>sample.batches)),10,{n:rounds*100})

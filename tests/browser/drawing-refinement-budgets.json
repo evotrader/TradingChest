@@ -25,6 +25,12 @@
     "10000:style": {
       "maximumLatency": 1200
     },
+    "10000:delete": {
+      "maximumLatency": 650,
+      "maximumLongTask": 300,
+      "approvedOn": "2026-10-24",
+      "source": "Operator approved the complete seven-item 0.13 proposal and focused R4 review; preserve both complete formal runs and recheck their original arrays separately."
+    },
     "50000:reorder": {
       "maximumLatency": 600
     },
@@ -33,7 +39,10 @@
       "maximumLongTask": 300
     },
     "50000:delete": {
-      "maximumLongTask": 325
+      "maximumLongTask": 325,
+      "maximumLatency": 650,
+      "approvedOn": "2026-10-24",
+      "source": "Operator approved only total deletion latency at 650ms; retain the existing 325ms complete longtask limit."
     },
     "50000:restore": {
       "maximumLongTask": 500

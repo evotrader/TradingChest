@@ -12,6 +12,21 @@ function setup(){
   return {chart,values,inventory:new DrawingProjectionInventory(chart)}
 }
 describe('projection engine identity inventory',()=>{
+  it('indexes a stable read batch once without repeatedly copying the growing creation inventory',()=>{
+    const {chart,values,inventory}=setup(),reads=vi.mocked(chart.getOverlays)
+    for(let i=0;i<128;i++){
+      expect(inventory.get(String(i))).toBeUndefined();chart.removeOverlay({id:String(i)});chart.createOverlay({id:String(i),name:'segment'});expect(inventory.get(String(i))).toBe(values.get(String(i)))
+    }
+    expect(reads.mock.calls.filter(([filter])=>!filter)).toHaveLength(0)
+    for(let i=0;i<128;i++)expect(inventory.get(String(i))).toBe(values.get(String(i)))
+    expect(reads.mock.calls.filter(([filter])=>!filter)).toHaveLength(1)
+    chart.removeOverlay({id:'0'});expect(inventory.get('0')).toBeUndefined();inventory.dispose()
+  })
+  it('respects a getOverlays decorator even after a complete inventory was cached',()=>{
+    const {chart,inventory}=setup();for(const id of ['a','b'])chart.createOverlay({id,name:'segment'})
+    inventory.get('a');inventory.get('b');chart.getOverlays=vi.fn(()=>[])
+    expect(inventory.get('a')).toBeUndefined();inventory.dispose()
+  })
   it('observes a host replacing the same ID and preserves real overlay identity',()=>{
     const {chart,inventory}=setup()
     chart.createOverlay({id:'user',name:'segment'})

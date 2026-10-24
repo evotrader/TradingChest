@@ -132,9 +132,10 @@ export class DrawingHistory {
     try{this.options.onConfirmed?.({...copyCanonical(entry),kind:entry.before?(entry.after?'update':'delete'):'create',source,context})}
     catch(reason){this.error=`${this.text('drawing_notification_failed')}${reason instanceof Error?reason.message:String(reason)}`;this.emit()}
   }
-  private apply(id:string,state:DrawingSnapshot|null):DrawingSnapshot|null {
+  private apply(id:string,state:DrawingSnapshot|null,canonical=false):DrawingSnapshot|null {
     // The confirmed document is authoritative even if its current view cannot be rendered.
-    const actual=state?copy({...state,logicalId:id,overlay:{...state.overlay,id}}):null
+    const document=state?{...state,logicalId:id,overlay:{...state.overlay,id}}:null
+    const actual=canonical?copyCanonical(document):copy(document)
     if(actual)this.drawings.set(id,actual);else this.drawings.delete(id)
     try{this.options.apply(id,copyCanonical(actual));this.projectionErrors.delete(id)}
     catch(error){this.projectionErrors.set(id,error instanceof Error?error.message:String(error))}
@@ -159,8 +160,9 @@ export class DrawingHistory {
     if(!before&&!after)return {result:{status:'confirmed',snapshot:null},before,after:null}
     if(before&&after&&before.owner!==after.owner)throw Error(this.text('drawing_message_2'))
     let result:DrawingCommitResult
+    const external=(before??after)!.owner==='backend'&&!same(content(before),content(after))
     try{
-      result=(before??after)!.owner==='backend'&&!same(content(before),content(after))
+      result=external
         ?this.options.commit?await this.options.commit({kind,logicalId:id,before,after:copy(after),source,context:copy(context)}):{status:'rejected',message:this.text('drawing_message_3')}
         :{status:'confirmed',snapshot:after}
     }catch(reason){result={status:'uncertain',message:`${this.text('drawing_submission_uncertain')}${reason instanceof Error?reason.message:String(reason)}`}}
@@ -176,7 +178,9 @@ export class DrawingHistory {
       try{this.apply(id,state)}finally{this.emit()}
       return {result,before,after:state}
     }
-    const actual=this.apply(id,result.snapshot?{...after,...result.snapshot,presentation:after?.presentation}:null)
+    // Local requests have already crossed submit/travel's JSON boundary. Only
+    // external authority responses need another normalization at confirmation.
+    const actual=external?this.apply(id,result.snapshot?{...after,...result.snapshot,presentation:after?.presentation}:null):this.apply(id,after,true)
     this.error=undefined;this.emit();return {result:{status:'confirmed',snapshot:actual},before,after:actual}
   }
   submit(kind:DrawingChange['kind'],id:string,after:DrawingSnapshot|null,source:DrawingSource):Promise<DrawingCommitResult>{
@@ -280,14 +284,29 @@ export class DrawingHistory {
   redo(guard?:DrawingWriteGuard):Promise<DrawingCommitResult|undefined>{return this.travel('redo',guard)}
   /** Canonical external reads do not issue CRUD or discard unchanged objects' history. */
   reconcile(owner:DrawingOwner,values:DrawingSnapshot[],token?:symbol):void {
+    for(const _ of this.reconcileSteps(owner,values,token)){}
+  }
+  /** Layout-only staging keeps the original complete preflight and owner writer. */
+  async reconcileCooperatively(owner:DrawingOwner,values:DrawingSnapshot[],token:symbol,assertCurrent:()=>void):Promise<void> {
+    if(owner!=='local'||this.restoreToken!==token||this.restoreReason!=='layout')throw Error('合作式绘图恢复需要当前本图布局租约')
+    const steps=this.reconcileSteps(owner,copy(values),token)
+    let checkpoint=performance.now()
+    while(true){
+      assertCurrent()
+      if(this.disposed||this.restoreToken!==token)throw abort(this.options.locale?.()??'zh-CN')
+      if(steps.next().done)return
+      if(performance.now()-checkpoint>=32){await this.yieldLocalWork();assertCurrent();checkpoint=performance.now()}
+    }
+  }
+  private *reconcileSteps(owner:DrawingOwner,values:DrawingSnapshot[],token?:symbol):Generator<void> {
     this.assertRestore(token)
     if(this.pending)throw Error(this.text('drawing_message_7'))
     const ids=new Set(values.map(v=>v.logicalId))
     if(ids.size!==values.length||values.some(v=>v.owner!==owner))throw Error(this.text('drawing_message_8'))
     if(values.some(v=>this.drawings.has(v.logicalId)&&this.drawings.get(v.logicalId)!.owner!==owner))throw Error(this.text('drawing_message_9'))
     for(const value of values)this.options.validate?.(value)
-    for(const current of this.getDrawings())if(current.owner===owner&&!ids.has(current.logicalId)){this.apply(current.logicalId,null);this.dropHistory(current.logicalId);this.uncertain.delete(current.logicalId)}
-    for(const value of values){const old=this.drawings.get(value.logicalId),actual=this.apply(value.logicalId,{...value,presentation:value.presentation??old?.presentation});if(!same(content(old??null),content(actual)))this.dropHistory(value.logicalId);this.uncertain.delete(value.logicalId)}
+    for(const current of this.getDrawings())if(current.owner===owner&&!ids.has(current.logicalId)){this.apply(current.logicalId,null);this.dropHistory(current.logicalId);this.uncertain.delete(current.logicalId);yield}
+    for(const value of values){const old=this.drawings.get(value.logicalId),actual=this.apply(value.logicalId,{...value,presentation:value.presentation??old?.presentation});if(!same(content(old??null),content(actual)))this.dropHistory(value.logicalId);this.uncertain.delete(value.logicalId);yield}
     for(const [id,uncertainOwner] of this.uncertain)if(uncertainOwner===owner)this.uncertain.delete(id)
     if(!this.uncertain.size)this.error=undefined;this.emit()
   }

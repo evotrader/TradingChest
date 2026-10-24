@@ -11,6 +11,44 @@ function setup(commit?:(change:DrawingChange)=>Promise<DrawingCommitResult>,vali
   return {history,visible,apply,states}
 }
 describe('confirmed drawing history',()=>{
+  it('captures a cooperative layout restore and keeps ordinary reconciliation synchronous',async()=>{
+    const {history}=setup(),lease=history.beginRestore('layout')
+    const values=Array.from({length:3},(_,index)=>({...snapshot(10+index),logicalId:String(index)}))
+    let elapsed=0;const clock=vi.spyOn(performance,'now').mockImplementation(()=>elapsed+=40)
+    try{
+      const pending=history.reconcileCooperatively('local',values,lease.token,()=>{if(!lease.isCurrent())throw new DOMException('Changed','AbortError')})
+      expect(history.getDrawings()).toHaveLength(1);values[1].overlay.points[0].value=999
+      await pending;expect(history.getDrawing('1')!.overlay.points[0].value).toBe(11)
+      expect(history.getState().pending).toBe(1)
+    }finally{clock.mockRestore();lease.release()}
+    expect(history.getState().pending).toBe(0);history.reconcile('local',[snapshot(20)]);expect(history.getDrawings()).toHaveLength(1)
+  })
+  it('stops a yielded layout restore before it can overwrite a new identity document',async()=>{
+    const {history}=setup(),lease=history.beginRestore('layout'),values=Array.from({length:3},(_,index)=>({...snapshot(10),logicalId:String(index)}))
+    let elapsed=0;const clock=vi.spyOn(performance,'now').mockImplementation(()=>elapsed+=40)
+    try{
+      const pending=history.reconcileCooperatively('local',values,lease.token,()=>{if(!lease.isCurrent())throw new DOMException('Changed','AbortError')})
+      expect(history.getDrawings()).toHaveLength(1);history.reset(true);history.reconcile('local',[snapshot(88)])
+      await expect(pending).rejects.toMatchObject({name:'AbortError'});expect(history.getDrawings()).toEqual([snapshot(88)])
+    }finally{clock.mockRestore();lease.release()}
+  })
+  it('preflights all cooperative values before writes and rejects a backend or expired lease',async()=>{
+    const {history,apply}=setup(undefined,value=>{if(value.overlay.paneId==='missing')throw Error('Missing pane')}),lease=history.beginRestore('layout')
+    try{
+      await expect(history.reconcileCooperatively('local',[snapshot(10),{...snapshot(11),logicalId:'bad',overlay:{...snapshot(11).overlay,paneId:'missing'}}],lease.token,()=>{})).rejects.toThrow('Missing pane')
+      expect(apply).not.toHaveBeenCalled();await expect(history.reconcileCooperatively('backend',[],lease.token,()=>{})).rejects.toThrow('租约')
+    }finally{lease.release()}
+    await expect(history.reconcileCooperatively('local',[],lease.token,()=>{})).rejects.toThrow('租约')
+  })
+  it('normalizes local write inputs once and isolates confirmation callbacks from canonical state',async()=>{
+    const values=snapshot(10);values.overlay.extendData={date:new Date('2026-10-24T00:00:00Z'),rows:[{value:1}],omitted:undefined}
+    const {history}=setup();const pending=history.submit('create',values.logicalId,values,'manual')
+    ;(values.overlay.extendData as any).rows[0].value=999
+    await pending;const actual=history.getDrawing(values.logicalId)!
+    expect(actual.overlay.extendData).toEqual({date:'2026-10-24T00:00:00.000Z',rows:[{value:1}]})
+    ;(actual.overlay.extendData as any).rows[0].value=100
+    expect((history.getDrawing(values.logicalId)!.overlay.extendData as any).rows[0].value).toBe(1)
+  })
   it('retains unknown write ownership when restoring its canonical drawing fails',async()=>{
     let failRender=false
     const commit=vi.fn(async():Promise<DrawingCommitResult>=>({status:'uncertain',message:'Response lost'}))

@@ -410,7 +410,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const nativeDrawingPreviews = new WeakSet<Overlay>()
   let applyingDrawing=false
   let drawingPresentationFrame:number|undefined
-  const [drawingState,setDrawingState]=createSignal<DrawingHistoryState>({pending:0,canUndo:false,canRedo:false,uncertainLogicalIds:[]})
+  const [drawingState,setDrawingState]=createSignal<DrawingHistoryState>({pending:0,canUndo:false,canRedo:false,uncertainLogicalIds:[]},{equals:(a,b)=>{
+    // Coalesce identical toolbar rendering only. History still publishes every
+    // confirmation and external observers read the authoritative current state.
+    if(a.pending!==b.pending||a.canUndo!==b.canUndo||a.canRedo!==b.canRedo||a.error!==b.error||a.uncertainLogicalIds.length!==b.uncertainLogicalIds.length||a.uncertainLogicalIds.some((id,index)=>id!==b.uncertainLogicalIds[index]))return false
+    const before=a.projectionErrors??{},after=b.projectionErrors??{},keys=Object.keys(before)
+    return keys.length===Object.keys(after).length&&keys.every(key=>Object.hasOwn(after,key)&&before[key]===after[key])
+  }})
   const drawingCatalog=copyDrawingCatalog(props.drawingCatalog)
   let drawingController:DrawingController
   let drawingCoordinator:DrawingCoordinator

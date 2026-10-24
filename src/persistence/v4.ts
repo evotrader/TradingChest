@@ -114,7 +114,12 @@ export async function restoreLayout(pro:ChartPro,layout:ChartLayoutV4):Promise<v
     const axisIds=await restoreEngineLayout(pro,{...base,version:3,overlayData:[]},transaction)
     assertCurrent()
     if(drawings.length>=128){await yieldTask();assertCurrent()}
-    transaction.restore('local',copy(drawings).map(d=>({...d,yAxisId:d.yAxisId?axisIds.get(d.yAxisId)??d.yAxisId:undefined})))
+    const local=copy(drawings).map(d=>({...d,yAxisId:d.yAxisId?axisIds.get(d.yAxisId)??d.yAxisId:undefined}))
+    if(local.length>=128){
+      binding.validateRestore('local',local)
+      await history.reconcileCooperatively('local',local,lease.token,assertCurrent)
+      assertCurrent()
+    }else transaction.restore('local',local)
     applyReferences?.apply()
     transaction.restore('backend',pro.getDrawings().filter(d=>d.owner==='backend').map(d=>({...d,presentation:drawingPresentation[d.logicalId]??d.presentation})))
   }catch(error){

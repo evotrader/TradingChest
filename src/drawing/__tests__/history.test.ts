@@ -40,6 +40,26 @@ describe('confirmed drawing history',()=>{
     }finally{lease.release()}
     await expect(history.reconcileCooperatively('local',[],lease.token,()=>{})).rejects.toThrow('租约')
   })
+  it('revalidates the next value after permission changes across a real cooperative yield',async()=>{
+    let allowed=true;const {history,apply}=setup(undefined,()=>{if(!allowed)throw Error('Permission revoked')}),lease=history.beginRestore('layout')
+    const values=Array.from({length:128},(_,index)=>({...snapshot(10),logicalId:String(index)}))
+    let elapsed=0;const clock=vi.spyOn(performance,'now').mockImplementation(()=>elapsed+=40)
+    try{
+      const pending=history.reconcileCooperatively('local',values,lease.token,()=>{})
+      expect(apply).toHaveBeenCalledTimes(1);allowed=false
+      await expect(pending).rejects.toThrow('Permission revoked');expect(apply).toHaveBeenCalledTimes(1);expect(history.getDrawingIds()).toEqual(['0'])
+    }finally{clock.mockRestore();lease.release()}
+  })
+  it('guards removals as well as replacements before each cooperative write',async()=>{
+    const {history,apply}=setup();history.reconcile('local',[snapshot(10),{...snapshot(11),logicalId:'second'}]);apply.mockClear()
+    const lease=history.beginRestore('layout');let allowed=true,elapsed=0
+    const clock=vi.spyOn(performance,'now').mockImplementation(()=>elapsed+=40)
+    try{
+      const pending=history.reconcileCooperatively('local',[],lease.token,()=>{},()=>{if(!allowed)throw Error('Authority changed')})
+      expect(apply).toHaveBeenCalledTimes(1);allowed=false
+      await expect(pending).rejects.toThrow('Authority changed');expect(history.getDrawingIds()).toEqual(['second']);expect(apply).toHaveBeenCalledTimes(1)
+    }finally{clock.mockRestore();lease.release()}
+  })
   it('normalizes local write inputs once and isolates confirmation callbacks from canonical state',async()=>{
     const values=snapshot(10);values.overlay.extendData={date:new Date('2026-10-24T00:00:00Z'),rows:[{value:1}],omitted:undefined}
     const {history}=setup();const pending=history.submit('create',values.logicalId,values,'manual')

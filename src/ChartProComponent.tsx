@@ -520,6 +520,14 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     assertDrawingRestoreAuthority(values,drawingCoordinator.getSharedDrawingIds())
     validateProjectionRestore(values,target)
   }
+  const validateRestoreStep:import('./drawing/history').DrawingWriteGuard=(before,after)=>{
+    const value=after??before;if(!value)return
+    const id=value.logicalId
+    assertDrawingRestoreAuthority([value],drawingCoordinator.hasSharedDrawing(id)?[id]:[])
+    const existing=projectionInventory?projectionInventory.get(id):widget?.getOverlays({id})[0]
+    const owned=drawingHistory.hasDrawing(id)||!!existing&&nativeDrawingPreviews.has(existing)
+    validateDrawingRestore(before&&after?[before,after]:[value],{editable,existing:existing?[snapshotOverlay(existing)]:[],ownedIds:new Set(owned?[id]:[])})
+  }
   const drawingPreviews=new Map<string,DrawingSnapshot>()
   const drawingFigures=new WeakMap<Overlay,OverlayFigure[]>()
   const drawingHandlePixel=(point:Overlay['points'][number],value:DrawingSnapshot,size:{height:number})=>{
@@ -1179,7 +1187,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       priceUnitContainer?.appendChild(priceUnitDom)
     }
 
-    if(widget)drawingBindings.set(widget,{history:drawingHistory,validateRestore,captureSharedReferences:()=>drawingCoordinator.references(),prepareSharedReferences:async references=>{
+    if(widget)drawingBindings.set(widget,{history:drawingHistory,validateRestore,validateRestoreStep,captureSharedReferences:()=>drawingCoordinator.references(),prepareSharedReferences:async references=>{
       if(!props.drawingHostSessions||!shareResolver)throw Error('请先启用原共享存储适配器，引用已保留')
       const context=analysis.getContext();if(!context)throw Error('请先加载行情再恢复共享引用')
       const resolution=shareResolver(context);if('reason' in resolution)throw Error(resolution.reason)

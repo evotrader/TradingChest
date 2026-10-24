@@ -117,7 +117,7 @@ export async function restoreLayout(pro:ChartPro,layout:ChartLayoutV4):Promise<v
     const local=copy(drawings).map(d=>({...d,yAxisId:d.yAxisId?axisIds.get(d.yAxisId)??d.yAxisId:undefined}))
     if(local.length>=128){
       binding.validateRestore('local',local)
-      await history.reconcileCooperatively('local',local,lease.token,assertCurrent)
+      await history.reconcileCooperatively('local',local,lease.token,assertCurrent,binding.validateRestoreStep)
       assertCurrent()
     }else transaction.restore('local',local)
     applyReferences?.apply()

@@ -287,9 +287,9 @@ export class DrawingHistory {
     for(const _ of this.reconcileSteps(owner,values,token)){}
   }
   /** Layout-only staging keeps the original complete preflight and owner writer. */
-  async reconcileCooperatively(owner:DrawingOwner,values:DrawingSnapshot[],token:symbol,assertCurrent:()=>void):Promise<void> {
+  async reconcileCooperatively(owner:DrawingOwner,values:DrawingSnapshot[],token:symbol,assertCurrent:()=>void,guard?:DrawingWriteGuard):Promise<void> {
     if(owner!=='local'||this.restoreToken!==token||this.restoreReason!=='layout')throw Error('合作式绘图恢复需要当前本图布局租约')
-    const steps=this.reconcileSteps(owner,copy(values),token)
+    const steps=this.reconcileSteps(owner,copy(values),token,(before,after)=>{if(after)this.options.validate?.(after);guard?.(before,after)})
     let checkpoint=performance.now()
     while(true){
       assertCurrent()
@@ -298,15 +298,15 @@ export class DrawingHistory {
       if(performance.now()-checkpoint>=32){await this.yieldLocalWork();assertCurrent();checkpoint=performance.now()}
     }
   }
-  private *reconcileSteps(owner:DrawingOwner,values:DrawingSnapshot[],token?:symbol):Generator<void> {
+  private *reconcileSteps(owner:DrawingOwner,values:DrawingSnapshot[],token?:symbol,guard?:DrawingWriteGuard):Generator<void> {
     this.assertRestore(token)
     if(this.pending)throw Error(this.text('drawing_message_7'))
     const ids=new Set(values.map(v=>v.logicalId))
     if(ids.size!==values.length||values.some(v=>v.owner!==owner))throw Error(this.text('drawing_message_8'))
     if(values.some(v=>this.drawings.has(v.logicalId)&&this.drawings.get(v.logicalId)!.owner!==owner))throw Error(this.text('drawing_message_9'))
     for(const value of values)this.options.validate?.(value)
-    for(const current of this.getDrawings())if(current.owner===owner&&!ids.has(current.logicalId)){this.apply(current.logicalId,null);this.dropHistory(current.logicalId);this.uncertain.delete(current.logicalId);yield}
-    for(const value of values){const old=this.drawings.get(value.logicalId),actual=this.apply(value.logicalId,{...value,presentation:value.presentation??old?.presentation});if(!same(content(old??null),content(actual)))this.dropHistory(value.logicalId);this.uncertain.delete(value.logicalId);yield}
+    for(const current of this.getDrawings())if(current.owner===owner&&!ids.has(current.logicalId)){guard?.(current,null);this.apply(current.logicalId,null);this.dropHistory(current.logicalId);this.uncertain.delete(current.logicalId);yield}
+    for(const value of values){const old=this.drawings.get(value.logicalId);guard?.(old??null,value);const actual=this.apply(value.logicalId,{...value,presentation:value.presentation??old?.presentation});if(!same(content(old??null),content(actual)))this.dropHistory(value.logicalId);this.uncertain.delete(value.logicalId);yield}
     for(const [id,uncertainOwner] of this.uncertain)if(uncertainOwner===owner)this.uncertain.delete(id)
     if(!this.uncertain.size)this.error=undefined;this.emit()
   }

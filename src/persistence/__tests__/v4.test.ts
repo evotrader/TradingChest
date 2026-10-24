@@ -59,7 +59,8 @@ describe('v4 drawing persistence',()=>{
     const chart:any={getIndicators:()=>[],getPaneOptions:()=>[{id:'candle_pane',height:300,minHeight:30,order:0}],getYAxes:()=>[],getOverlays:()=>[],getDataList:()=>bars,getVisibleRange:()=>({from:0,to:1}),getBarSpace:()=>({bar:8}),getStyles:()=>({}),setStyles:vi.fn(),setPaneOptions:vi.fn(),setBarSpace:vi.fn(),scrollToDataIndex:vi.fn()}
     const history=new DrawingHistory({context:()=>({symbol:{ticker:'A'},period}),apply:(_id,value)=>{if(value?.anchors)projectAnchors(value.anchors,bars,period);return value}})
     const pro:any={getChart:()=>chart,getSymbol:()=>({ticker:'A'}),getPeriod:()=>period,getTheme:()=> 'dark',getLocale:()=> 'zh-CN',getTimezone:()=> 'UTC',getDrawingHistoryState:()=>history.getState(),getDrawings:()=>history.getDrawings(),getDrawingTools:()=>builtinDrawingCatalog,getIndicatorCatalog:()=>[],resetDrawingHistory:()=>history.reset(),setTheme:vi.fn(),setLocale:vi.fn(),setTimezone:vi.fn(),restoreDrawings:(owner:any,values:any)=>history.reconcile(owner,values)}
-    drawingBindings.set(chart,{history,validateRestore:(_owner,values)=>validateDrawingRestore(values,{editable:o=>!o.id.startsWith('alert_')&&o.id!=='host-denied',existing:chart.getOverlays(),ownedIds:new Set(history.getDrawings().map(d=>d.logicalId))})});return {chart,history,pro}
+    const validate=(values:any[])=>validateDrawingRestore(values,{editable:o=>!o.id.startsWith('alert_')&&o.id!=='host-denied',existing:chart.getOverlays(),ownedIds:new Set(history.getDrawings().map(d=>d.logicalId))})
+    drawingBindings.set(chart,{history,validateRestore:(_owner,values)=>validate(values),validateRestoreStep:(before,after)=>validate(before&&after?[before,after]:[after??before!])});return {chart,history,pro}
   }
   it('retains an unprojectable imported object and reports its missing reference explicitly',async()=>{
     const {history,pro}=runtime(),result=migrateLayoutToV4(legacy);if(result.status!=='ok')throw Error('migration failed')
@@ -130,6 +131,19 @@ describe('v4 drawing persistence',()=>{
     const identity={namespace:'host',symbol:{market:'equity',exchange:'X',ticker:'A.X',priceCurrency:'USD'},priceBasisKey:'raw'}
     await expect(restoreLayout(pro,{...result.value,sharedDrawingRefs:[{namespace:'host',documentId:'new',logicalId:'shared',identity}]})).rejects.toThrow('after adoption')
     expect(binding).toBe('original');expect(history.getDrawing('original')).toEqual(original);expect(history.getState().canUndo).toBe(true)
+  })
+  it('rolls back the document and undo stack when permission alone changes after a layout yield',async()=>{
+    const {chart,history,pro}=runtime(),result=migrateLayoutToV4(legacy);if(result.status!=='ok')throw Error('migration failed')
+    const original={...result.value.drawings[0],logicalId:'original',overlay:{...result.value.drawings[0].overlay,id:'original'}}
+    await history.submit('create','original',original,'programmatic')
+    const values=Array.from({length:128},(_,index)=>({...result.value.drawings[0],logicalId:`next-${index}`,overlay:{...result.value.drawings[0].overlay,id:`next-${index}`}}))
+    const binding=drawingBindings.get(chart)!,validate=binding.validateRestoreStep;let allowed=true,checked=0
+    binding.validateRestoreStep=(before,after)=>{if(!allowed)throw Error('Permission revoked');validate(before,after);if(after){checked++;queueMicrotask(()=>{allowed=false})}}
+    let elapsed=0;const clock=vi.spyOn(performance,'now').mockImplementation(()=>elapsed+=40)
+    try{await expect(restoreLayout(pro,{...result.value,drawings:values})).rejects.toThrow('Permission revoked')}
+    finally{clock.mockRestore()}
+    expect(checked).toBe(1);expect(history.getDrawings()).toEqual([original]);expect(history.getState()).toMatchObject({pending:0,canUndo:true});expect(pro.getSymbol()).toEqual({ticker:'A'})
+    await history.undo();expect(history.getDrawings()).toEqual([])
   })
 
 })

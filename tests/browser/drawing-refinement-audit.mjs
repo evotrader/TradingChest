@@ -168,6 +168,28 @@ try{
   if(action==='delete'||action==='update'){assert.equal(permission.undoCount,130);assert.equal(permission.undoRemaining,false)}
   result.scenarios.push({scenario:`${action}-policy-change-in-real-cooperative-yield`,passed:true})
  }
+ const restoredPermission=await page.evaluate(async()=>{
+  const {captureLayout,restoreLayout}=await import('/src/chart.ts')
+  auditArmed=false;auditEditable=true;pro.restoreDrawings('local',[])
+  const original=auditMake('rollback-original','segment')
+  await pro.commitDrawing({kind:'create',logicalId:original.logicalId,after:original,source:'programmatic'})
+  const layout=captureLayout(pro),chart=pro.getChart(),create=chart.createOverlay
+  layout.drawings=Array.from({length:128},(_,index)=>auditMake(`restore-next-${index}`,'segment'))
+  let writes=0,error
+  chart.createOverlay=function(...args){
+   const value=create.apply(this,args)
+   if(args[0]?.id?.startsWith('restore-next-')&&++writes===1){queueMicrotask(()=>{auditEditable=false});const until=performance.now()+40;while(performance.now()<until){}}
+   return value
+  }
+  try{await restoreLayout(pro,layout)}catch(reason){error=reason.message}finally{chart.createOverlay=create}
+  const result={error,writes,drawings:pro.getDrawings(),native:chart.getOverlays().map(value=>value.id),history:pro.getDrawingHistoryState()}
+  auditEditable=true;await pro.undoDrawing();result.afterUndo=pro.getDrawings().length
+  return result
+ })
+ assert.match(restoredPermission.error??'',/宿主管理/);assert.equal(restoredPermission.writes,1)
+ assert.deepEqual(restoredPermission.drawings.map(value=>value.logicalId),['rollback-original']);assert.deepEqual(restoredPermission.native,['rollback-original'])
+ assert.equal(restoredPermission.history.pending,0);assert.equal(restoredPermission.history.canUndo,true);assert.equal(restoredPermission.afterUndo,0)
+ result.scenarios.push({scenario:'layout-restore-rechecks-live-permission-after-yield-and-rolls-back-native-document-and-undo',passed:true})
  assert.deepEqual(result.errors,[]);result.passed=true
  await page.screenshot({path:path.join(path.dirname(process.argv[2]),'completed.png')})
  await page.evaluate(()=>{pro.dispose();preferenceStore.dispose()})

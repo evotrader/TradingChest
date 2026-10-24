@@ -89,6 +89,7 @@ export class DrawingCoordinator {
   getSharing(){return {canSaveAs:!!this.options.saveAs,workspace:this.sessions.workspace?.getState(),host:this.sessions.host?.getState(),reason:this.reason||undefined}}
   hasSharedDrawings():boolean{return this.list().some(session=>session.history.getDrawingIds().length>0)}
   getSharedDrawingIds():string[]{return this.list().flatMap(session=>session.history.getDrawingIds())}
+  hasSharedDrawing(id:string):boolean{return this.list().some(session=>session.history.hasDrawing(id))}
   getDrawings():DrawingSnapshot[]{return [...this.local.getDrawings(),...this.list().flatMap(s=>s.history.getDrawings()).filter(d=>!this.local.hasDrawing(d.logicalId))]}
   /** Shared values project onto each chart's main price axis, never an engine instance ID. */
   prepare(value:DrawingSnapshot):DrawingSnapshot{if(!value.presentation?.scope||value.presentation.scope==='chart')return value;const prepared=copy(value);delete prepared.yAxisId;return prepared}

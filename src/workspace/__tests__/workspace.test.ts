@@ -121,7 +121,7 @@ describe('workspace ownership',()=>{
     const getPeriods=vi.fn().mockImplementationOnce(()=>new Promise(done=>release=done)).mockResolvedValue([period]);
     const w=new ChartWorkspace({container,context:'x',locale:'en-US',theme:'light',height:640,toolbar:{size:false},symbols:[{ticker:'A'}],initialSymbol:{ticker:'A'},initialPeriod:period,getPeriods,mountCell:()=>{
       mounted++;const engine:any={resize:vi.fn(),getDom:()=>null,subscribeAction:vi.fn(),unsubscribeAction:vi.fn(),getIndicators:()=>[],setStyles:vi.fn(),getOverlays:()=>[],getDataList:()=>[],getVisibleRange:()=>({from:0,to:0}),getBarSpace:()=>({bar:8}),getStyles:()=>({}),getPaneOptions:()=>[],getYAxes:()=>[]};
-      const history=new DrawingHistory({context:()=>({symbol:{ticker:'A'},period}),apply:(_id,value)=>value});drawingBindings.set(engine,{history,validateRestore:()=>{}});
+      const history=new DrawingHistory({context:()=>({symbol:{ticker:'A'},period}),apply:(_id,value)=>value});drawingBindings.set(engine,{history,validateRestore:()=>{},validateRestoreStep:()=>{}});
       const pro={getTheme:()=> 'dark',getLocale:()=> 'zh-CN',getTimezone:()=> 'UTC',getDrawingTools:()=>builtinDrawingCatalog,getChart:()=>engine,getIndicatorCatalog:()=>[],getSymbol:()=>({ticker:'A'}),getPeriod:()=>period,getShortcutManager:()=>({setEnabled:vi.fn()}),getDrawingHistoryState:()=>history.getState(),getDrawings:()=>history.getDrawings(),resetDrawingHistory:()=>history.reset(),setTheme:(value:string)=>chartThemes.push(value),setLocale:(value:string)=>chartLocales.push(value),setTimezone:vi.fn(),restoreDrawings:vi.fn()};
       return {ready:Promise.resolve(pro as unknown as ChartPro),dispose:()=>disposed++};
     }});instances.push(w);

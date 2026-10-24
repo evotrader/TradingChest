@@ -45,7 +45,10 @@
       "source": "Operator approved only total deletion latency at 650ms; retain the existing 325ms complete longtask limit."
     },
     "50000:restore": {
-      "maximumLongTask": 500
+      "maximumLongTask": 500,
+      "maximumLatency": 1250,
+      "approvedOn": "2026-10-24",
+      "source": "Operator approved only 50k full-restore total latency at 1250ms after audit-fix R2; retain the 500ms original and 250ms upgrade longtask limits."
     }
   },
   "mixedLimits": {

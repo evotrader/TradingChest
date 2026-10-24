@@ -5,8 +5,9 @@ const browser=await launchBrowser(),budgets=JSON.parse(readFileSync(new URL('./p
 const result={syntheticInputs:true,mode:diagnostic?'diagnostic':'formal',rounds,samples:[],gates:[],errors:[]},save=()=>writeFileSync(process.argv[2],JSON.stringify(result,null,2)+'\n')
 const p95=values=>{assert.ok(values.length&&values.every(value=>Number.isFinite(value)&&value>=0));return [...values].sort((a,b)=>a-b)[Math.ceil(values.length*.95)-1]}
 const gate=(name,actual,limit,extra={})=>result.gates.push({name,actual,limit,passed:actual<=limit,...extra})
-// Approved on 2026-10-24 after focused R4 review; same-bar and incremental gates remain unchanged.
-const approvedAppendUpdates={'10000:100':70,'50000:0':250,'50000:100':250}
+// Original limits: implementation R4; zero-rule 10k limit: separately approved audit-fix R2 proposal.
+// Same-bar and incremental gates remain unchanged.
+const approvedAppendUpdates={'10000:0':70,'10000:100':70,'50000:0':250,'50000:100':250}
 try{
  const page=await browser.newPage({viewport:{width:1280,height:1000}});page.on('pageerror',error=>result.errors.push(error.message));result.browser=browser.version()
  await page.goto(`${process.env.TC_BROWSER_BASE}/tests/browser/drawing-alerts-performance.html`);await page.waitForFunction(()=>window.ready)

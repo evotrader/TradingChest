@@ -1,1 +1,11 @@
-{"private":true,"type":"module","scripts":{"test":"node --test adapter.test.mjs"},"dependencies":{"trading-chest":"file:../trading-chest-0.11.0.tgz","klinecharts":"10.1.0"}}
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test adapter.test.mjs"
+  },
+  "dependencies": {
+    "trading-chest": "file:../trading-chest-0.13.0.tgz",
+    "klinecharts": "10.1.0"
+  }
+}

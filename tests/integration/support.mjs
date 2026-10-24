@@ -32,7 +32,7 @@ export async function example(workspace,name,{react,updateLocks=false}={}) {
   const lockPath=path.join(directory,'package-lock.json')
   try{const lock=JSON.parse(readFileSync(lockPath,'utf8'));delete lock.packages['node_modules/trading-chest'];writeFileSync(lockPath,JSON.stringify(lock,null,2)+'\n')}catch(error){if(error.code!=='ENOENT')throw error}
   await command('npm',['install','--package-lock-only','--ignore-scripts','--no-audit','--no-fund'],directory)
-  if(updateLocks&&(!react||react==='19.2.3'))copyFileSync(lockPath,path.join(root,'examples',name,'package-lock.json'))
+  if(updateLocks&&(!react||react==='19.2.3')){copyFileSync(manifest,path.join(root,'examples',name,'package.json'));copyFileSync(lockPath,path.join(root,'examples',name,'package-lock.json'))}
   await command('npm',['ci','--ignore-scripts','--no-audit','--no-fund'],directory)
   return directory
 }

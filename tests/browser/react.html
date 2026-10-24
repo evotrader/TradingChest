@@ -45,6 +45,32 @@ window.reactLifecycle=async()=>{
  root.unmount();await frame();if(state.subscriptions||state.created!==state.disposed||host.childNodes.length)throw Error('Portal lifecycle leaked')
  return {contextPreserved:true,capturePreserved:true,borrowedStoreRetained:true,...state}
 }
+window.reactDrawingAlertCallbacks=async()=>{
+ const state={created:0,disposed:0,subscriptions:0,subscribes:0},root=createRoot(host),ref=React.createRef(),events={a:[],b:[],c:[],replayB:[],replayC:[]},states={a:0,b:0,c:0}
+ let push
+ const bars=makeBars(60).map((bar,index)=>({...bar,open:index%2?101:99,high:102,low:98,close:index%2?101:99}))
+ const initialOptions={...options,drawingAlertScope:'react-alert-callbacks'},createDatafeed=()=>{state.created++;return {searchSymbols:async()=>[symbol],getHistoryKLineData:async()=>({bars:bars.map(bar=>({...bar})),hasMoreBefore:false}),subscribe:(_s,_p,callback)=>{push=callback;state.subscriptions++;state.subscribes++},unsubscribe:()=>{push=undefined;state.subscriptions--},dispose:()=>state.disposed++}}
+ const render=events=>root.render(React.createElement(TradingChart,{ref,height:850,initialOptions,createDatafeed,events}))
+ const update=close=>{const bar={...bars.at(-1),open:close,high:close+1,low:close-1,close};bars[bars.length-1]=bar;push({...bar})}
+ try{
+  render();await until(()=>ref.current?.getAnalysisContext());const original=ref.current
+  const id='react-alert-source',anchor={kind:'market',timestamp:bars[0].timestamp,value:100}
+  original.restoreDrawings('local',[{logicalId:id,owner:'local',anchors:[anchor],overlay:{id,name:'horizontalStraightLine',paneId:'candle_pane',groupId:'drawing_tools',points:[{timestamp:anchor.timestamp,value:100}],styles:null,extendData:null,visible:true,lock:false}}])
+  if(original.executeDrawingAlertCommand({type:'create',id:'react-alert',drawingLogicalId:id,frequency:'once-per-bar'}).status!=='completed')throw Error('Actual React chart did not bind the confirmed source')
+  render({onDrawingAlertTrigger:event=>events.a.push(event),onDrawingAlertStateChange:()=>states.a++});await frame();update(99);update(101);await frame()
+  const oldA=states.a
+  render({onDrawingAlertTrigger:event=>events.b.push(event),onReplayDrawingAlertTrigger:event=>events.replayB.push(event),onDrawingAlertStateChange:()=>states.b++});await frame()
+  original.executeDrawingAlertCommand({type:'rearm',id:'react-alert'});update(99);update(101);await frame()
+  if(ref.current!==original||state.created!==1||state.subscriptions!==1||state.subscribes!==1)throw Error('Live callback updates rebuilt the chart or subscription')
+  original.startReplay(5);await frame();original.getReplayEngine().stepForward();await frame()
+  const oldB=states.b
+  render({onDrawingAlertTrigger:event=>events.c.push(event),onReplayDrawingAlertTrigger:event=>events.replayC.push(event),onDrawingAlertStateChange:()=>states.c++});await frame()
+  original.executeDrawingAlertCommand({type:'rearm',id:'react-alert'});original.getReplayEngine().goToPosition(5);await frame();original.getReplayEngine().stepForward();await frame()
+  if(ref.current!==original||state.created!==1||state.subscriptions!==0||state.subscribes!==1)throw Error('Replay callback updates rebuilt the chart or its suspended feed')
+  if(events.a.length!==1||events.b.length!==1||events.c.length!==0||events.replayB.length!==1||events.replayC.length!==1||states.a!==oldA||states.b!==oldB||!oldA||!oldB||!states.c)throw Error('Committed React drawing callbacks were stale or mixed modes: '+JSON.stringify({events,states,oldA,oldB}))
+  return {reused:true,liveA:events.a.length,liveB:events.b.length,replayB:events.replayB.length,replayC:events.replayC.length,stateHandoff:true}
+ }finally{root.unmount();await frame();if(state.created!==state.disposed||state.subscriptions||host.childNodes.length)throw Error('React drawing alert callback case leaked owned resources')}
+}
 window.trackReactResources=()=>{
  const add=EventTarget.prototype.addEventListener,remove=EventTarget.prototype.removeEventListener,timeout=window.setTimeout,clearTimeout=window.clearTimeout,interval=window.setInterval,clearInterval=window.clearInterval,raf=window.requestAnimationFrame,cancelRaf=window.cancelAnimationFrame,Observer=window.ResizeObserver
  const listeners=[],timers=new Set(),frames=new Set(),observers=new Set(),owned=()=>new Error().stack.includes('/src/'),capture=options=>typeof options==='boolean'?options:!!options?.capture

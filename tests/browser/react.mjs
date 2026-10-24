@@ -24,6 +24,7 @@ try{
   assert.ok(result.gates.every(g=>g.passed),JSON.stringify(result.gates.filter(g=>!g.passed)))
  }else{
   await page.evaluate(()=>{window.ownedReactResources=trackReactResources()})
+  result.drawingAlerts=await page.evaluate(()=>reactDrawingAlertCallbacks());assert.deepEqual(result.drawingAlerts,{reused:true,liveA:1,liveB:1,replayB:1,replayC:1,stateHandoff:true})
   result.lifecycle=await page.evaluate(()=>reactLifecycle())
   // These are real React wrappers and real Canvas; each sample checks every owned feed and DOM.
   for(let cycle=0;cycle<100;cycle++){

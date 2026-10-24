@@ -13,9 +13,14 @@ window.sampleDrawingAlerts=async({count,rules,append})=>{
   while(!['MA','VOL','MACD'].every(name=>pro.getChart().getIndicators({name})[0]?.result.length===count)){if(performance.now()>deadline)throw Error('指标未完整计算');await frame()}
   const id='confirmed-source',anchor={kind:'market',timestamp:bars[0].timestamp,value:100}
   pro.restoreDrawings('local',[{logicalId:id,owner:'local',anchors:[anchor],overlay:{id,name:'horizontalStraightLine',paneId:'candle_pane',groupId:'drawing_tools',points:[{timestamp:anchor.timestamp,value:100}],visible:true,lock:false,styles:null,extendData:null}}])
+  const initial={...bars.at(-1),open:99,high:100,low:98,close:99};bars[bars.length-1]=initial;push(initial);await frame()
   for(let i=0;i<rules;i++)if(pro.executeDrawingAlertCommand({type:'create',id:'rule-'+i,drawingLogicalId:id,frequency:'once-per-bar'}).status!=='completed')throw Error('提醒未绑定实际已确认来源')
   if(pro.getDrawingAlertState().length!==rules)throw Error('提醒数不完整')
+  // Seed all rules after creation; incidental notifications must not give only
+  // the first rule an earlier comparison point than the remaining rules.
+  const seed={...bars.at(-1),open:98,high:99,low:97,close:98};bars[bars.length-1]=seed;push(seed)
   await frame()
+  events=0
   for(let i=0;i<100;i++){
    const previous=bars.at(-1),close=i%2?101:99,bar={...previous,timestamp:previous.timestamp+(append?60000:0),open:close,high:close+1,low:close-1,close}
    if(append)bars.push(bar);else bars[bars.length-1]=bar

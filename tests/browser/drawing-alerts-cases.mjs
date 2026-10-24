@@ -59,5 +59,24 @@ export async function drawingAlertCases(page){
   return {afterForward,afterBackward:alertBench.replayEvents.length-replayBefore,live:alertBench.events.length-liveBefore,liveMarker:state.hasTriggered,replayMarker:state.replay.hasTriggered,afterExit:pro.getDrawingAlertState().find(s=>s.rule.id==='replay-rule').hasTriggered}
  })
  assert.deepEqual(replay,{afterForward:1,afterBackward:1,live:0,liveMarker:false,replayMarker:true,afterExit:false});scenarios.push('native-replay-forward-backward-separate-events-markers-and-exit')
+ const replayBars=await page.evaluate(async()=>{
+  for(const state of pro.getDrawingAlertState())pro.executeDrawingAlertCommand({type:'delete',id:state.rule.id})
+  const bars=alertBench.bars.map(bar=>({...bar,open:9,high:12,low:8,close:9})),position=bars.length-3
+  bars[position].close=11;bars[position+1].close=9
+  await alertBench.replaceHistory(bars);await alertBench.frame()
+  const id=await alertBench.seed('horizontalStraightLine',[{kind:'market',timestamp:bars[0].timestamp,value:10}])
+  const created=pro.executeDrawingAlertCommand({type:'create',id:'replay-bars',drawingLogicalId:id,frequency:'once-per-bar'})
+  if(created.status!=='completed')throw Error(created.message)
+  const before=alertBench.replayEvents.length,live=alertBench.events.length
+  pro.startReplay(position);await alertBench.frame();const replay=pro.getReplayEngine()
+  replay.stepForward();await alertBench.frame();replay.stepForward();await alertBench.frame()
+  replay.goToPosition(position);await alertBench.frame();replay.stepForward();await alertBench.frame()
+  const repeated=alertBench.replayEvents.slice(before).map(event=>event.barTimestamp)
+  pro.executeDrawingAlertCommand({type:'rearm',id:'replay-bars'});replay.goToPosition(position);await alertBench.frame();replay.stepForward();await alertBench.frame()
+  const rearmed=alertBench.replayEvents.slice(before).map(event=>event.barTimestamp)
+  pro.stopReplay();while(pro.getReplayEngine())await alertBench.frame()
+  return {repeated,rearmed,expected:[bars[position].timestamp,bars[position+1].timestamp],live:alertBench.events.length-live}
+ })
+ assert.deepEqual(replayBars.repeated,replayBars.expected);assert.deepEqual(replayBars.rearmed,[...replayBars.expected,replayBars.expected[0]]);assert.equal(replayBars.live,0);scenarios.push('once-per-bar-fixed-history-seek-deduplication-and-explicit-rearm')
  return scenarios
 }

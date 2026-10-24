@@ -8,7 +8,7 @@ import type {DrawingAlertCommand,DrawingAlertCommandResult,DrawingAlertDocumentV
 
 type Mode='live'|'replay'
 type Track=DrawingAlertMarkers&{status:DrawingAlertStatus;reason?:string;records:DrawingAlertEvent[];previous?:DrawingAlertSample}
-type Entry={rule:DrawingAlertRule;enabled:boolean;live:Track;replay:Track;geometryKey?:string}
+type Entry={rule:DrawingAlertRule;enabled:boolean;live:Track;replay:Track;replayTriggeredBars:Set<number>;geometryKey?:string}
 interface Context {series:ConfirmedSeries;state:ChartDataState;bars:readonly DrawingAlertSample[];axis:'linear'|'percentage'|'log';axisId?:string}
 interface Options {
   scope?:string
@@ -77,7 +77,7 @@ export class DrawingAlertRuntime {
       // Rules for another series remain paused; only current-context rules can bind here.
       const matches=this.context&&sameDrawingAlertIdentity(item.rule.identity,identity(this.context.series.symbol,this.context.series.basis))&&sameDrawingAlertPeriod(item.rule.period,this.context.series.period)
       if(matches)this.geometry(this.getSource(item.rule))
-      next.set(item.rule.id,{rule:clone(item.rule),enabled:false,live:{...track(),hasTriggered:item.hasTriggered,lastBarTimestamp:item.lastBarTimestamp,status:'paused',reason:'已恢复为暂停；继续监控保留去重，重置并启用会清除去重'},replay:{...track(),status:'paused'}})
+      next.set(item.rule.id,{rule:clone(item.rule),enabled:false,live:{...track(),hasTriggered:item.hasTriggered,lastBarTimestamp:item.lastBarTimestamp,status:'paused',reason:'已恢复为暂停；继续监控保留去重，重置并启用会清除去重'},replay:{...track(),status:'paused'},replayTriggeredBars:new Set()})
     }
     this.entries=next;this.emit()
   }
@@ -93,7 +93,7 @@ export class DrawingAlertRuntime {
         const rule:DrawingAlertRule={id,drawingLogicalId:source.logicalId,sourceOwner:source.owner,...(source.owner==='backend'?{backendId:source.backendId}:{}),toolId:geometry.toolId,identity:identity(context.series.symbol,context.series.basis),period:period(context.series.period),condition:command.condition??'crossing',frequency:command.frequency??'once',...(command.message!==undefined?{message:command.message}:{})}
         validateDrawingAlertRule(rule)
         if(this.entries.has(id))throw Error('画线提醒 ID 已存在')
-        this.entries.set(id,{rule,enabled:true,live:track(),replay:track(),geometryKey:JSON.stringify([geometry,context.axis])});this.emit()
+        this.entries.set(id,{rule,enabled:true,live:track(),replay:track(),replayTriggeredBars:new Set(),geometryKey:JSON.stringify([geometry,context.axis])});this.emit()
         return {status:'completed',id}
       }
       const entry=this.entries.get(command.id)
@@ -114,7 +114,7 @@ export class DrawingAlertRuntime {
         if(this.options.uncertain(entry.rule.drawingLogicalId)||this.options.restoring())throw Error('绘图来源尚未确认，请刷新原来源')
         const geometry=this.geometry(this.getSource(entry.rule)),current=entry[this.currentMode]
         if(command.type==='resume'&&entry.rule.frequency==='once'&&current.hasTriggered)throw Error('此提醒已触发，请使用“重置并启用”')
-        if(command.type==='rearm'){current.hasTriggered=false;delete current.lastBarTimestamp}
+        if(command.type==='rearm'){current.hasTriggered=false;delete current.lastBarTimestamp;if(this.currentMode==='replay')entry.replayTriggeredBars.clear()}
         this.clear(entry);entry.enabled=true;entry.geometryKey=JSON.stringify([geometry,context.axis]);current.status='waiting';current.reason='等待下一个有效样本建立比较点'
       }else throw Error('画线提醒命令无效')
       this.emit();return {status:'completed',id:command.id}
@@ -175,11 +175,11 @@ export class DrawingAlertRuntime {
           const geometry=this.geometry(this.getSource(entry.rule)),sample=bars.at(-1)
           if(!sample)throw Error('暂无已确认行情')
           if(series.contentChange!=='tail'||contextChanged)current.previous=undefined
-          const result=evaluateDrawingAlert({rule:entry.rule,geometry,bars,previous:current.previous,current:sample,state:current,axis,mode})
+          const result=evaluateDrawingAlert({rule:entry.rule,geometry,bars,previous:current.previous,current:sample,state:current,axis,mode,triggeredBarTimestamps:mode==='replay'?entry.replayTriggeredBars:undefined})
           current.previous=result.comparison;current.hasTriggered=result.state.hasTriggered;current.lastBarTimestamp=result.state.lastBarTimestamp;current.status=result.status;current.reason=result.reason
           if(!result.reason&&state.connection==='unknown')current.reason='连接状态未声明；按已确认输入监控'
           if(!result.reason&&series.basis===undefined)current.reason=[current.reason,'行情口径未声明；恢复后需手动继续'].filter(Boolean).join('；')
-          if(result.event){current.records.push(result.event);if(current.records.length>100)current.records.shift();deliveries.push(result.event);changed=true}
+          if(result.event){if(mode==='replay')entry.replayTriggeredBars.add(result.event.barTimestamp);current.records.push(result.event);if(current.records.length>100)current.records.shift();deliveries.push(result.event);changed=true}
         }catch(error){current.previous=undefined;current.status='waiting';current.reason=error instanceof Error?error.message:String(error)}
       }
       if(before!==JSON.stringify([current.status,current.reason,current.hasTriggered,current.lastBarTimestamp]))changed=true

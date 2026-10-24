@@ -19,12 +19,13 @@ export function evaluateDrawingAlert(input:DrawingAlertEvaluation):DrawingAlertE
       if(extra&&(!Number.isFinite(extra.nextTimestamp)||extra.nextTimestamp<=anchor.timestamp||!Number.isFinite(extra.fraction)||extra.fraction<=0||extra.fraction>=1))throw Error('市场插值锚点无效')
       // Match projectAnchors: interpolate the market instant, then locate it in actual bars.
       const timestamp=extra?anchor.timestamp+(extra.nextTimestamp-anchor.timestamp)*extra.fraction:anchor.timestamp
-      return {x:marketIndex(timestamp,bars),y:value(anchor.value)}
+      return {x:marketIndex(timestamp,bars),y:value(anchor.value),price:anchor.value}
     })
     const reference=(sample:DrawingAlertSample)=>{
-      value(sample.close)
+      const observed=value(sample.close)
       const x=marketIndex(sample.timestamp,bars)
       let y=points[0].y
+      let exact:number|undefined=points[0].price
       if(count===2){
         const dx=points[1].x-points[0].x
         if(!Number.isFinite(dx)||dx===0)throw Error('垂直线不能用作价格穿越提醒')
@@ -32,18 +33,19 @@ export function evaluateDrawingAlert(input:DrawingAlertEvaluation):DrawingAlertE
         if(!Number.isFinite(u))throw Error('参考位置超出可表示范围')
         if(geometry.toolId==='segment'&&(u<0||u>1)||geometry.toolId==='rayLine'&&u<0)throw Error('观测价格位于绘图有效范围之外，请使用直线或射线持续监控')
         y=(1-u)*points[0].y+u*points[1].y
+        exact=u===0?points[0].price:u===1?points[1].price:points[0].price===points[1].price?points[0].price:undefined
       }
-      const price=logarithmic?Math.exp(y):y
+      const price=exact??(logarithmic?Math.exp(y):y)
       if(!Number.isFinite(price)||logarithmic&&price<=0)throw Error('参考价格超出可表示范围')
-      return price
+      return {price,level:y,observed}
     }
     const now=reference(current)
     if(!previous)return {state,status:'monitoring',comparison:{...current}}
     if(current.timestamp<previous.timestamp)return waiting('观测时标已回退，请重新建立比较点')
-    const before=reference(previous),up=previous.close<before&&current.close>=now,down=previous.close>before&&current.close<=now
+    const before=reference(previous),up=before.observed<before.level&&now.observed>=now.level,down=before.observed>before.level&&now.observed<=now.level
     const crosses=rule.condition==='crossing'?up||down:rule.condition==='crossing-up'?up:rule.condition==='crossing-down'?down:false
-    if(!crosses||rule.frequency==='once-per-bar'&&state.lastBarTimestamp===current.timestamp)return {state,status:'monitoring',comparison:{...current}}
+    if(!crosses||rule.frequency==='once-per-bar'&&(state.lastBarTimestamp===current.timestamp||input.triggeredBarTimestamps?.has(current.timestamp)))return {state,status:'monitoring',comparison:{...current}}
     state.hasTriggered=true;state.lastBarTimestamp=current.timestamp
-    return {state,status:rule.frequency==='once'?'triggered':'monitoring',comparison:{...current},event:{ruleId:rule.id,drawingLogicalId:rule.drawingLogicalId,identity:{...rule.identity},period:{...rule.period},barTimestamp:current.timestamp,triggerPrice:current.close,referencePrice:now,condition:rule.condition,mode:input.mode??'live',...(rule.message!==undefined?{message:rule.message}:{})}}
+    return {state,status:rule.frequency==='once'?'triggered':'monitoring',comparison:{...current},event:{ruleId:rule.id,drawingLogicalId:rule.drawingLogicalId,identity:{...rule.identity},period:{...rule.period},barTimestamp:current.timestamp,triggerPrice:current.close,referencePrice:now.price,condition:rule.condition,mode:input.mode??'live',...(rule.message!==undefined?{message:rule.message}:{})}}
   } catch(error) {return waiting(error instanceof Error?error.message:String(error))}
 }

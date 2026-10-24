@@ -10,6 +10,7 @@ const pro=new KLineChartPro({container:document.querySelector('#chart'),symbol,p
 window.pro=pro
 window.alertBench={events,replayEvents,states,symbol,period,evaluateDrawingAlert,captureLayout,restoreLayout,
  get bars(){return bars.map(bar=>({...bar}))},get subscriptions(){return subscriptions},
+ replaceHistory(next){bars=next.map(bar=>({...bar}));return pro.applySnapshot({symbol,period,bars:this.bars,basis:'isolated-raw'})},
  update(close,{append=false,snapshot=false,multiple=0}={}){
    const previous=bars.at(-1),bar={...previous,timestamp:previous.timestamp+(append?60000:0),open:close,high:close+1,low:close-1,close}
    if(append)bars.push(bar);else bars[bars.length-1]=bar

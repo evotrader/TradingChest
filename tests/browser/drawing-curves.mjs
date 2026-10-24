@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {writeFileSync} from 'node:fs'
 const browser=await launchBrowser(),results=[]
 try{
- const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message))
+ const page=await browser.newPage({viewport:{width:1280,height:900},deviceScaleFactor:Number(process.env.TC_CURVE_DPR??1)}),errors=[];page.on('pageerror',e=>errors.push(e.message))
  await page.goto(`${process.env.TC_BROWSER_BASE}/tests/browser/drawing-workbench.html?database=curves-${Date.now()}`);await page.waitForFunction(()=>window.ready&&pro.getChart().getDom('candle_pane','main').getBoundingClientRect().height>200)
  const bar=page.getByRole('region',{name:'绘图属性'}),manager=page.getByRole('complementary',{name:'绘图管理'})
  const capture=()=>page.evaluate(async()=>{

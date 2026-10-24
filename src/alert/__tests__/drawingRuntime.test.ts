@@ -55,6 +55,27 @@ describe('drawing alert confirmed runtime',()=>{
   const geometry=s.history.getDrawing('d')!;geometry.anchors![0]={kind:'market',timestamp:0,value:12};s.history.reconcile('local',[geometry]);s.runtime.refreshSources();s.consume(11);s.consume(13)
   expect(s.trigger).toHaveBeenCalledTimes(1);s.consume(11,200);s.consume(13,200);expect(s.trigger).toHaveBeenCalledTimes(2)
  })
+ it('deduplicates every replay bar across seeks and pause/resume until explicit replay rearm',()=>{
+  const s=setup();s.create()
+  const replay=(close:number,timestamp:number,replace=false)=>s.consume(close,timestamp,{}, {replay:true,contentChange:replace?'replace':'tail'})
+  replay(9,200,true);replay(11,300);replay(9,400)
+  replay(9,200,true);replay(11,300)
+  expect(s.replayTrigger.mock.calls.map(([event])=>event.barTimestamp)).toEqual([300,400])
+  s.runtime.execute({type:'pause',id:'r'});s.runtime.execute({type:'resume',id:'r'})
+  replay(9,200,true);replay(11,300);expect(s.replayTrigger).toHaveBeenCalledTimes(2)
+  s.runtime.execute({type:'rearm',id:'r'});replay(9,200,true);replay(11,300)
+  expect(s.replayTrigger.mock.calls.map(([event])=>event.barTimestamp)).toEqual([300,400,300])
+  expect(s.trigger).not.toHaveBeenCalled();expect(s.runtime.getState()[0].hasTriggered).toBe(false)
+ })
+ it('retains replay deduplication beyond the bounded display history without serializing its set',()=>{
+  const s=setup();s.create()
+  for(let i=1;i<=120;i++){s.consume(9,i*100,{}, {replay:true,contentChange:'replace'});s.consume(11,i*100+1,{}, {replay:true})}
+  expect(s.runtime.getState()[0].replay.records).toHaveLength(100)
+  s.consume(9,100,{}, {replay:true,contentChange:'replace'});s.consume(11,101,{}, {replay:true})
+  expect(s.replayTrigger).toHaveBeenCalledTimes(120)
+  expect(s.runtime.getState()[0]).not.toHaveProperty('replayTriggeredBars')
+  expect(JSON.parse(JSON.stringify(s.runtime.capture())).rules[0]).toEqual({rule:s.runtime.getState()[0].rule,hasTriggered:false})
+ })
  it('keeps deleted source rules disabled after undo until an explicit resume',async()=>{
   const s=setup();s.create();s.consume(9);await s.history.submit('delete','d',null,'manual');s.runtime.refreshSources();expect(s.runtime.getState()[0]).toMatchObject({enabled:false,status:'source-missing'})
   await s.history.undo();s.runtime.refreshSources();s.consume(11);expect(s.trigger).not.toHaveBeenCalled();expect(s.runtime.execute({type:'resume',id:'r'}).status).toBe('completed');s.consume(9);s.consume(11);expect(s.trigger).toHaveBeenCalledTimes(1)

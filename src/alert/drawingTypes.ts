@@ -60,6 +60,8 @@ export interface DrawingAlertEvaluation {
   state:DrawingAlertMarkers
   axis?:'linear'|'percentage'|'log'
   mode?:'live'|'replay'
+  /** Ephemeral caller-owned history across replay seeks; add returned event timestamps. */
+  triggeredBarTimestamps?:ReadonlySet<number>
 }
 export interface DrawingAlertEvaluationResult {
   state:DrawingAlertMarkers

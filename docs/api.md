@@ -422,6 +422,6 @@ create 接受 drawingLogicalId、可选 id/condition/frequency/message；默认 
 
 `DrawingAlertRule` 包含 id、drawingLogicalId、sourceOwner、backend 来源的 backendId、toolId、identity（ticker/market/exchange/priceCurrency/basis 实际可选值）、period（multiplier/timespan）、condition、frequency 和可选 message。事件含 ruleId/drawingLogicalId、身份、周期、barTimestamp、triggerPrice、referencePrice、condition、mode 和可选 message。scope/backendId 都是不透明值，不推导业务身份。
 
-`trading-chest/alerts` 单独提供无 DOM 的 `evaluateDrawingAlert(input)`、`validateDrawingAlertDocument`、`validateDrawingAlertRule` 及纯类型；不需要图表／React／Solid 运行时。input 含 rule、geometry（toolId/market anchors）、真实 bars 时标序列、previous?/current（timestamp/close）、state（hasTriggered/lastBarTimestamp）、axis?（linear/percentage/log）、mode?。结果含新 state/status/reason、可选 comparison 和至多一个 event。调用方保存返回 comparison 作为下一次 previous；没有 comparison 时清旧点，不能跨无效域比较。
+`trading-chest/alerts` 单独提供无 DOM 的 `evaluateDrawingAlert(input)`、`validateDrawingAlertDocument`、`validateDrawingAlertRule` 及纯类型；不需要图表／React／Solid 运行时。input 含 rule、geometry（toolId/market anchors）、真实 bars 时标序列、previous?/current（timestamp/close）、state（hasTriggered/lastBarTimestamp）、axis?（linear/percentage/log）、mode?。跨回放跳转的调用方还需传入临时 `triggeredBarTimestamps?: ReadonlySet<number>`，每次返回 event 后将其 barTimestamp 加入同一规则的集合；seek、暂停、恢复不清，显式 rearm 才清。评估器只读此集合；图表运行时自动管理，集合不进入规则文档或公开状态。结果含新 state/status/reason、可选 comparison 和至多一个 event。调用方保存返回 comparison 作为下一次 previous；没有 comparison 时清旧点，不能跨无效域比较。
 
 完整边界、快照身份迁移及示例见 [0.13 升级](./upgrade/0.13.0.md)。本节为0.13候选 API，尚未由本地检查获得 npm 发布状态。

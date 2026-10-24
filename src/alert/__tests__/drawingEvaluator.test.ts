@@ -35,6 +35,22 @@ describe('portable observed-close drawing evaluation',()=>{
   const result=evaluateDrawingAlert(input({axis:'log',rule:{...rule,toolId:'straightLine'},geometry:{toolId:'straightLine',anchors:[anchor(0,1),anchor(2,100)]},previous:{timestamp:10,close:9},current:{timestamp:10,close:11}}))
   expect(result.event?.referencePrice).toBeCloseTo(10,12)
  })
+ it.each([
+  ['crossing-up',9,10,true],['crossing-down',11,10,true],['crossing',10,11,false],['crossing',10,9,false]
+ ] as const)('preserves exact log equality for %s: %s → %s', (condition,previous,current,expected)=>{
+  for(const toolId of ['horizontalStraightLine','straightLine','segment','rayLine'] as const){
+   const value=input({axis:'log',rule:{...rule,toolId,condition},geometry:{toolId,anchors:toolId==='horizontalStraightLine'?[anchor(0,10)]:[anchor(1,5),anchor(3,10)]},previous:{timestamp:1001,close:previous},current:{timestamp:1001,close:current}})
+   const result=evaluateDrawingAlert(value)
+   expect(!!result.event,toolId).toBe(expected)
+   if(result.event)expect(result.event.referencePrice).toBe(10)
+  }
+ })
+ it('accepts caller-owned replay history without mutating it or suppressing unseen earlier bars',()=>{
+  const triggeredBarTimestamps=new Set([1001,9000]),value=input({mode:'replay',triggeredBarTimestamps,state:{hasTriggered:true,lastBarTimestamp:9000}})
+  expect(evaluateDrawingAlert(value).event).toBeUndefined()
+  expect(evaluateDrawingAlert({...value,previous:{timestamp:10,close:9},current:{timestamp:10,close:11}}).event?.barTimestamp).toBe(10)
+  expect([...triggeredBarTimestamps]).toEqual([1001,9000])
+ })
  it('treats percentage as an affine price axis',()=>{
   expect(evaluateDrawingAlert(input({axis:'percentage'})).event?.referencePrice).toBe(10)
  })

@@ -132,6 +132,23 @@ describe('workspace ownership',()=>{
     expect(container.querySelector('[aria-label="Column width"]')).not.toBeNull();expect(container.textContent).toContain('Workspace restored')
     expect(mounted).toBe(2);expect(disposed).toBe(1);w.dispose();expect(disposed).toBe(2);
   })
+  it.each(['load','restore'] as const)('detaches %s input before an asynchronous staged mount',async mode=>{
+    const doc:import('../types').WorkspaceDocument={version:2,sharedDrawings:[],layout:1,activeCellId:'primary',sync:{symbol:false,period:false,crosshair:false,viewport:false},columnRatio:50,rowRatio:50,cells:[{cellId:'primary',context:'original',symbol:{ticker:'A.X'},period,chart:{version:4,timestamp:1,theme:'dark',locale:'zh-CN',timezone:'UTC',styles:{line:{color:'before'}},indicators:[],panes:[],axes:[],drawings:[],drawingPresentation:{},context:{ticker:'A.X',period:{multiplier:1,timespan:'minute'}}}}]}
+    const row={id:'saved',name:'私有副本',revision:'revision',updatedAt:1,document:doc},styles:unknown[]=[]
+    let release!:(value:Period[])=>void
+    const getPeriods=vi.fn().mockResolvedValueOnce([period]).mockImplementation(()=>new Promise(resolve=>{release=resolve}))
+    const {workspace}=setup({getPeriods,store:{list:async()=>[],read:async()=>row,write:async()=>row,remove:async()=>{}},mountCell:()=>{
+      const engine:any={resize:()=>{},getDom:()=>null,subscribeAction:()=>{},unsubscribeAction:()=>{},getIndicators:()=>[],setStyles:(value:unknown)=>styles.push(structuredClone(value)),getOverlays:()=>[],getDataList:()=>[],getVisibleRange:()=>({from:0,to:0}),getBarSpace:()=>({bar:8}),getStyles:()=>({}),getPaneOptions:()=>[],getYAxes:()=>[]}
+      const history=new DrawingHistory({context:()=>({symbol:{ticker:'A.X'},period}),apply:(_id,value)=>value});drawingBindings.set(engine,{history,validateRestore:()=>{},validateRestoreStep:()=>{}})
+      const pro={getTheme:()=> 'dark',getLocale:()=> 'zh-CN',getTimezone:()=> 'UTC',getDrawingTools:()=>builtinDrawingCatalog,getChart:()=>engine,getIndicatorCatalog:()=>[],getSymbol:()=>({ticker:'A.X'}),getPeriod:()=>period,getShortcutManager:()=>({setEnabled:()=>{}}),getDrawingHistoryState:()=>history.getState(),getDrawings:()=>history.getDrawings(),resetDrawingHistory:()=>history.reset(),setTheme:()=>{},setLocale:()=>{},setTimezone:()=>{},restoreDrawings:()=>{}}
+      return {ready:Promise.resolve(pro as unknown as ChartPro),dispose:()=>{}}
+    }})
+    await settle();const pending=mode==='load'?workspace.load('saved'):workspace.restore(doc)
+    await vi.waitFor(()=>expect(getPeriods).toHaveBeenCalledTimes(2))
+    ;(doc.cells[0].chart.styles as any).line.color='after'
+    release([period]);await pending
+    expect(styles).toEqual([{line:{color:'before'}}]);expect((row.document.cells[0].chart.styles as any).line.color).toBe('after')
+  })
   it('rejects sync changes while a layout expansion awaits a directory read',async()=>{
     const {workspace,container,getPeriods}=setup();await settle();let resolve!:(periods:Period[])=>void
     getPeriods.mockImplementationOnce(()=>new Promise(done=>resolve=done))

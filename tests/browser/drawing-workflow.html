@@ -2,10 +2,15 @@
 import {KLineChartPro,builtinDrawingCatalog,resolveDrawingLevels,createIndexedDBDrawingPreferencesStore,captureLayout,restoreLayout,saveLayoutV4,loadLayoutV4,deleteLayoutV4} from '/src/chart.ts'
 import {registerOverlay,registerIndicator} from 'klinecharts'
 import {makeBars} from './syntheticBars.ts'
-window.workflowSnapJobs=[];window.holdWorkflowSnap=false
-const workflowSnapCalculate=(data,indicator)=>{const result=data.map(bar=>({value:bar.close+(indicator.calcParams[0]??2)}));return window.holdWorkflowSnap?new Promise((resolve,reject)=>workflowSnapJobs.push({resolve:()=>resolve(result),reject})):result}
+window.workflowSnapJobs=[];window.holdWorkflowSnap=false;window.reuseWorkflowSnap=false
+const workflowSnapBuffers=new WeakMap()
+const workflowSnapCalculate=(data,indicator)=>{
+ const result=data.map(bar=>({value:bar.close+(indicator.calcParams[0]??2)})),publish=()=>{if(!window.reuseWorkflowSnap)return result;let shared=workflowSnapBuffers.get(indicator);if(!shared){shared=[];workflowSnapBuffers.set(indicator,shared)}shared.splice(0,shared.length,...result);return shared}
+ return window.holdWorkflowSnap?new Promise((resolve,reject)=>workflowSnapJobs.push({resolve:()=>resolve(publish()),reject})):publish()
+}
 registerIndicator({name:'TC_WORKFLOW_SNAP',shortName:'吸附测试线',series:'price',calcParams:[2],figures:[{key:'value',title:'Value',type:'line'}],calc:workflowSnapCalculate})
 window.releaseWorkflowSnap=()=>{window.holdWorkflowSnap=false;for(const job of workflowSnapJobs.splice(0))job.resolve()}
+window.releaseWorkflowSnapJob=index=>{const [job]=workflowSnapJobs.splice(index,1);if(!job)throw Error('No pending native calculation');job.resolve()}
 window.prepareWorkflowSnap=()=>{pro.getChart().overrideIndicator({name:'MA',visible:false});return pro.getChart().createIndicator({name:'TC_WORKFLOW_SNAP',paneId:'candle_pane',yAxisId:pro.getChart().getYAxes({paneId:'candle_pane'})[0].id},true)}
 const defaults=[0,.5,1],base=builtinDrawingCatalog.find(tool=>tool.toolId==='fibonacciLine')
 registerOverlay({name:'EXAMPLE/LevelBands',totalStep:3,createPointFigures:({coordinates,overlay,yAxis})=>{

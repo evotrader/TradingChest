@@ -34,7 +34,11 @@ const isSharedReference=(r:any):boolean=>{
   try{drawingShareKey(r.identity);return true}catch{return false}
 }
 export function isDrawingSnapshot(value:unknown):value is DrawingSnapshot {
-  if(!value||typeof value!=='object'||!jsonSafe(value))return false
+  return jsonSafe(value)&&drawingSnapshotShape(value)
+}
+/** The containing layout has already traversed every JSON field in this call. */
+function drawingSnapshotShape(value:unknown):value is DrawingSnapshot {
+  if(!value||typeof value!=='object')return false
   const d=value as DrawingSnapshot,o=d.overlay
   if(typeof d.logicalId!=='string'||!d.logicalId||!['local','backend'].includes(d.owner)||d.backendId!==undefined&&typeof d.backendId!=='string'||!o||o.id!==d.logicalId||typeof o.name!=='string'||!o.name||typeof o.groupId!=='string'||typeof o.lock!=='boolean'||typeof o.visible!=='boolean'||!Array.isArray(o.points)||o.paneId!==undefined&&typeof o.paneId!=='string')return false
   if(o.points.some(p=>!p||typeof p.value!=='number'||!Number.isFinite(p.value)||!['timestamp','dataIndex'].some(k=>typeof (p as any)[k]==='number'&&Number.isFinite((p as any)[k]))))return false
@@ -50,7 +54,7 @@ export function isChartLayoutV4(value:unknown):value is ChartLayoutV4 {
   if(v.sharedDrawingRefs!==undefined&&(!Array.isArray(v.sharedDrawingRefs)||v.sharedDrawingRefs.some(r=>!isSharedReference(r))||new Set(v.sharedDrawingRefs.map(r=>r.logicalId)).size!==v.sharedDrawingRefs.length))return false
   const {drawings,drawingPresentation,sharedDrawingRefs,...base}=v
   if(!isChartLayoutV3({...base,version:3,overlayData:[]}))return false
-  if(drawings.some(d=>!isDrawingSnapshot(d)||d.owner!=='local'||d.presentation?.scope!==undefined&&d.presentation.scope!=='chart'||!d.anchors||d.overlay.paneId&&!v.panes.some(p=>p.id===d.overlay.paneId)||d.yAxisId&&!v.axes.some(a=>a.id===d.yAxisId&&a.paneId===d.overlay.paneId)))return false
+  if(drawings.some(d=>!drawingSnapshotShape(d)||d.owner!=='local'||d.presentation?.scope!==undefined&&d.presentation.scope!=='chart'||!d.anchors||d.overlay.paneId&&!v.panes.some(p=>p.id===d.overlay.paneId)||d.yAxisId&&!v.axes.some(a=>a.id===d.yAxisId&&a.paneId===d.overlay.paneId)))return false
   if(new Set(drawings.map(d=>d.logicalId)).size!==drawings.length||Object.values(drawingPresentation).some(p=>!isDrawingPresentation(p)))return false
   const groups=new Map<string,string>()
   for(const d of drawings)if(d.presentation?.groupId){const pane=d.overlay.paneId??'candle_pane',previous=groups.get(d.presentation.groupId);if(previous&&previous!==pane)return false;groups.set(d.presentation.groupId,pane)}

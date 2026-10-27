@@ -267,7 +267,8 @@ export class ChartWorkspace {
     value={...value,document:migrateWorkspaceDocument(value.document)}
     const summary=this.summary(value)
     if(summary.id!==id||!isWorkspaceDocument(value.document)||value.document.cells.some(c=>c.context!==(c.cellId==='primary'?this.options.context:`${this.options.context}:${c.cellId}`)))throw this.storageFailure('WORKSPACE_INVALID_DOCUMENT',this.t('workspace_invalid_document'))
-    return {...summary,document:this.copy(value.document)}
+    // Migration already owns a private copy; retain the full check above without cloning again.
+    return {...summary,document:value.document}
   }
   private name(value:string):string {const name=value.trim();if(!name||name.length>80)throw this.storageFailure('WORKSPACE_INVALID_DOCUMENT',this.t('workspace_name_invalid'));return name}
   private renderSaved():void {

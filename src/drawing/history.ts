@@ -231,7 +231,7 @@ export class DrawingHistory {
             transaction.changes.push(entry);this.notify(entry,source,context)
           }
         }else stopped=true
-        if(!stopped&&cooperative&&request!==requested[requested.length-1]&&performance.now()-checkpoint>=128){await this.yieldLocalWork();checkpoint=performance.now()}
+        if(!stopped&&cooperative&&request!==requested[requested.length-1]&&performance.now()-checkpoint>=64){await this.yieldLocalWork();checkpoint=performance.now()}
       }
       return this.finish(items)
     })
@@ -274,7 +274,7 @@ export class DrawingHistory {
           if(direction==='undo')completed.changes.unshift(actual);else completed.changes.push(actual)
           this.notify({logicalId:entry.logicalId,before:outcome.before,after:outcome.after},'history',context)
         }else stopped=true
-        if(!stopped&&cooperative&&entry!==entries[entries.length-1]&&performance.now()-checkpoint>=128){await this.yieldLocalWork();checkpoint=performance.now()}
+        if(!stopped&&cooperative&&entry!==entries[entries.length-1]&&performance.now()-checkpoint>=64){await this.yieldLocalWork();checkpoint=performance.now()}
       }
       if(!transaction.changes.length){const index=from.indexOf(transaction);if(index>=0)from.splice(index,1)}
       this.finish(items);this.emit();return last

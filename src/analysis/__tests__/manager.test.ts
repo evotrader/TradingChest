@@ -10,7 +10,7 @@ function setup(){
  const indicators=new Map<string,any>(),axes=new Map<string,any>(),onEvent=vi.fn(),onPoint=vi.fn()
  const chart={getDataList:()=>bars,getIndicators:(f?:{id?:string})=>[...indicators.values()].filter(i=>!f?.id||i.id===f.id),createIndicator:(d:any)=>{const id=`i${++next}`,paneId=d.paneId??`p${next}`,yAxisId=`y${next}`;indicators.set(id,{...d,id,paneId,yAxisId});axes.set(yAxisId,{id:yAxisId,paneId});return id},overrideIndicator:(d:any)=>{indicators.set(d.id,{...indicators.get(d.id),...d})},removeIndicator:({id}:{id:string})=>{axes.delete(indicators.get(id)?.yAxisId);indicators.delete(id)},setPaneOptions:vi.fn()} as unknown as Chart
  Object.assign(chart,{getPaneOptions:(id:string)=>({id,height:100,minHeight:30})})
- const manager=new AnalysisManager({chart:()=>chart,locale:()=> 'zh-CN',onAnalysisEventClick:onEvent,onAnalysisPointSelect:onPoint})
+ const manager=new AnalysisManager({chart:()=>chart,confirmedBars:()=>bars,locale:()=> 'zh-CN',onAnalysisEventClick:onEvent,onAnalysisPointSelect:onPoint})
  const state:ConfirmedSeries={symbol:{ticker:'A'},period:{multiplier:1,timespan:'minute',text:'1m'},basis:'raw',confirmed:true,epoch:1,revision:1,replay:false}
  manager.sync(state)
  return {manager,chart,state,indicators,axes,onEvent,onPoint,setBars:(b:typeof bars)=>{bars=b}}

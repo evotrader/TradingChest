@@ -80,7 +80,10 @@ export function copyStoredWorkspace(scope:string,value:unknown,expectedId?:strin
     assertWorkspaceRevision(row.revision)
     if(row.scope!==scope||(expectedId!==undefined&&row.id!==expectedId))throw invalid('Stored workspace identity does not match its key')
     if(row.name!==normalizeWorkspaceName(row.name)||!Number.isFinite(row.updatedAt)||row.updatedAt<0)throw invalid('Stored workspace metadata is invalid')
-    return {id:row.id,name:row.name,updatedAt:row.updatedAt,revision:row.revision,document:copyWorkspaceDocument(scope,migrateWorkspaceDocument(row.document))}
+    // Current documents are fully checked and privately copied by the boundary below.
+    // Legacy documents still migrate before that same serialization boundary.
+    const document=row.document?.version===2?row.document:migrateWorkspaceDocument(row.document)
+    return {id:row.id,name:row.name,updatedAt:row.updatedAt,revision:row.revision,document:copyWorkspaceDocument(scope,document)}
   }catch(error){
     if(error instanceof WorkspaceStoreError)throw error
     throw invalid('Stored workspace cannot be validated or copied',error)

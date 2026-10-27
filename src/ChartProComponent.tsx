@@ -324,7 +324,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
 
   const [analysisViews,setAnalysisViews]=createSignal<AnalysisView[]>([])
-  const analysis=new AnalysisManager({chart:()=>widget,locale,changed:setAnalysisViews,onAnalysisLayerChange:props.onAnalysisLayerChange,onAnalysisEventClick:props.onAnalysisEventClick,onAnalysisPointSelect:props.onAnalysisPointSelect})
+  const analysis=new AnalysisManager({chart:()=>widget,confirmedBars:()=>loader?.getConfirmedBars()??[],locale,changed:setAnalysisViews,onAnalysisLayerChange:props.onAnalysisLayerChange,onAnalysisEventClick:props.onAnalysisEventClick,onAnalysisPointSelect:props.onAnalysisPointSelect})
   const analysisClick=(event:MouseEvent)=>analysis.click(event)
 
   // 回放状态

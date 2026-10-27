@@ -17,6 +17,16 @@ const stored=(scope='scope')=>({scope,id:'stable-id',name:'名称',revision:'opa
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals()})
 
 describe('workspace store value contract',()=>{
+  it('revalidates current records on each read and returns a fully detached document',()=>{
+    const row=stored(),first=copyStoredWorkspace('scope',row)
+    row.document.cells[0].chart.styles={line:{color:'changed'}}
+    expect(first.document.cells[0].chart.styles).toEqual({})
+    const second=copyStoredWorkspace('scope',row)
+    expect(second.document.cells[0].chart.styles).toEqual({line:{color:'changed'}})
+    ;(row.document.cells[0].chart.styles as any).nested={access_token:'invalid'}
+    expect(()=>copyStoredWorkspace('scope',row)).toThrow(WorkspaceStoreError)
+    expect(second.document.cells[0].chart.styles).toEqual({line:{color:'changed'}})
+  })
   it('exports distinguishable codes without changing the original cause',()=>{
     const cause=Error('native failure'),error=new WorkspaceStoreError('WORKSPACE_STORE_UNAVAILABLE','Unavailable',{cause})
     expect(error).toBeInstanceOf(Error);expect(error.name).toBe('WorkspaceStoreError');expect(error.code).toBe('WORKSPACE_STORE_UNAVAILABLE');expect(error.cause).toBe(cause)

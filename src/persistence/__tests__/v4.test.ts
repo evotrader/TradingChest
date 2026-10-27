@@ -7,10 +7,25 @@ import {DrawingHistory} from '../../drawing/history'
 import {drawingBindings} from '../../drawing/bindings'
 import {projectAnchors} from '../../drawing/anchors'
 import {validateDrawingRestore} from '../../drawing/restore'
+import {isDrawingSnapshot} from '../v4'
 import {builtinIndicatorCatalog} from '../../indicator/catalog'
 import {indicatorRegistry} from '../../indicator'
 const legacy={version:3,timestamp:1,theme:'dark',locale:'zh-CN',timezone:'UTC',styles:{},indicators:[],panes:[{id:'candle_pane'}],axes:[],annotationRefs:['server-1'],overlayData:[{id:'a',paneId:'candle_pane',groupId:'drawing_tools',name:'segment',points:[{timestamp:100,value:1},{timestamp:200,value:2}],visible:true,lock:false}]}
 describe('v4 drawing persistence',()=>{
+  it('checks nested JSON on every layout read and on standalone snapshot reads',()=>{
+    const migrated=migrateLayoutToV4(legacy);if(migrated.status!=='ok')throw Error('migration failed')
+    const layout=migrated.value,drawing=layout.drawings[0]
+    expect(isChartLayoutV4(layout)).toBe(true);expect(isDrawingSnapshot(drawing)).toBe(true)
+    for(const invalid of [()=>1,NaN,new Date(),{api_key:'not-a-credential'},layout]){
+      drawing.overlay.extendData={metadata:invalid} as any
+      expect(isChartLayoutV4(layout)).toBe(false)
+      expect(isDrawingSnapshot(drawing)).toBe(false)
+    }
+    drawing.overlay.extendData={metadata:{label:'retained'}}
+    expect(isChartLayoutV4(layout)).toBe(true)
+    drawing.anchors![0]={kind:'market',timestamp:100,value:Infinity}
+    expect(isChartLayoutV4(layout)).toBe(false)
+  })
   it('migrates without writing or mutating v3 and retains backend references',()=>{
     const original=JSON.stringify(legacy),result=migrateLayoutToV4(legacy)
     expect(result.status).toBe('ok');if(result.status!=='ok')throw Error('migration failed')

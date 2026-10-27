@@ -1,4 +1,4 @@
-import type {Chart} from 'klinecharts'
+import type {Chart,KLineData} from 'klinecharts'
 import type {ConfirmedSeries} from '../core/engineDataLoader'
 import type {AnalysisContext,AnalysisLayerSpec,AnalysisLayerHandle,AnalysisLayerState,AnalysisOptions,AnalysisEvent,AnalysisLabelPoint} from './types'
 import {registerAnalysisRenderer,runtimeBindings,type AnalysisRendererData} from './renderers'
@@ -42,19 +42,20 @@ export class AnalysisManager {
   private cutoff=Infinity
   private disposed=false
   private times=new Map<number,number>()
+  private timesDirty=true
   private signature=''
-  constructor(private options:AnalysisOptions&{chart:()=>Chart|null;locale:()=>string;changed?:(views:AnalysisView[])=>void}){}
+  constructor(private options:AnalysisOptions&{chart:()=>Chart|null;confirmedBars:()=>readonly KLineData[];locale:()=>string;changed?:(views:AnalysisView[])=>void}){}
   getContext():AnalysisContext|null{return this.context?structuredClone(this.context):null}
   sync(state:ConfirmedSeries):void {
     if(this.disposed)return
-    const bars=this.options.chart()?.getDataList()??[],confirmed=state.confirmed&&(bars.length>0||state.replay)
+    const bars=this.options.confirmedBars(),confirmed=state.confirmed&&(bars.length>0||state.replay)
     const changed=!this.context||!confirmed||state.epoch!==this.epoch||this.context?.basis!==state.basis
     if(changed){this.clear();this.epoch=state.epoch;this.context=confirmed?{token:`analysis_${++this.sequence}_${Math.random().toString(36).slice(2)}`,symbol:{...state.symbol},period:{...state.period},basis:state.basis}:null}
     const signature=`${state.revision}:${bars.length}:${bars[0]?.timestamp}:${bars.at(-1)?.timestamp}`
     const cutoff=state.replay?(state.cutoff??-Infinity):Infinity,modeChanged=this.replay!==state.replay||this.cutoff!==cutoff
     if(!changed&&!modeChanged&&signature===this.signature)return
     this.replay=state.replay;this.cutoff=cutoff
-    if(signature!==this.signature){this.signature=signature;this.times=new Map(bars.map((b,index)=>[b.timestamp,index]));for(const layer of this.layers.values())this.render(layer)}
+    if(signature!==this.signature){this.signature=signature;this.timesDirty=true;for(const layer of this.layers.values())this.render(layer)}
     else if(modeChanged)for(const layer of this.layers.values())this.render(layer)
     this.emit()
   }
@@ -77,6 +78,8 @@ export class AnalysisManager {
     return {id:spec.id,replaceData:data=>{active();try{validateData(spec,data,this.options.locale());const next=copyData(data);layer.spec={...layer.spec,data:next} as AnalysisLayerSpec;this.render(layer);this.emit()}catch(e){layer.state={...layer.state,status:'error',reason:e instanceof Error?e.message:String(e)};this.emit();throw e}},setVisible:visible=>{active();if(typeof visible!=='boolean')throw Error(i18n('analysis_validation_13',this.options.locale()));layer.state.visible=visible;this.render(layer);this.emit()},dispose:()=>{if(released)return;released=true;if(this.layers.get(spec.id)===layer){this.remove(layer);this.emit()}}}
   }
   private render(layer:Layer):void {
+    // Context reads need no time index. Build once when an actual layer consumes it.
+    if(this.timesDirty){this.times=new Map(this.options.confirmedBars().map((bar,index)=>[bar.timestamp,index]));this.timesDirty=false}
     const spec=layer.spec,visible=layer.state.visible,hiddenLabels=spec.type==='label-series'&&this.replay&&spec.data.some(p=>p.availableAt===undefined)
     const available=(p:{availableAt?:number;timestamp?:number})=>!this.replay||((p.timestamp??-Infinity)<=this.cutoff&&(p.availableAt??p.timestamp??Infinity)<=this.cutoff)
     layer.events=[];layer.points=[]
@@ -137,6 +140,6 @@ export class AnalysisManager {
   }
   private emit():void {if(this.disposed)return;const views=this.views();this.options.changed?.(views);views.forEach(v=>this.options.onAnalysisLayerChange?.({...v.state}))}
   private remove(layer:Layer):void {const chart=this.options.chart();if(chart&&layer.indicatorId){chart.removeIndicator({id:layer.indicatorId});const binding=runtimeBindings.get(chart);binding?.indicatorIds.delete(layer.indicatorId);if(layer.paneId!=='candle_pane'){binding?.paneIds.delete(layer.paneId!);binding?.axisIds.delete(layer.yAxisId!)}}this.layers.delete(layer.spec.id)}
-  clear():void {for(const l of this.layers.values())this.remove(l);this.context=null;this.times.clear();this.signature='';this.emit()}
+  clear():void {for(const l of this.layers.values())this.remove(l);this.context=null;this.times.clear();this.timesDirty=true;this.signature='';this.emit()}
   dispose():void {if(this.disposed)return;this.clear();this.disposed=true;const chart=this.options.chart();if(chart)runtimeBindings.delete(chart)}
 }

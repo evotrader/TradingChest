@@ -1,9 +1,30 @@
 import {describe,it,expect,vi} from 'vitest'
-import {DrawingPreferencesManager,defaultDrawingPreferences,validateDrawingPreferences,createIndexedDBDrawingPreferencesStore,type DrawingPreferences,type DrawingPreferencesStore} from '../preferences'
+import {DrawingPreferencesManager,defaultDrawingPreferences,validateDrawingPreferences,migrateDrawingPreferences,createIndexedDBDrawingPreferencesStore,type DrawingPreferences,type DrawingPreferencesStore} from '../preferences'
 import {builtinDrawingCatalog} from '../catalog'
 import {DrawingController} from '../controller'
 import {DrawingHistory} from '../history'
 describe('drawing preferences and template ownership',()=>{
+  it('purely migrates v1 inputs, keeps old template IDs and numeric levels, and rejects damaged or unknown versions',()=>{
+    const v2=defaultDrawingPreferences(),{snapping,...ui}=v2.ui,old={...v2,version:1,ui,templates:[{id:'old-template',name:'旧模板',toolId:'fibonacciLine',styles:{},parameters:{levels:[-1,.5,.5,2]}}]},before=structuredClone(old)
+    const migrated=migrateDrawingPreferences(old,builtinDrawingCatalog);expect(old).toEqual(before);expect(migrated.version).toBe(2);expect(migrated.ui.snapping).toEqual({ohlc:true,indicators:true,weakSensitivity:8});expect(migrated.templates).toEqual(old.templates)
+    migrated.templates[0].name='副本';expect(old.templates[0].name).toBe('旧模板')
+    for(const value of [{...old,version:3},{...old,ui:null},{...v2,ui:{...v2.ui,snapping:{...snapping,ohlc:'yes'}}},{...v2,ui:{...v2.ui,snapping:{...snapping,weakSensitivity:9}}}])expect(()=>migrateDrawingPreferences(value,builtinDrawingCatalog)).toThrow()
+  })
+  it('does not write a migrated initial read until an explicit edit and keeps the stored original detached',async()=>{
+    const v2=defaultDrawingPreferences(),{snapping,...ui}=v2.ui,old={...v2,version:1 as const,ui},before=structuredClone(old),write=vi.fn(async()=>{})
+    const manager=new DrawingPreferencesManager({catalog:builtinDrawingCatalog,scope:'scope',store:{read:async()=>old,write}})
+    await vi.waitFor(()=>expect(manager.getState().status).toBe('saved'));expect(write).not.toHaveBeenCalled();expect(manager.getState().value.version).toBe(2);expect(old).toEqual(before)
+    manager.update({ui:{snapping:{indicators:false}}});await manager.save();expect(write.mock.calls.at(-1)![1].version).toBe(2);expect(old).toEqual(before);manager.dispose()
+  })
+  it('merges only edited nested snapping fields into a late original and loads an empty custom catalog store',async()=>{
+    let release!:(value:DrawingPreferences)=>void
+    const original=defaultDrawingPreferences();original.ui.snapping={ohlc:true,indicators:false,weakSensitivity:16};original.ui.favoritesPosition={x:220,y:75}
+    const manager=new DrawingPreferencesManager({catalog:builtinDrawingCatalog,scope:'scope',store:{read:()=>new Promise(resolve=>{release=resolve}),write:async()=>{}}})
+    manager.update({ui:{snapping:{ohlc:false}}});manager.update({ui:{continuous:true}});release(original);await manager.save()
+    expect(manager.getState().value.ui).toEqual({continuous:true,favoritesPosition:{x:220,y:75},snapping:{ohlc:false,indicators:false,weakSensitivity:16}});manager.dispose()
+    const custom={...structuredClone(builtinDrawingCatalog[0]),toolId:'only-host',overlayName:'OnlyHost'},empty=new DrawingPreferencesManager({catalog:[custom],scope:'scope',store:{read:async()=>null,write:async()=>{}}})
+    await vi.waitFor(()=>expect(empty.getState().status).toBe('saved'));expect(empty.getState().value.favorites).toEqual([]);empty.dispose()
+  })
   it('rejects template content and unknown parameter values rather than saving positions or executable values',()=>{
     const preferences=defaultDrawingPreferences()
     preferences.templates=[{id:'one',name:'Style',toolId:'textAnnotation',styles:{text:{color:'#f00'}},parameters:{textAlign:'center'}}]

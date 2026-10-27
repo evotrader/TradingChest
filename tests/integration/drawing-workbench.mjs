@@ -1,3 +1,4 @@
+import {runLevelBands,checkLevelBandsSurvivor} from './level-bands.mjs'
 import {runThirdPartyZone} from './third-party-zone.mjs'
 import {runAttachedTools} from './attached-tools.mjs'
 import assert from 'node:assert/strict'
@@ -42,7 +43,9 @@ export async function runDrawingWorkbenchExample(page,url,{http=false}={}){
  await page.waitForFunction(()=>{const p=drawingDemo.charts[0],v=p.getDrawings().filter(d=>['anchoredVwap','fixedRangeVolumeProfile'].includes(d.overlay.name));return v.length===2&&v.every(d=>p.getDrawingState().analytics[d.logicalId]?.status==='ready')})
  assert.ok(await page.evaluate(()=>{const p=drawingDemo.charts[0],d=p.getDrawings().find(d=>d.overlay.name==='anchoredVwap'),s=p.getDrawingState().analytics[d.logicalId],bars=p.getChart().getDataList().filter(b=>b.timestamp>=d.anchors[0].timestamp),total=bars.reduce((v,b)=>v+b.volume,0),amount=bars.reduce((v,b)=>v+(b.high+b.low+b.close)/3*b.volume,0);return Math.abs(s.summary.vwap-amount/total)<1e-9&&s.summary.volume===total}))
  const attachedTools=await runAttachedTools(page)
+ const levelBands=await runLevelBands(page)
  const thirdParty=await runThirdPartyZone(page)
+ levelBands.survivesOtherOwnerDispose=await checkLevelBandsSurvivor(page,levelBands.id)
  await page.locator('#dispose').click();assert.equal(await page.evaluate(()=>drawingDemo.charts.length),0);assert.equal(await page.locator('.tc-workspace').count(),0)
- return {thirdParty,attachedTools,sharedTwoWorkspaces:true,independentRefresh:true,templateReload:true,nativeIndexedDB:true,layoutReload:true,volumeDrawings:true,httpAvailable:http}
+ return {levelBands,thirdParty,attachedTools,sharedTwoWorkspaces:true,independentRefresh:true,templateReload:true,nativeIndexedDB:true,layoutReload:true,volumeDrawings:true,httpAvailable:http}
 }

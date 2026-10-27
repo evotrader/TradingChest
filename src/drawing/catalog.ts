@@ -1,6 +1,8 @@
 import {vwapBandOptions} from './vwapBands'
+import {defaultDrawingLevelValues,resolveDrawingLevels,validateDrawingLevelSet,isDrawingLevelValues,type DrawingLevelSet} from './levels'
+export const drawingToolDefinition=Symbol('drawing-tool-definition')
 export type DrawingCategory='lines'|'channels'|'geometry'|'fibonacci'|'waves'|'measurement'|'annotations'|'positions'|'volume'
-export interface DrawingParameter {key:string;label:string;kind:'number'|'text'|'boolean'|'levels'|'color';min?:number;max?:number;choices?:string[];defaultValue:number|string|boolean|number[]}
+export interface DrawingParameter {key:string;label:string;kind:'number'|'text'|'boolean'|'levels'|'level-set'|'color';min?:number;max?:number;choices?:string[];defaultValue:number|string|boolean|number[]|DrawingLevelSet}
 export type DrawingStyleControl='stroke'|'fill'|'lineWidth'|'lineStyle'|'textColor'|'fontSize'
 export interface DrawingToolDescriptor {
   toolId:string
@@ -58,10 +60,25 @@ const builtinStyleControls=(id:string):DrawingStyleControl[]=>{
   if(id==='dateRange')return ['lineWidth']
   if(['priceRange','dateAndPriceRange'].includes(id))return ['lineWidth','lineStyle']
   const controls:DrawingStyleControl[]=['stroke','lineWidth','lineStyle']
-  if(['rect','circle','triangle','parallelogram','ellipse','rotatedRect','gannBox','xabcd','regressionChannel','callout','curve','doubleCurve','arc'].includes(id))controls.push('fill')
+  if(['rect','circle','triangle','parallelogram','ellipse','rotatedRect','gannBox','xabcd','regressionChannel','callout','curve','doubleCurve','arc','fibonacciLine','fibonacciExtension'].includes(id))controls.push('fill')
   if(['callout','trendAngle','fibonacciLine','fibonacciSegment','fibonacciCircle','fibonacciExtension','fibonacciSpeedResistanceFan','xabcd','abcd','threeWaves','fiveWaves','eightWaves','anyWaves','longPosition','shortPosition'].includes(id))controls.push('textColor','fontSize')
   return controls
 }
+const fibonacciLevelParameters=(extension:boolean):DrawingParameter[]=>[
+  {key:'levels',label:'级别',kind:'level-set',defaultValue:[...defaultDrawingLevelValues]},
+  {key:'calculationMode',label:'计算方式',kind:'text',choices:['linear','log'],defaultValue:'linear'},
+  {key:'reverse',label:'反向计算',kind:'boolean',defaultValue:false},
+  {key:'extendLeft',label:'向左延长',kind:'boolean',defaultValue:!extension},
+  {key:'extendRight',label:'向右延长',kind:'boolean',defaultValue:!extension},
+  {key:'backgroundVisible',label:'填充级别背景',kind:'boolean',defaultValue:false},
+  {key:'backgroundOpacity',label:'背景透明度',kind:'number',min:0,max:1,choices:['0','0.05','0.12','0.2','0.3','0.5','1'],defaultValue:.12},
+  {key:'showLevelPrices',label:'显示级别价格',kind:'boolean',defaultValue:true},
+  {key:'showLevelValues',label:'显示级别比例',kind:'boolean',defaultValue:true},
+  {key:'showLevelText',label:'显示级别正文',kind:'boolean',defaultValue:true},
+  {key:'levelValueFormat',label:'级别比例格式',kind:'text',choices:['value','percent'],defaultValue:'percent'},
+  {key:'levelLabelAlign',label:'级别标签对齐',kind:'text',choices:['left','center','right'],defaultValue:'left'},
+  {key:'levelLabelPosition',label:'级别标签位置',kind:'text',choices:['above','on','below'],defaultValue:'above'},
+]
 const baseDrawingCatalog:DrawingToolDescriptor[]=groups.flatMap(([category,items])=>items.map(([toolId,zh,en,points,shortcut])=>{
   const text=['textAnnotation','callout','note','anchoredText'].includes(toolId),variable=['polyline','anyWaves'].includes(toolId)
   const curve=['curve','doubleCurve','arc'].includes(toolId)
@@ -86,7 +103,7 @@ const baseDrawingCatalog:DrawingToolDescriptor[]=groups.flatMap(([category,items
   return {toolId,overlayName:toolId,styleControls:builtinStyleControls(toolId),labels:{'zh-CN':zh,'en-US':en},category,icon:toolId,shortcut,
     mode:['brush','highlighter'].includes(toolId)?'continuous':text?'text':variable?'variable':'points',minPoints:points,maxPoints:variable||['brush','highlighter'].includes(toolId)?null:points,
     settings:['style',...(text?['text' as const]:[]),'coordinates','visibility',...(curve||category==='fibonacci'||category==='channels'?['parameters' as const]:[])],
-    parameters:curve?[
+    parameters:['fibonacciLine','fibonacciExtension'].includes(toolId)?fibonacciLevelParameters(toolId==='fibonacciExtension'):curve?[
       {key:'startMarker',label:'起点标记',kind:'text',choices:['none','arrow','circle'],defaultValue:'none'},
       {key:'endMarker',label:'终点标记',kind:'text',choices:['none','arrow','circle'],defaultValue:'none'},
       {key:'background',label:'填充曲线背景',kind:'boolean',defaultValue:false},
@@ -104,6 +121,8 @@ export function copyDrawingCatalog(input:DrawingToolDescriptor[]=builtinDrawingC
     if(item.styleControls&&(!Array.isArray(item.styleControls)||new Set(item.styleControls).size!==item.styleControls.length||item.styleControls.some(control=>!['stroke','fill','lineWidth','lineStyle','textColor','fontSize'].includes(control))))throw Error('绘图样式能力定义无效或重复')
     if(item.textMode!==undefined&&!['body','attached'].includes(item.textMode)||item.textMode==='attached'&&!['line','box'].includes(item.labelGeometry??'')||item.textMode!=='attached'&&item.labelGeometry!==undefined)throw Error('绘图文字能力组合无效')
     if(item.numericMove!==undefined&&(!item.numericMove||typeof item.numericMove!=='object'||Array.isArray(item.numericMove)||Object.keys(item.numericMove).some(key=>!['bars','price'].includes(key))||typeof item.numericMove.bars!=='boolean'||typeof item.numericMove.price!=='boolean'))throw Error('绘图数值平移能力定义无效')
+    if(!Array.isArray(item.parameters)||new Set(item.parameters.map(parameter=>parameter.key)).size!==item.parameters.length||item.parameters.some(parameter=>typeof parameter.key!=='string'||!parameter.key||!['number','text','boolean','levels','level-set','color'].includes(parameter.kind)))throw Error('绘图参数能力定义无效或重复')
+    for(const parameter of item.parameters){if(parameter.kind==='level-set')resolveDrawingLevels(undefined,parameter.defaultValue as number[]|DrawingLevelSet);validateDrawingParameters(item,{[parameter.key]:parameter.defaultValue})}
     ids.add(item.toolId);names.add(item.overlayName)
   }
   return structuredClone(input).map(withTextCapabilities)
@@ -115,6 +134,7 @@ export function validateDrawingParameters(tool:DrawingToolDescriptor,parameters:
     if(!spec)throw Error(`工具 ${tool.toolId} 不支持参数 ${key}`)
     if(spec.kind==='number'&&(typeof value!=='number'||!Number.isFinite(value)||(spec.min!==undefined&&value<spec.min)||(spec.max!==undefined&&value>spec.max)))throw Error(`参数 ${spec.label} 无效`)
     if(spec.kind==='levels'&&(!Array.isArray(value)||!value.length||value.length>64||value.some(v=>typeof v!=='number'||!Number.isFinite(v))))throw Error(`参数 ${spec.label} 无效`)
+    if(spec.kind==='level-set'&&!isDrawingLevelValues(value))validateDrawingLevelSet(value)
     if((key==='segments'||tool.toolId==='fixedRangeVolumeProfile'&&key==='rows')&&!Number.isInteger(value))throw Error('行数或弧段数必须是整数')
     if(spec.kind==='color'&&(typeof value!=='string'||!/^#[a-f0-9]{6}(?:[a-f0-9]{2})?$|^transparent$/i.test(value)))throw Error(`参数 ${spec.label} 颜色无效`)
     if(spec.kind==='text'&&typeof value!=='string'||spec.kind==='boolean'&&typeof value!=='boolean')throw Error(`参数 ${spec.label} 无效`)

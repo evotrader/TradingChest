@@ -430,7 +430,7 @@ create 接受 drawingLogicalId、可选 id/condition/frequency/message；默认 
 
 ## 0.14 绘图能力与数值平移
 
-以下为仍在验收的 0.14 本地升级 API，不代表已发布。`DrawingToolDescriptor` 和 `DrawingCommand` 继续从根、`chart`、`solid` 入口导出，React 沿原命令／状态接口透传。
+以下为已完成本地验收的 0.14 升级 API，不代表已发布。`DrawingToolDescriptor` 和 `DrawingCommand` 继续从根、`chart`、`solid` 入口导出，React 沿原命令／状态接口透传。
 
 | `DrawingToolDescriptor` 新增可选字段 | 契约 |
 | --- | --- |
@@ -467,3 +467,25 @@ const moveResult = await chart.executeDrawingCommand({
 目标必须有可解析的 market 锚点和对应工具的显式能力，且属于同一可写文档／scope、pane 和有效价格轴。非零 bars 使用确认行情的真实索引并保留分数位置；超出已加载范围或缺参考／相邻 bar 整批拒绝，不推算未来时间。仅价格平移保留原时间锚点。`anchoredText` 两项均禁用；`anchoredVwap`、`fixedRangeVolumeProfile`、`regressionTrend`、`regressionChannel` 仅支持 bars，非零价格请求整批零写入；其余 51 项支持两种能力。log 非正、非有限及无效几何拒绝。
 
 整批准备和预检后沿原逐对象 guard、确认、共享和 undo/redo 链；队列／让出后重新核文档和确认行情时间结构。结果仍为 `DrawingCommandResult`，区分 completed/cancelled/rejected/partial/uncertain，以及 confirmed/rejected/uncertain/not-attempted 逐项结果；保留已确认前缀，不自动重试未知写入，成功整批只有一次撤销。模板／默认／最近样式不含正文、锚点、身份或 scope；复制对象保正文并生成新 ID。ChartLayoutV4、WorkspaceDocument v2、shared v1 和 preferences v1 均不升版。完整 UI、保存及第三方边界见 [0.14 升级](./upgrade/0.14.0.md)。
+
+## 0.15 通用级别集与绘前模板
+
+以下类型与纯 helper 从根、`chart`、`solid` 导出，React 沿原命令／状态接口透传。版本与边界见 [0.15 升级](./upgrade/0.15.0.md)。
+
+```ts
+interface DrawingLevel {
+  id: string; value: number; visible: boolean
+  color?: string; width?: number; style?: 'solid'|'dashed'|'dotted'; text?: string
+}
+interface DrawingLevelSet { version: 1; items: DrawingLevel[] }
+type DrawingLevelAppearance = Omit<DrawingLevel, 'id'|'text'>
+interface DrawingLevelPresetSet { version: 1; items: DrawingLevelAppearance[] }
+```
+
+`DrawingParameter.kind='level-set'` 可用于任意参数键；`defaultValue` 可为合法级别对象或旧数字数组。至少一行、最多64行；ID非空且对象内唯一，不解析格式；比例允许负值、外延及重复但必须有限。颜色沿原六／八位hex或transparent，宽度有限1–4，正文最长500个UTF-16单元且不得换行；未设外观继承对象实际样式，空正文不绘制。拒绝未知字段、重复ID及坏类型。
+
+`validateDrawingLevelSet`／`validateDrawingLevelPresetSet` 校验两种闭合结构；`resolveDrawingLevels(value, defaults?)` 返回隔离运行时副本，支持旧数组及缺省值且不改调用方。`extractDrawingLevelPreset` 剥离ID／正文；`instantiateDrawingLevelPreset` 创建新ID；`applyDrawingLevelPreset` 按比例及重复顺序保匹配正文，移除有正文行时抛错。`extractDrawingStylePreset`、`instantiateDrawingPresetParameters`、`applyDrawingPresetParameters` 与 `validateDrawingPresetParameters` 统一处理 descriptor 下的参数；不能把运行时级别对象直接存为模板。
+
+`DrawingCommand` 的 tool 分支新增可选 `templateId:string`，须与 toolId 匹配；预检失败保旧预览，成功后按捕获副本建立绘图会话。默认仍为最近样式→工具默认→宿主／引擎默认。`DrawingState.snapping` 派生自偏好，不能单独写入。
+
+`DrawingPreferencesInput=DrawingPreferencesV1|DrawingPreferences`，后者version为2，新增 `ui.snapping:DrawingSnappingOptions`：`ohlc:boolean`、`indicators:boolean`、`weakSensitivity:4|8|12|16`。`migrateDrawingPreferences` 不改输入，`DrawingPreferencesPatch.ui.snapping` 支持部分更新。自定义 store.read 可返回v1/v2，write只接收v2；读取、注入、初始值及迟到合并共用迁移／目录校验，未知版本或损坏原件不覆盖。

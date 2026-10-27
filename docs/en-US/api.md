@@ -381,7 +381,7 @@ Logarithmic references and crossing comparisons use the same returned Number pri
 
 ## 0.14 drawing capabilities and numeric translation
 
-These APIs describe the local 0.14 upgrade while validation is in progress, not a published release. `DrawingToolDescriptor` and `DrawingCommand` retain their root, `chart` and `solid` exports. React forwards existing commands and state.
+These APIs describe the local 0.14 upgrade with acceptance completed, not a published release. `DrawingToolDescriptor` and `DrawingCommand` retain their root, `chart` and `solid` exports. React forwards existing commands and state.
 
 | New optional `DrawingToolDescriptor` field | Contract |
 | --- | --- |
@@ -418,3 +418,13 @@ const moveResult = await chart.executeDrawingCommand({
 Targets require resolvable market anchors, explicit tool capabilities and one writable document/scope, pane and effective price axis. Nonzero bars use confirmed real indices and preserve fractional positions. Unloaded targets or missing reference/neighbour bars reject the entire preflight without inventing future timestamps. Price-only moves preserve original time anchors. `anchoredText` disables both capabilities; `anchoredVwap`, `fixedRangeVolumeProfile`, `regressionTrend` and `regressionChannel` support bars only and reject nonzero price requests with zero batch writes. The remaining 51 built-ins support both. Nonpositive log values, nonfinite results and invalid geometry reject.
 
 Whole-batch preparation/preflight feeds existing per-object guards, confirmation, sharing and undo/redo. Document and confirmed time structure are rechecked after queuing/yielding. `DrawingCommandResult` retains completed/cancelled/rejected/partial/uncertain and confirmed/rejected/uncertain/not-attempted item results. Confirmed prefixes remain; unknown writes are not retried automatically. A successful batch is one undo. Templates/defaults/recent styles exclude bodies, anchors, identities and scopes; object copying preserves bodies with new IDs. ChartLayoutV4, WorkspaceDocument v2, shared v1 and preferences v1 stay unchanged. See [0.14 migration](./upgrade/0.14.0.md) for UI, persistence and third-party boundaries.
+
+## 0.15 generic level sets and pre-draw templates
+
+Root, `chart` and `solid` export `DrawingLevel`, `DrawingLevelSet`, `DrawingLevelAppearance`, `DrawingLevelPresetSet` and pure helpers. React forwards the existing command/state API. A level has required `id:string`, `value:number`, `visible:boolean`, optional `color`, `width`, `style:'solid'|'dashed'|'dotted'` and single-line `text`. A set is `{version:1,items:[...]}` with 1–64 rows and unique nonempty opaque IDs. Ratios may be negative, external or duplicated, but finite. Color uses the existing hex6/hex8/transparent contract, width is finite 1–4 and text is at most 500 UTF-16 units. Omitted appearance inherits the object's actual style. Unknown fields, bad types and duplicate IDs are rejected.
+
+A descriptor's arbitrary parameter key can declare `kind:'level-set'`, with a valid set or legacy numeric-array default. `validateDrawingLevelSet` and `validateDrawingLevelPresetSet` check closed runtime and appearance-only structures. `resolveDrawingLevels(value,defaults?)` returns an isolated runtime copy without mutating legacy arrays or missing input. `extractDrawingLevelPreset` strips IDs/text; `instantiateDrawingLevelPreset` allocates fresh IDs; `applyDrawingLevelPreset` preserves matching ratio occurrences and rejects removal of text-bearing rows. Descriptor-aware `extractDrawingStylePreset`, `instantiateDrawingPresetParameters`, `applyDrawingPresetParameters` and `validateDrawingPresetParameters` use the same contract; runtime sets must not be stored directly as templates.
+
+The tool command accepts `templateId?:string`, validated against toolId before replacing a preview. The session captures a preset copy; the default priority remains recent style, tool default, then host/engine default. `DrawingState.snapping` derives from preferences and has no independent writer.
+
+`DrawingPreferencesInput` accepts v1/v2, while `DrawingPreferences` and store writes use v2. `ui.snapping` has `ohlc:boolean`, `indicators:boolean`, `weakSensitivity:4|8|12|16`. Pure `migrateDrawingPreferences` preserves inputs; `DrawingPreferencesPatch` supports nested partial updates. Initial input, injected stores, native IDB and late merges share migration/catalog validation. Corrupt or unknown originals are retained with an explicit error. See [0.15 migration](./upgrade/0.15.0.md).

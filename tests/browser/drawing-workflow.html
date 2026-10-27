@@ -1,0 +1,27 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="margin:0"><p>隔离合成行情、原生绘图与存储；提交替身不代表真实业务后端。</p><div id="chart" style="width:min(1100px,100vw);height:760px"></div><script type="module">
+import {KLineChartPro,builtinDrawingCatalog,resolveDrawingLevels,createIndexedDBDrawingPreferencesStore,captureLayout,restoreLayout,saveLayoutV4,loadLayoutV4,deleteLayoutV4} from '/src/chart.ts'
+import {registerOverlay,registerIndicator} from 'klinecharts'
+import {makeBars} from './syntheticBars.ts'
+registerIndicator({name:'TC_WORKFLOW_SNAP',shortName:'吸附测试线',series:'price',figures:[{key:'value',title:'Value',type:'line'}],calc:data=>data.map(bar=>({value:bar.close+2}))})
+window.prepareWorkflowSnap=()=>{pro.getChart().overrideIndicator({name:'MA',visible:false});return pro.getChart().createIndicator({name:'TC_WORKFLOW_SNAP',paneId:'candle_pane',yAxisId:pro.getChart().getYAxes({paneId:'candle_pane'})[0].id},true)}
+const defaults=[0,.5,1],base=builtinDrawingCatalog.find(tool=>tool.toolId==='fibonacciLine')
+registerOverlay({name:'EXAMPLE/LevelBands',totalStep:3,createPointFigures:({coordinates,overlay,yAxis})=>{
+ if(coordinates.length<2||!yAxis)return []
+ const levels=resolveDrawingLevels(overlay.extendData?.drawingParameters?.zones,defaults).items.filter(level=>level.visible),figures=[]
+ for(const level of levels){const price=overlay.points[1].value+(overlay.points[0].value-overlay.points[1].value)*level.value,y=yAxis.convertToPixel(price);if(!Number.isFinite(y))continue
+  figures.push({key:'host-level:'+level.id,type:'line',attrs:{coordinates:[{x:coordinates[0].x,y},{x:coordinates[1].x,y}]},styles:{...(level.color===undefined?{}:{color:level.color}),...(level.width===undefined?{}:{size:level.width}),...(level.style?{style:level.style==='solid'?'solid':'dashed',dashedValue:level.style==='dotted'?[1,3]:[6,4]}:{})}})
+  if(level.text)figures.push({key:'host-text:'+level.id,type:'text',ignoreEvent:true,attrs:{x:coordinates[0].x,y,text:level.text}})
+ }return figures
+}})
+registerOverlay({name:'EXAMPLE/PlainBands',totalStep:3,createPointFigures:({coordinates})=>coordinates.length<2?[]:[{type:'line',attrs:{coordinates}}]})
+const catalog=[...builtinDrawingCatalog,{...base,toolId:'hostLevelBands',overlayName:'EXAMPLE/LevelBands',labels:{'zh-CN':'宿主级别工具','en-US':'Host level bands'},icon:'fibonacciLine',shortcut:undefined,styleControls:['stroke','lineWidth','lineStyle','textColor','fontSize'],parameters:[{key:'zones',label:'区域级别',kind:'level-set',defaultValue:defaults}]},{...base,toolId:'hostPlainBands',overlayName:'EXAMPLE/PlainBands',labels:{'zh-CN':'无级别表工具','en-US':'No level editor'},icon:'segment',shortcut:undefined,parameters:[]}]
+window.fixtureBars=makeBars(2000);window.subscriptions=0;window.commits=[];window.ownerMode='local';window.mode='confirmed';window.frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
+const database='tc-workflow-'+crypto.randomUUID(),store=createIndexedDBDrawingPreferencesStore({databaseName:database}),keys=new Set()
+function mount(){
+ window.ready=false;window.pro=new KLineChartPro({container:document.querySelector('#chart'),symbol:{ticker:'TEST.X',market:'test',exchange:'X',priceCurrency:'USD',pricePrecision:4,tickSize:.01},period:{multiplier:1,timespan:'minute',text:'1m'},mainIndicators:['MA'],subIndicators:['VOL'],drawingCatalog:catalog,drawingPreferencesStore:store,drawingPreferencesScope:'workflow',drawingOwner:()=>ownerMode,onDataReady:()=>window.ready=true,commitDrawing:async change=>{commits.push(structuredClone(change));if(mode==='rejected')return {status:'rejected',message:'隔离提交替身拒绝'};if(mode==='uncertain')return {status:'uncertain',message:'隔离提交替身结果未知'};return {status:'confirmed',snapshot:change.after?{...change.after,backendId:change.before?.backendId??'backend-'+change.logicalId}:null}},datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,q)=>({bars:q.kind==='before'?fixtureBars.filter(bar=>bar.timestamp<q.before):fixtureBars.filter(bar=>bar.timestamp>=q.from&&bar.timestamp<q.to),basis:'isolated-raw',hasMoreBefore:false}),subscribe:()=>subscriptions++,unsubscribe:()=>subscriptions--}})
+}
+window.saveDrawingLayout=()=>{const key='workflow-'+crypto.randomUUID(),layout=captureLayout(pro);keys.add(key);const saved=saveLayoutV4(key,layout);if(saved.status!=='ok')throw Error(saved.message);return {key,layout:saved.value}}
+window.reopenDrawingLayout=async key=>{const loaded=loadLayoutV4(key);if(loaded.status!=='ok')throw Error(loaded.message);pro.dispose();document.querySelector('#chart').replaceChildren();mount();const deadline=performance.now()+10000;while(!pro.getAnalysisContext()){if(performance.now()>deadline)throw Error('重开行情尚未确认');await frame()}await restoreLayout(pro,loaded.value);await frame();return pro.getDrawings()}
+window.destroy=async()=>{pro.dispose();store.dispose();for(const key of keys)deleteLayoutV4(key);await frame();await new Promise((resolve,reject)=>{const request=indexedDB.deleteDatabase(database);request.onsuccess=resolve;request.onerror=()=>reject(request.error);request.onblocked=()=>reject(Error('自有存储尚未关闭'))});return {subscriptions,dom:document.querySelector('#chart').querySelectorAll('*').length}}
+mount()
+</script></body></html>

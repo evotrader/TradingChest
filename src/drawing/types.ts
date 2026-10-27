@@ -2,6 +2,8 @@ import type {OverlaySnapshot,SymbolInfo,Period} from '../types'
 
 export type DrawingOwner='local'|'backend'
 export type DrawingSource='drawing-bar'|'property-bar'|'keyboard'|'manual'|'history'|'programmatic'
+export type DrawingParameterPrimitive=number|string|boolean|number[]
+export type DrawingParameters=Record<string,DrawingParameterPrimitive|import('./levels').DrawingLevelSet>
 export interface DrawingSnapshot {
   logicalId:string
   owner:DrawingOwner
@@ -10,7 +12,7 @@ export interface DrawingSnapshot {
   anchors?:DrawingAnchor[]
   yAxisId?:string
   migration?:{target:import('./session').DrawingSharedReference;status:'prepared'|'uncertain';direction?:'from-host'}
-  parameters?:Record<string,number|string|boolean|number[]>
+  parameters?:DrawingParameters
   presentation?:DrawingPresentation
 }
 
@@ -43,7 +45,7 @@ export interface DrawingCommandResult {
   message?:string
 }
 export type DrawingCommand=
-  | {type:'tool';toolId:string|null;continuous?:boolean}
+  | {type:'tool';toolId:string|null;continuous?:boolean;templateId?:string}
   | {type:'select';ids:string[];additive?:boolean}
   | {type:'cancel'}
   | {type:'finish'}
@@ -62,7 +64,7 @@ export type DrawingCommand=
   | {type:'reorder';ids:string[];targetId:string;position:'before'|'after'}
   | {type:'presentation';ids:string[];patch:Partial<DrawingPresentation>}
   | {type:'view';hidden?:boolean;preventDragging?:boolean;magnet?:import('./snap').DrawingMagnetMode}
-  | {type:'preferences';patch:Partial<import('./preferences').DrawingPreferences>}
+  | {type:'preferences';patch:import('./preferences').DrawingPreferencesPatch}
   | {type:'preferences-retry'}
   | {type:'template';action:'save'|'overwrite'|'rename'|'delete'|'apply'|'default';templateId?:string;name?:string;ids?:string[];styleOnly?:boolean}
   | {type:'undo'}
@@ -80,6 +82,7 @@ export interface DrawingState {
   objects:DrawingSnapshot[]
   groups:DrawingGroup[]
   magnet:import('./snap').DrawingMagnetMode
+  snapping:import('./preferences').DrawingSnappingOptions
   hidden:boolean
   preventDragging:boolean
   history:DrawingHistoryState

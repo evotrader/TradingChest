@@ -69,6 +69,17 @@ if([chart.ChartWorkspace,chart.WorkspaceStoreError,chart.createIndexedDBWorkspac
 if(typeof chart.registerIndicatorDefinition!=='function'||!Array.isArray(chart.builtinIndicatorCatalog)) throw Error('missing CommonJS SDK');
 `);
   console.log('Packed ESM/CJS browser consumers without React and shared Solid runtime PASS');
+  for(const entry of ['trading-chest/chart','trading-chest/solid'])for(const commonjs of [false,true])browserFixture('drawing-levels-'+entry.split('/').at(-1)+(commonjs?'.cjs':'.mjs'),`
+${commonjs?`const levels=require('${entry}');`:`import * as levels from '${entry}';`}
+const legacy=[-.25,.5,.5,1.25],set=levels.resolveDrawingLevels(legacy);set.items[1].text='Private body';
+levels.validateDrawingLevelSet(set);const preset=levels.extractDrawingLevelPreset(set);levels.validateDrawingLevelPresetSet(preset);
+if(preset.items.some(item=>'id' in item||'text' in item))throw Error('A preset leaked document content');
+const a=levels.instantiateDrawingLevelPreset(preset),b=levels.instantiateDrawingLevelPreset(preset);
+if(a.items[0].id===b.items[0].id||legacy.length!==4)throw Error('Fresh preview IDs or legacy purity failed');
+const v1=levels.defaultDrawingPreferences();v1.version=1;delete v1.ui.snapping;
+const migrated=levels.migrateDrawingPreferences(v1);if(migrated.version!==2||migrated.ui.snapping.weakSensitivity!==8||v1.version!==1||v1.ui.snapping)throw Error('Preference migration mutated the input');
+`)
+  console.log('Packed ESM/CJS level helpers, body-free presets and pure v1 preference migration PASS');
   writeFileSync(path.join(dir,'consumer.ts'), `
 import { KLineChartPro,registerIndicatorDefinition,builtinIndicatorCatalog,type DatafeedRequestContext,type ChartPro,type IndicatorDescriptor,type IndicatorParameterSchema,type IndicatorHandle,type AnalysisContext,type AnalysisLayerSpec,type AnalysisLayerHandle,type AnalysisEvent,type AnalysisLabelPoint,type HistoryQuery,type HistoryResult,type Datafeed,type WorkspaceStore,type WorkspaceWrite,type StoredWorkspace,createIndexedDBWorkspaceStore,ChartWorkspace } from 'trading-chest/chart';
 import type {AnalysisLayerSpec as RootLayer,IndicatorDescriptor as RootDescriptor} from 'trading-chest';
@@ -118,6 +129,19 @@ const workspaceReady:NonNullable<TradingWorkspaceProps['onReady']>=value=>{const
 const reactProps:TradingChartProps={height:400,initialOptions:{drawingHostSessions:rootDrawingSessions,symbol:{ticker:'x'},period:{multiplier:1,timespan:'day',text:'1d'}},createDatafeed:()=>feed};void reactProps;
 // @ts-expect-error An owned store must provide disposal.
 const invalidOwned:TradingWorkspaceProps={height:400,initialOptions:{context:'x',symbols:[],initialSymbol:{ticker:'x'},getPeriods:async()=>[]},renderCell:()=>null,createStore:()=>store};void invalidOwned;
+import {resolveDrawingLevels,extractDrawingLevelPreset,instantiateDrawingLevelPreset,migrateDrawingPreferences,type DrawingLevelSet,type DrawingLevelPresetSet,type DrawingPreferencesInput,type DrawingPreferencesPatch,type DrawingSnappingOptions} from 'trading-chest/chart';
+import type {DrawingLevelSet as RootLevels,DrawingPreferencesInput as RootPreferences} from 'trading-chest';
+import type {DrawingLevelSet as SolidLevels,DrawingLevelPresetSet as SolidPreset} from 'trading-chest/solid';
+const runtime:DrawingLevelSet=resolveDrawingLevels([-.25,.5,.5,1.25]);runtime.items[0].text='Document content';
+const rootLevels:RootLevels=runtime;const solidLevels:SolidLevels=rootLevels;void solidLevels;
+const preset:DrawingLevelPresetSet=extractDrawingLevelPreset(runtime);const solidPreset:SolidPreset=preset;void instantiateDrawingLevelPreset(solidPreset);
+declare const oldPreferences:DrawingPreferencesInput;const rootPreferences:RootPreferences=oldPreferences;void migrateDrawingPreferences(rootPreferences);
+const sourcePatch:DrawingPreferencesPatch={ui:{snapping:{ohlc:false,weakSensitivity:4}}};void sourcePatch;
+const snapping:DrawingSnappingOptions=chart.getDrawingState().snapping;void snapping;
+// @ts-expect-error Persisted presets cannot carry per-document bodies.
+const leakingPreset:DrawingLevelPresetSet={version:1,items:[{value:.5,visible:true,text:'Do not store'}]};void leakingPreset;
+// @ts-expect-error Snap sensitivity has a closed set of CSS pixel choices.
+const invalidSensitivity:DrawingPreferencesPatch={ui:{snapping:{weakSensitivity:7}}};void invalidSensitivity;
 `)
   run(process.execPath,[createRequire(import.meta.url).resolve('typescript/bin/tsc'),'consumer.ts','--noEmit','--module','NodeNext','--moduleResolution','NodeNext','--target','es2022'])
   writeFileSync(path.join(dir,'react.mjs'), `

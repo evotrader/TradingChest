@@ -134,7 +134,7 @@ export interface ChartProOptions extends AnalysisOptions {
   createDrawingDocumentId?:(identity:import('./drawing/document').DrawingShareIdentity)=>Promise<string>
   drawingHostSessions?:import('./drawing/session').DrawingSessionRegistry
   drawingCatalog?:import('./drawing/catalog').DrawingToolDescriptor[]
-  drawingPreferences?:import('./drawing/preferences').DrawingPreferences
+  drawingPreferences?:import('./drawing/preferences').DrawingPreferencesInput
   drawingPreferencesStore?:import('./drawing/preferences').DrawingPreferencesStore
   drawingPreferencesScope?:string
   onDrawingStateChange?:(state:import('./drawing/types').DrawingState)=>void

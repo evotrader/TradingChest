@@ -91,11 +91,16 @@
   button { display:flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;border:0;background:transparent;color:inherit;cursor:pointer; }
   select {max-width:48px;min-height:44px;background:inherit;color:inherit;}
 }
-.tc-drawing-tool-picker {position:absolute;left:48px;top:0;z-index:40;width:min(320px,calc(100vw - 64px));max-height:85%;overflow:auto;padding:8px;background:var(--klinecharts-pro-background-color,#fff);color:inherit;border:1px solid #8886;box-shadow:0 4px 20px #0003;
+.tc-drawing-tool-picker {box-sizing:border-box;position:absolute;left:48px;top:0;z-index:40;width:min(320px,calc(100vw - 64px));max-height:85%;overflow:auto;padding:8px;background:var(--klinecharts-pro-background-color,#fff);color:inherit;border:1px solid #8886;box-shadow:0 4px 20px #0003;
   input{box-sizing:border-box;width:100%;padding:8px;min-height:44px;color:inherit;background:transparent;border:1px solid #8888;}
   button{width:100%;justify-content:flex-start;gap:8px;text-align:left;} kbd{margin-left:auto;font-size:11px;}
   .tc-drawing-tool-category{padding:8px;font-weight:bold;}
+  .tc-drawing-tool-row{display:grid;grid-template-columns:minmax(0,1fr) 44px;align-items:center;}
+  .tc-drawing-tool-choice{min-width:0;span{overflow-wrap:anywhere;}kbd{flex-shrink:0;}}
+  .tc-drawing-tool-favorite{justify-content:center;min-width:44px;min-height:44px;}
+  .tc-drawing-tool-template{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px;padding:4px 0 8px;select{flex:1;min-width:0;max-width:100%;min-height:44px;color:inherit;background:var(--klinecharts-pro-background-color,#fff);}button{width:auto;min-height:44px;}}
 }
+.tc-drawing-snap-settings{position:absolute;left:48px;top:0;z-index:40;box-sizing:border-box;width:min(280px,calc(100vw - 64px));max-height:85%;overflow:auto;padding:8px;background:var(--klinecharts-pro-background-color,#fff);color:inherit;border:1px solid #8886;box-shadow:0 4px 20px #0003;label{display:flex;align-items:center;gap:8px;min-height:44px;flex-wrap:wrap;}select,button{min-height:44px;}p{white-space:normal;}}
 .tc-drawing-dialog-backdrop {position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:#0003;}
 .tc-drawing-dialog {width:min(360px,calc(100% - 24px));padding:16px;box-sizing:border-box;border-radius:8px;background:var(--klinecharts-pro-background-color,#fff);box-shadow:0 6px 30px #0004;
   label,textarea{display:block;width:100%;box-sizing:border-box;} textarea{margin-top:8px;background:transparent;color:inherit;resize:vertical;padding:8px;font:inherit;} p{font-size:12px;} button{min-height:44px;padding:8px 16px;margin-right:8px;}
@@ -109,6 +114,7 @@
 .tc-drawing-handles{position:absolute;inset:0;pointer-events:none;z-index:14;overflow:hidden;contain:strict;transform:translateZ(0);}
 .tc-drawing-axis-labels{position:absolute;inset:0;pointer-events:none;z-index:13;contain:layout style;transform:translateZ(0);}
 .tc-drawing-handle-layer,.tc-drawing-label-layer{position:absolute;inset:0;pointer-events:none;will-change:transform;}
+.tc-drawing-level-editor{min-width:0;fieldset{min-width:0;padding:8px;}input:not([type=checkbox]),select{width:100%;min-height:44px;}input[aria-invalid=true]{border-color:#ef5350;}.tc-drawing-level-color,.tc-drawing-level-actions{position:relative;display:flex;flex-wrap:wrap;gap:4px;}.tc-drawing-level-color>button:first-child{min-width:0;overflow-wrap:anywhere;}}
 .tc-drawing-handle{position:absolute;width:44px;height:44px;border:0;background:transparent;padding:16px;pointer-events:auto;touch-action:none;cursor:move;span{display:block;width:10px;height:10px;border-radius:50%;border:1px solid #1677ff;background:var(--klinecharts-pro-background-color,#fff);} &:focus-visible{outline:2px solid #1677ff;outline-offset:-8px;}}
 .tc-drawing-box{position:absolute;pointer-events:none;z-index:15;border:1px solid #1677ff;background:#1677ff22;}
 .tc-drawing-context{position:absolute;z-index:45;display:flex;flex-direction:column;max-width:calc(100% - 16px);background:var(--klinecharts-pro-background-color,#fff);box-shadow:0 4px 20px #0004;padding:6px;border:1px solid var(--klinecharts-pro-border-color);border-radius:6px;button{min-height:44px;background:transparent;color:inherit;border:0;text-align:left;}}

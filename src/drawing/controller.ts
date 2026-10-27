@@ -4,6 +4,7 @@ import {copyCanonical} from '../core/copyCanonical'
 import {withDrawingText} from './text'
 import {numericMoveIsZero} from './numericMove'
 import {copyDrawingCatalog,validateDrawingParameters,type DrawingToolDescriptor} from './catalog'
+import {extractDrawingStylePreset,applyDrawingPresetParameters,validateDrawingPresetParameters} from './presets'
 import type {DrawingHistory,DrawingWriteGuard} from './history'
 import type {DrawingCoordinator} from './coordinator'
 import type {DrawingPreferencesManager,DrawingStylePreset,DrawingTemplate} from './preferences'
@@ -17,7 +18,7 @@ interface Options {
   editable:(snapshot:DrawingSnapshot)=>boolean
   validate:(snapshot:DrawingSnapshot)=>void
   validateBatch?:(snapshots:DrawingSnapshot[])=>void
-  create:(tool:DrawingToolDescriptor)=>void
+  create:(tool:DrawingToolDescriptor,preset?:DrawingStylePreset)=>void
   cancel:()=>void
   finish?:()=>Promise<DrawingCommandResult>
   translate?:(snapshot:DrawingSnapshot,dx:number,dy:number)=>DrawingSnapshot
@@ -47,6 +48,8 @@ export class DrawingController {
   private toolId:string|null=null
   private step=0
   private continuous=false
+  private toolPreset:DrawingStylePreset|undefined
+  private toolSession:object|undefined
   private selectedIds:string[]=[]
   private magnet:import('./snap').DrawingMagnetMode='normal'
   private hidden=false
@@ -69,7 +72,7 @@ export class DrawingController {
     const objects=this.drawings(),groups=new Map<string,{id:string;name:string;paneId:string}>()
     for(const object of objects)if(object.presentation?.groupId)groups.set(object.presentation.groupId,{id:object.presentation.groupId,name:object.presentation.groupName??object.presentation.groupId,paneId:object.overlay.paneId??'candle_pane'})
     const remembered=this.rememberedHistory(),history=this.getHistoryState()
-    return {analytics:this.options.analytics?.(objects),origin:this.options.coordinator?.getOrigin()??'user',toolId:this.toolId,step:this.step,continuous:this.continuous,selectedIds:[...this.selectedIds],scope:this.options.coordinator?.getScope()??'chart',historyScope:remembered?this.options.coordinator?.scopeOf(remembered)??'chart':this.selectedIds.length?(objects.find(d=>d.logicalId===this.selectedIds[0])?.presentation?.scope??'chart'):this.options.coordinator?.getScope()??'chart',sharing:this.options.coordinator?.getSharing(),objects,groups:[...groups.values()],magnet:this.magnet,hidden:this.hidden,preventDragging:this.preventDragging,history,preferences:this.options.preferences?.getState(),lastResult:this.lastResult?copy(this.lastResult):undefined}
+    return {analytics:this.options.analytics?.(objects),origin:this.options.coordinator?.getOrigin()??'user',toolId:this.toolId,step:this.step,continuous:this.continuous,selectedIds:[...this.selectedIds],scope:this.options.coordinator?.getScope()??'chart',historyScope:remembered?this.options.coordinator?.scopeOf(remembered)??'chart':this.selectedIds.length?(objects.find(d=>d.logicalId===this.selectedIds[0])?.presentation?.scope??'chart'):this.options.coordinator?.getScope()??'chart',sharing:this.options.coordinator?.getSharing(),objects,groups:[...groups.values()],...this.getViewState(),history,preferences:this.options.preferences?.getState(),lastResult:this.lastResult?copy(this.lastResult):undefined}
   }
   getSelectedIds():string[]{return [...this.selectedIds]}
   getHistoryState():DrawingHistoryState{
@@ -77,7 +80,7 @@ export class DrawingController {
     if(!remembered)return aggregate
     const state=remembered.getState();return {...aggregate,error:state.error,canUndo:state.canUndo,canRedo:state.canRedo}
   }
-  getViewState():{hidden:boolean;preventDragging:boolean;magnet:import('./snap').DrawingMagnetMode}{return {magnet:this.magnet,hidden:this.hidden,preventDragging:this.preventDragging}}
+  getViewState():Pick<DrawingState,'hidden'|'preventDragging'|'magnet'|'snapping'>{return {magnet:this.magnet,hidden:this.hidden,preventDragging:this.preventDragging,snapping:this.options.preferences?.getSnapping()??{ohlc:true,indicators:true,weakSensitivity:8}}}
   refresh():void {
     if(this.disposed)return
     const ids=new Set([...this.options.history.getDrawingIds(),...this.options.coordinator?.getSharedDrawingIds()??[]])
@@ -89,16 +92,19 @@ export class DrawingController {
   setStep(step:number):void{if(this.step===step)return;this.step=step;this.refresh()}
   rememberConfirmed(value:DrawingSnapshot):void{
     const preferences=this.options.preferences,tool=this.catalog.find(tool=>tool.overlayName===value.overlay.name);if(!preferences||!tool)return
-    preferences.rememberStyle(tool.toolId,{styles:value.overlay.styles??{},parameters:value.parameters??{}})
+    preferences.rememberStyle(tool.toolId,extractDrawingStylePreset(value,tool))
   }
-  completed(expectedToolId?:string):void {
+  getToolSession():object|undefined{return this.toolSession}
+  completed(expectedToolId?:string,expectedSession?:object|null):void {
     if(expectedToolId&&expectedToolId!==this.toolId)return
+    if(expectedSession!==undefined&&expectedSession!==this.toolSession)return
     const tool=this.catalog.find(t=>t.toolId===this.toolId)
     this.step=0
-    if(this.continuous&&tool)this.options.create(tool)
-    else this.toolId=null
+    if(this.continuous&&tool)this.options.create(tool,this.toolPreset&&copy(this.toolPreset))
+    else {this.toolId=null;this.toolPreset=undefined;this.toolSession=undefined}
     this.refresh()
   }
+  cancelToolSession():void {this.options.cancel();this.toolId=null;this.toolPreset=undefined;this.toolSession=undefined;this.step=0}
   private targets(ids:string[],write=false,allowLocked=false,allowMigration=false):DrawingSnapshot[]{
     if(new Set(ids).size!==ids.length)throw Error('绘图选择包含重复对象')
     const uncertain=write?new Set(this.history().getState().uncertainLogicalIds):undefined
@@ -165,7 +171,7 @@ export class DrawingController {
     let result=complete()
     this.executionIds='ids' in command?command.ids:undefined
     this.previewBases=before
-    if(!['undo','redo','view','copy','preferences','preferences-retry','template'].includes(command.type))this.travelTarget=undefined
+    if(!['undo','redo','view','copy','preferences','preferences-retry','template','tool'].includes(command.type))this.travelTarget=undefined
     try{
       assertContext?.()
       if(command.type==='scope'){
@@ -180,13 +186,20 @@ export class DrawingController {
         const session=this.options.coordinator?.getSession(command.scope);if(!session)throw Error('共享绘图尚未启用')
         if(command.action==='save-as')await this.options.coordinator!.saveAs();else if(command.action==='save')await session.save();else await session.refresh({discardLocal:command.action==='discard-refresh'})
       }else if(command.type==='tool'){
-        this.options.cancel();this.toolId=command.toolId;this.continuous=command.continuous??this.options.preferences?.getState().value.ui.continuous??false;this.step=0
-        if(command.toolId){const tool=this.catalog.find(t=>t.toolId===command.toolId);if(!tool)throw Error('工具不在本图绘图目录中');this.options.create(tool)}
+        const preferences=this.options.preferences?.getState().value,tool=command.toolId===null?undefined:this.catalog.find(t=>t.toolId===command.toolId)
+        if(command.toolId!==null&&!tool)throw Error('工具不在本图绘图目录中')
+        const template=command.templateId===undefined?undefined:preferences?.templates.find(template=>template.id===command.templateId)
+        if(command.templateId!==undefined&&(!tool||!template||template.toolId!==tool.toolId))throw Error('绘前模板不存在或不属于所选工具')
+        let preset=tool?copy(template??preferences?.lastStyles?.[tool.toolId]??preferences?.defaults[tool.toolId]):undefined
+        if(preset){const {styles,parameters}=preset;preset={styles,parameters};validateDrawingPresetParameters(parameters??{},tool)}
+        // Validation precedes cancellation, so a stale template cannot destroy the current preview.
+        this.travelTarget=undefined;this.options.cancel();this.toolId=command.toolId;this.toolPreset=preset;this.toolSession=tool?{}:undefined;this.continuous=command.continuous??preferences?.ui.continuous??false;this.step=0
+        if(tool)this.options.create(tool,preset&&copy(preset))
         if(command.toolId&&this.options.preferences){const value=this.options.preferences.getState().value;this.options.preferences.update({recent:[command.toolId,...value.recent.filter(id=>id!==command.toolId)].slice(0,12)})}
       }else if(command.type==='finish'){
         if(!this.options.finish)throw Error('当前图表没有可完成的绘制');result=await this.options.finish()
       }else if(command.type==='cancel'){
-        this.options.cancel();this.toolId=null;this.step=0;result={status:'cancelled',items:[]}
+        this.cancelToolSession();result={status:'cancelled',items:[]}
       }else if(command.type==='select'){
         this.targets(command.ids)
         this.selectedIds=command.additive?[...new Set([...this.selectedIds,...command.ids])]:[...command.ids]
@@ -198,7 +211,9 @@ export class DrawingController {
         this.options.project()
       }else if(command.type==='preferences'){
         if(!this.options.preferences)throw Error('绘图偏好尚未就绪')
-        this.options.preferences.update(command.patch)
+        const previous=this.continuous
+        if(command.patch.ui&&Object.hasOwn(command.patch.ui,'continuous'))this.continuous=command.patch.ui.continuous!
+        try{this.options.preferences.update(command.patch)}catch(error){this.continuous=previous;throw error}
       }else if(command.type==='preferences-retry'){
         await this.options.preferences?.retry()
       }else if(command.type==='template'){
@@ -219,7 +234,7 @@ export class DrawingController {
               const tool=tools[index]!
               if(tool.toolId!==template!.toolId&&!command.styleOnly)throw Error('不同工具只能显式应用共同样式')
               const after=copy(before);after.overlay.styles=mergeDrawingStyles(after.overlay.styles,styles)
-              if(!command.styleOnly){after.parameters=copy(template!.parameters??{});validateDrawingParameters(tool,after.parameters)}
+              if(!command.styleOnly)after.parameters=applyDrawingPresetParameters(before,template!.parameters,tool)
               return {before,after}
             })
           })
@@ -227,7 +242,7 @@ export class DrawingController {
           const selected=this.targets(command.ids??this.selectedIds)
           if(selected.length!==1)throw Error('请选择一个绘图作为样式来源')
           const source=selected[0],tool=this.catalog.find(t=>t.overlayName===source.overlay.name)!
-          const preset:DrawingStylePreset={styles:copy(source.overlay.styles??{}),parameters:copy(source.parameters??{})}
+          const preset=extractDrawingStylePreset(source,tool)
           if(command.action==='default')preferences.update({defaults:{...value.defaults,[tool.toolId]:preset},lastStyles:{...value.lastStyles,[tool.toolId]:preset}})
           else{
             if(!command.name?.trim()&&command.action!=='overwrite')throw Error('请输入模板名称')
@@ -349,5 +364,5 @@ export class DrawingController {
     }catch(error){result={status:'rejected',items:[],message:error instanceof Error?error.message:String(error)}}
     this.executionIds=undefined;this.previewBases=undefined;this.lastResult=result;this.refresh();return copy(result)
   }
-  dispose():void{this.disposed=true;this.clipboard=[];this.selectedIds=[];this.travelTarget=undefined}
+  dispose():void{this.disposed=true;this.clipboard=[];this.selectedIds=[];this.travelTarget=undefined;this.toolId=null;this.toolPreset=undefined;this.toolSession=undefined}
 }

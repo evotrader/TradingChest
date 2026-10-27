@@ -15,6 +15,10 @@
   <img src="docs/public/image.png" alt="TradingChest Screenshot" width="800" />
 </p>
 
+## 0.15.0 local candidate
+
+The two Fib tools gain stable-ID level tables, per-level text, linear/log calculation and explicit rendering options. Favorites, recent tools, continuous drawing, pre-draw templates and configurable snap sources improve the drawing workflow. Generic third-party level-set capabilities use the same public helpers and editor. Preferences migrate from v1 to v2; layout/workspace/shared schemas and the 56-tool catalog remain unchanged. Local validation is in progress and this candidate has not been published to npm. See [0.15 migration](docs/en-US/upgrade/0.15.0.md).
+
 ## 0.14.0 local candidate
 
 Seven existing line/channel/rectangle tools gain attached text. A stable-ID overlap picker and explicit bar/price/tick translation support dense drawing edits; third-party tools declare the same capabilities. Text, changes and persistence use the existing confirmation and undo paths. The catalog stays at 56 tools, KLineCharts at 10.1.0, and document schemas remain unchanged. See [0.14 migration](docs/en-US/upgrade/0.14.0.md) and [drawing usage](docs/en-US/drawings.md#drawing-expressiveness). Local acceptance is complete under the approved performance budgets. This candidate has not been published to npm; the pinned installation below remains the published stable version.

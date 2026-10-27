@@ -1,0 +1,44 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><body style="margin:0"><div id="chart" style="width:1200px;height:760px"></div><script type="module">
+import {KLineChartPro,instantiateDrawingLevelPreset} from '/src/chart.ts'
+import {makeBars} from './syntheticBars.ts'
+const container=document.querySelector('#chart'),period={multiplier:1,timespan:'minute',text:'1m'},frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
+let pro,bars=[],subscriptions=0,current,figures=[],renderCPU=0
+window.workflowBench={
+ get chart(){return pro},
+ async mount(count,tool){
+  if(pro)throw Error('前一绘图实例未释放')
+  bars=makeBars(count);let resolve;const ready=new Promise(done=>resolve=done)
+  pro=new KLineChartPro({container,symbol:{ticker:'SYNTHETIC.X',pricePrecision:4},period,mainIndicators:['MA'],subIndicators:['VOL','MACD'],onDataReady:()=>resolve(),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,q)=>({bars:q.kind==='before'?bars.filter(bar=>bar.timestamp<q.before):bars.filter(bar=>bar.timestamp>=q.from&&bar.timestamp<q.to),hasMoreBefore:false,basis:'isolated-raw'}),subscribe:()=>subscriptions++,unsubscribe:()=>subscriptions--}})
+  await ready;await frame()
+  const chart=pro.getChart(),axis=chart.getYAxes({paneId:'candle_pane'})[0],height=chart.getSize('candle_pane','main').height,extension=tool==='fibonacciExtension'
+  const points=(extension?[[50,.6],[30,.5],[10,.4]]:[[50,.35],[30,.6]]).map(([offset,fraction])=>({timestamp:bars.at(-offset).timestamp,value:axis.convertFromPixel(height*fraction)})),levels=instantiateDrawingLevelPreset({version:1,items:Array.from({length:64},(_,index)=>({value:index/63,visible:true}))})
+  levels.items.forEach((level,index)=>level.text='级别 '+index)
+  const id='workflow-'+crypto.randomUUID();pro.restoreDrawings('local',[{logicalId:id,owner:'local',yAxisId:axis.id,parameters:{levels},anchors:points.map(point=>({kind:'market',...point})),overlay:{id,name:tool,paneId:'candle_pane',groupId:'drawing_tools',points,visible:true,lock:false,styles:null,extendData:null}}]);await pro.executeDrawingCommand({type:'select',ids:[id]})
+  const overlay=chart.getOverlays({id})[0],draw=overlay.createPointFigures;overlay.createPointFigures=args=>{const start=performance.now();const value=draw(args);renderCPU+=performance.now()-start;figures=value;return value};chart.resize();await frame()
+  if(figures.filter(figure=>figure.key?.startsWith('fibonacci-level:')).length!==64)throw Error('没有实际绘制完整64级')
+  return {count:chart.getDataList().length,objects:pro.getDrawings().length,native:chart.getOverlays().length,levels:levels.items.length}
+ },
+ arm(direction){
+  if(current&&!current.complete)throw Error('前一拖动样本未完成')
+  const chart=pro.getChart(),drawing=pro.getDrawings()[0],point=chart.convertToPixel(drawing.overlay.points[0],{paneId:'candle_pane',yAxisId:drawing.yAxisId}),target={x:point.x,y:point.y+direction*10},expected=chart.convertFromPixel(target,{paneId:'candle_pane',yAxisId:drawing.yAxisId})
+  const tasks=[],observer=new PerformanceObserver(list=>tasks.push(...list.getEntries().map(({startTime,duration})=>({startTime,duration}))));observer.observe({type:'longtask',buffered:true});renderCPU=0
+  current={direction,expected:{timestamp:drawing.anchors[0].timestamp,value:expected.value},target,observerSupported:PerformanceObserver.supportedEntryTypes.includes('longtask'),complete:false}
+  const capture=event=>{if(!event.target.closest('.tc-drawing-handle'))return;document.removeEventListener('pointerdown',capture,true);current.start=performance.now();current.trusted=event.isTrusted
+   const check=()=>{
+    const drawing=pro.getDrawings()[0],state=pro.getDrawingHistoryState(),anchor=drawing?.anchors?.[0],last=pro.getDrawingState().lastResult,lines=figures.filter(figure=>figure.key?.startsWith('fibonacci-level:')),labels=figures.filter(figure=>figure.key?.startsWith('fibonacci-label:'))
+    const anchors=drawing?.anchors??[],extension=drawing?.overlay.name==='fibonacciExtension',axis=chart.getYAxes({paneId:'candle_pane'}).find(axis=>axis.id===drawing.yAxisId)
+    const matches=anchor&&anchor.timestamp===current.expected.timestamp&&Math.abs(anchor.value-current.expected.value)<1e-8&&state.pending===0&&last?.status==='completed'&&last.items.length===1&&last.items[0].status==='confirmed'&&lines.length===64&&labels.length===64&&drawing.parameters.levels.items.every(level=>{
+     const price=extension?anchors[2].value+(anchors[1].value-anchors[0].value)*level.value:anchors[1].value+(anchors[0].value-anchors[1].value)*level.value,line=lines.find(figure=>figure.key==='fibonacci-level:'+level.id),label=labels.find(figure=>figure.key==='fibonacci-label:'+level.id)
+     return line&&label&&Math.abs(line.attrs.coordinates[0].y-axis.convertToPixel(price))<1e-7&&label.attrs.text.includes(level.text)
+    })
+    if(!matches){requestAnimationFrame(check);return}
+    requestAnimationFrame(()=>requestAnimationFrame(async()=>{current.end=performance.now();current.latency=current.end-current.start;current.renderCPU=renderCPU;current.anchor=anchor;current.nativePoint=chart.getOverlays({id:drawing.logicalId})[0].points[0];current.levels=lines.length;current.texts=labels.length;current.history=state;current.confirmed=last.items;current.rows=drawing.parameters.levels.items.map(level=>({id:level.id,value:level.value,text:level.text}));current.geometry=lines.map(line=>({key:line.key,y:line.attrs.coordinates[0].y}));await new Promise(resolve=>setTimeout(resolve,100));tasks.push(...observer.takeRecords().map(({startTime,duration})=>({startTime,duration})));observer.disconnect();current.longTasks=tasks.filter(task=>task.startTime<current.end&&task.startTime+task.duration>current.start);current.maximumLongTask=Math.max(0,...current.longTasks.map(task=>task.duration));current.complete=true}))
+   };requestAnimationFrame(check)
+  };document.addEventListener('pointerdown',capture,true)
+  const pane=chart.getDom('candle_pane','main').getBoundingClientRect();return {x:pane.x+target.x,y:pane.y+target.y}
+ },
+ sample:()=>current,
+ async dispose(){pro?.dispose();pro=undefined;current=undefined;figures=[];await frame();return {subscriptions,dom:container.childNodes.length}}
+}
+window.ready=true
+</script></body></html>

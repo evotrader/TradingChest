@@ -1,31 +1,37 @@
-import type {DrawingSnapshot} from './types'
+import type {DrawingSnapshot,DrawingParameterPrimitive} from './types'
+import type {DrawingLevelPresetSet} from './levels'
 import type {DrawingToolDescriptor} from './catalog'
-import {validateDrawingParameters} from './catalog'
+import {validateDrawingPresetParameters} from './presets'
 import {jsonSafe} from '../persistence/v2'
 import {createDrawingDatabase} from './indexedDB'
 import {shortcutCombo} from '../shortcut/combo'
 
-export interface DrawingStylePreset {styles:NonNullable<DrawingSnapshot['overlay']['styles']>;parameters?:DrawingSnapshot['parameters']}
+export type DrawingPresetParameters=Record<string,DrawingParameterPrimitive|DrawingLevelPresetSet>
+export interface DrawingStylePreset {styles:NonNullable<DrawingSnapshot['overlay']['styles']>;parameters?:DrawingPresetParameters}
 export interface DrawingTemplate extends DrawingStylePreset {id:string;name:string;toolId:string}
+export interface DrawingSnappingOptions {ohlc:boolean;indicators:boolean;weakSensitivity:4|8|12|16}
 export interface DrawingPreferences {
-  version:1
+  version:2
   favorites:string[]
   recent:string[]
   defaults:Record<string,DrawingStylePreset>
   lastStyles?:Record<string,DrawingStylePreset>
   templates:DrawingTemplate[]
   shortcuts:Record<string,string>
-  ui:{continuous:boolean;favoritesPosition:{x:number;y:number}}
+  ui:{continuous:boolean;favoritesPosition:{x:number;y:number};snapping:DrawingSnappingOptions}
 }
+export interface DrawingPreferencesV1 extends Omit<DrawingPreferences,'version'|'ui'> {version:1;ui:Omit<DrawingPreferences['ui'],'snapping'>}
+export type DrawingPreferencesInput=DrawingPreferences|DrawingPreferencesV1
+export type DrawingPreferencesPatch=Partial<Omit<DrawingPreferences,'ui'>>&{ui?:Partial<Omit<DrawingPreferences['ui'],'snapping'>>&{snapping?:Partial<DrawingSnappingOptions>}}
 export interface DrawingPreferencesStore {
-  read(scope:string,signal:AbortSignal):Promise<DrawingPreferences|null>
+  read(scope:string,signal:AbortSignal):Promise<DrawingPreferencesInput|null>
   write(scope:string,value:DrawingPreferences,signal:AbortSignal):Promise<void>
 }
 export interface DrawingPreferencesState {value:DrawingPreferences;status:'session-only'|'loading'|'saving'|'saved'|'error';error?:string}
-export const defaultDrawingPreferences=():DrawingPreferences=>({version:1,favorites:['horizontalStraightLine','segment','rect','textAnnotation','brush'],recent:[],defaults:{},templates:[],shortcuts:{},ui:{continuous:false,favoritesPosition:{x:72,y:10}}})
+export const defaultDrawingPreferences=():DrawingPreferences=>({version:2,favorites:['horizontalStraightLine','segment','rect','textAnnotation','brush'],recent:[],defaults:{},templates:[],shortcuts:{},ui:{continuous:false,favoritesPosition:{x:72,y:10},snapping:{ohlc:true,indicators:true,weakSensitivity:8}}})
 const clone=<T>(value:T):T=>structuredClone(value)
 const equal=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b)
-function mergeInitialEdit(stored:DrawingPreferences,before:DrawingPreferences,patch:Partial<DrawingPreferences>):DrawingPreferences {
+function mergeInitialEdit(stored:DrawingPreferences,before:DrawingPreferences,patch:DrawingPreferencesPatch):DrawingPreferences {
   const result=clone(stored)
   for(const [field,value] of Object.entries(patch)){
     if(field==='templates'){
@@ -33,7 +39,13 @@ function mergeInitialEdit(stored:DrawingPreferences,before:DrawingPreferences,pa
       for(const id of previous.keys())if(!next.some(t=>t.id===id))map.delete(id)
       for(const template of next)if(!equal(template,previous.get(template.id)))map.set(template.id,clone(template))
       result.templates=[...map.values()]
-    }else if(field==='defaults'||field==='lastStyles'||field==='shortcuts'||field==='ui'){
+    }else if(field==='ui'){
+      for(const [key,entry] of Object.entries(value as NonNullable<DrawingPreferencesPatch['ui']>)){
+        if(entry===undefined)continue
+        if(key==='snapping'){for(const [source,option] of Object.entries(entry as Partial<DrawingSnappingOptions>))if(!equal((before.ui.snapping as any)[source],option))(result.ui.snapping as any)[source]=clone(option)}
+        else if(!equal((before.ui as any)[key],entry))(result.ui as any)[key]=clone(entry)
+      }
+    }else if(field==='defaults'||field==='lastStyles'||field==='shortcuts'){
       const previous=(before[field]??{}) as any,next=value as any,target=((result as any)[field]??={}) as any
       for(const key of Object.keys(previous))if(!(key in next))delete target[key]
       for(const [key,entry] of Object.entries(next))if(!equal(previous[key],entry))target[key]=clone(entry)
@@ -43,11 +55,13 @@ function mergeInitialEdit(stored:DrawingPreferences,before:DrawingPreferences,pa
   return result
 }
 export function validateDrawingPreferences(value:DrawingPreferences,catalog?:DrawingToolDescriptor[]):void {
-  if(!value||!jsonSafe(value)||value.version!==1||!Array.isArray(value.favorites)||!Array.isArray(value.recent)||!value.defaults||typeof value.defaults!=='object'||Array.isArray(value.defaults)||!Array.isArray(value.templates)||!value.shortcuts||typeof value.shortcuts!=='object'||!value.ui||typeof value.ui.continuous!=='boolean'||!value.ui.favoritesPosition||Object.values(value.ui.favoritesPosition).some(v=>typeof v!=='number'||!Number.isFinite(v)||v<0))throw Error('绘图偏好格式无效')
+  if(!value||!jsonSafe(value)||value.version!==2||!Array.isArray(value.favorites)||!Array.isArray(value.recent)||!value.defaults||typeof value.defaults!=='object'||Array.isArray(value.defaults)||!Array.isArray(value.templates)||!value.shortcuts||typeof value.shortcuts!=='object'||!value.ui||typeof value.ui.continuous!=='boolean'||!value.ui.favoritesPosition||Object.values(value.ui.favoritesPosition).some(v=>typeof v!=='number'||!Number.isFinite(v)||v<0))throw Error('绘图偏好格式无效')
+  const snapping=value.ui.snapping
+  if(!snapping||typeof snapping!=='object'||Array.isArray(snapping)||Object.keys(snapping).some(key=>!['ohlc','indicators','weakSensitivity'].includes(key))||typeof snapping.ohlc!=='boolean'||typeof snapping.indicators!=='boolean'||![4,8,12,16].includes(snapping.weakSensitivity))throw Error('绘图吸附来源或灵敏度无效')
   for(const values of [value.favorites,value.recent])if(new Set(values).size!==values.length||values.some(id=>typeof id!=='string'||!id||catalog&&!catalog.some(t=>t.toolId===id)))throw Error('绘图偏好包含未知或重复工具')
   const preset=(p:DrawingStylePreset,toolId:string)=>{
     if(!p||Object.keys(p).some(k=>!['styles','parameters'].includes(k))||!p.styles||typeof p.styles!=='object'||Array.isArray(p.styles))throw Error('样式模板不能包含坐标、正文或身份')
-    const tool=catalog?.find(t=>t.toolId===toolId);if(catalog&&!tool)throw Error('模板工具不在当前目录');if(tool)validateDrawingParameters(tool,p.parameters??{})
+    const tool=catalog?.find(t=>t.toolId===toolId);if(catalog&&!tool)throw Error('模板工具不在当前目录');validateDrawingPresetParameters(p.parameters??{},tool)
   }
   for(const [id,p] of Object.entries(value.defaults))preset(p,id)
   for(const [id,p] of Object.entries(value.lastStyles??{}))preset(p,id)
@@ -64,10 +78,17 @@ export function validateDrawingPreferences(value:DrawingPreferences,catalog?:Dra
   }
   const effective=new Set<string>();for(const tool of catalog??[]){const combo=value.shortcuts[tool.toolId]??tool.shortcut?.toLowerCase();if(combo){if(effective.has(combo))throw Error('快捷键与其它工具的实际快捷键冲突');effective.add(combo)}}
 }
+/** Pure migration: callers decide whether an explicit edit should write the v2 document. */
+export function migrateDrawingPreferences(value:unknown,catalog?:DrawingToolDescriptor[]):DrawingPreferences {
+  if(!value||typeof value!=='object'||!jsonSafe(value)||!('version' in value)||![1,2].includes(value.version as number))throw Error('绘图偏好版本未知或格式损坏，原件已保留')
+  const next=clone(value) as DrawingPreferences
+  if(value.version===1){if(!next.ui||typeof next.ui!=='object')throw Error('绘图偏好格式无效');next.version=2;next.ui={...next.ui,snapping:next.ui.snapping??defaultDrawingPreferences().ui.snapping}}
+  validateDrawingPreferences(next,catalog);return next
+}
 export function createIndexedDBDrawingPreferencesStore(options:{databaseName?:string}={}):DrawingPreferencesStore&{dispose():void}{
   const db=createDrawingDatabase(options.databaseName)
   return {
-    async read(scope,signal){if(typeof scope!=='string')throw Error('偏好 scope 必须是字符串');return db.transact('preferences','readonly',signal,(store,done,fail)=>{const request=store.get([scope,'preferences']);request.onsuccess=()=>{try{const value=request.result?.value;if(value)validateDrawingPreferences(value);done(value?clone(value):null)}catch(error){fail(error)}}})},
+    async read(scope,signal){if(typeof scope!=='string')throw Error('偏好 scope 必须是字符串');return db.transact('preferences','readonly',signal,(store,done,fail)=>{const request=store.get([scope,'preferences']);request.onsuccess=()=>{try{const value=request.result?.value;done(value?migrateDrawingPreferences(value):null)}catch(error){fail(error)}}})},
     async write(scope,value,signal){if(typeof scope!=='string')throw Error('偏好 scope 必须是字符串');validateDrawingPreferences(value);const captured=clone(value);return db.transact('preferences','readwrite',signal,(store,done)=>{store.put({scope,id:'preferences',value:captured}).onsuccess=()=>done(undefined)})},
     dispose:()=>db.dispose()
   }
@@ -80,10 +101,10 @@ export class DrawingPreferencesManager {
   private disposed=false
   private initialized=false
   private initialRead?:Promise<void>
-  private initialEdits:Array<{before:DrawingPreferences;patch:Partial<DrawingPreferences>}>=[]
+  private initialEdits:Array<{before:DrawingPreferences;patch:DrawingPreferencesPatch}>=[]
   private scheduledRevision=-1
-  constructor(private options:{catalog:DrawingToolDescriptor[];initial?:DrawingPreferences;scope?:string;store?:DrawingPreferencesStore;changed?:(state:DrawingPreferencesState)=>void}){
-    const initial=clone(options.initial??defaultDrawingPreferences())
+  constructor(private options:{catalog:DrawingToolDescriptor[];initial?:DrawingPreferencesInput;scope?:string;store?:DrawingPreferencesStore;changed?:(state:DrawingPreferencesState)=>void}){
+    const initial=migrateDrawingPreferences(options.initial??defaultDrawingPreferences())
     if(!options.initial){initial.favorites=initial.favorites.filter(id=>options.catalog.some(t=>t.toolId===id))}
     validateDrawingPreferences(initial,options.catalog)
     if(options.store&&typeof options.scope!=='string')throw Error('启用偏好存储时必须明确提供 drawingPreferencesScope')
@@ -92,6 +113,7 @@ export class DrawingPreferencesManager {
     if(options.store)this.initialRead=this.load()
   }
   getState():DrawingPreferencesState{return clone(this.state)}
+  getSnapping():DrawingSnappingOptions{return {...this.state.value.ui.snapping}}
   /** Compare the canonical preset before copying the complete preferences document. */
   rememberStyle(toolId:string,preset:DrawingStylePreset):void {
     if(!equal(this.state.value.lastStyles?.[toolId],preset))this.update({lastStyles:{...this.state.value.lastStyles,[toolId]:preset}})
@@ -100,7 +122,7 @@ export class DrawingPreferencesManager {
   private async load(){
     try{
       const value=await this.options.store!.read(this.options.scope!,this.controller.signal);if(this.disposed)return
-      let merged=clone(value??this.options.initial??defaultDrawingPreferences())
+      let merged=migrateDrawingPreferences(value??this.options.initial??defaultDrawingPreferences())
       if(!value&&!this.options.initial)merged.favorites=merged.favorites.filter(id=>this.options.catalog.some(t=>t.toolId===id))
       validateDrawingPreferences(merged,this.options.catalog)
       for(const edit of this.initialEdits)merged=mergeInitialEdit(merged,edit.before,edit.patch)
@@ -110,8 +132,9 @@ export class DrawingPreferencesManager {
     catch(error){if(this.disposed)return;this.initialized=false;this.state.status='error';this.state.error=`偏好读取失败，原件不会被覆盖，本次会话仍可编辑：${error instanceof Error?error.message:String(error)}`}
     this.emit()
   }
-  update(patch:Partial<DrawingPreferences>):void {
-    const next={...this.state.value,...clone(patch)};validateDrawingPreferences(next,this.options.catalog)
+  update(patch:DrawingPreferencesPatch):void {
+    const captured=clone(patch),ui=captured.ui
+    const next={...this.state.value,...captured,ui:{...this.state.value.ui,...ui,snapping:{...this.state.value.ui.snapping,...ui?.snapping}}};validateDrawingPreferences(next,this.options.catalog)
     if(!this.initialized)this.initialEdits.push({before:clone(this.state.value),patch:clone(patch)})
     this.state.value=next;this.revision++;this.emit();void this.save()
   }

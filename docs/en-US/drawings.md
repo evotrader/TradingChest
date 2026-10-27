@@ -136,7 +136,7 @@ See [0.13 migration](./upgrade/0.13.0.md) for separate documents, stable scopes,
 
 ## 0.14 attached text and dense editing {#drawing-expressiveness}
 
-This section describes the local upgrade contract while validation is in progress. See [0.14 migration](./upgrade/0.14.0.md) for migration boundaries. The catalog remains 56 tools and document versions stay unchanged. This is not an npm-publication or performance-pass announcement.
+This section describes the local upgrade contract with local acceptance completed. See [0.14 migration](./upgrade/0.14.0.md) for migration boundaries. The catalog remains 56 tools and document versions stay unchanged. Local acceptance passed under the approved budgets; this version has not been published to npm.
 
 ### Attached text
 
@@ -171,3 +171,11 @@ Select objects in Drawing manager, open Precise translation, enter signed bars o
 Bars move through actual loaded bar indices while preserving fractional positions between bars, including lunch breaks, weekends and sparse data. Out-of-range targets, missing neighbours or unresolved references reject the entire preflight without fabricating future timestamps. Price-only movement preserves the original time anchor completely. Price multiplication/addition uses a separate 50-digit Decimal configuration followed by one Number conversion, without display-precision rounding. Nonfinite results, nonpositive log values and invalid geometry reject.
 
 Translation follows existing whole-batch preflight, per-object permission/context guards, serial confirmation and history. A time-structure or binding change after queuing/yielding cancels the old operation. Confirmed prefixes remain; unattempted items are explicit. Check `status` and each `items` result. Partial/uncertain is not success, and unknown writes are not automatically retried. All-zero requests write no content/history; a successful batch is one undo/redo transaction.
+
+## 0.15 levels and drawing entry points {#drawing-workflow}
+
+Local validation is in progress; this version is not on npm. The two Fib tools support 1–64 editable rows with custom ratios, visibility, appearance, text and ordering. The complete draft confirms as one edit/undo; cancellation writes nothing. Calculation, reverse, extension, background and label options are explicit. Legacy numeric arrays remain unchanged on read. Text belongs to objects; presets strip row IDs and text.
+
+The picker supports direct favorites and 12 recent tools. The toolbar exposes continuous drawing and matching pre-draw templates. Selecting a template does not edit selected objects, and continuous objects get fresh row IDs and empty text. Snap settings independently select OHLC/visible indicators and 4/8/12/16px weak distances; disabling both shows a clear message without changing existing anchors.
+
+Third-party descriptors can declare `kind:'level-set'` under any key and use the same editor and public resolver. Omission does not infer capability. Preferences migrate purely from v1 to v2; layout/workspace/shared versions stay unchanged. The old 0.14 reader rejects new level objects while retaining storage. See [0.15 migration](./upgrade/0.15.0.md).

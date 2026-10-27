@@ -25,3 +25,11 @@ const chart = new KLineChartPro({ ...options, drawingCatalog: [...builtinDrawing
 ```
 
 `styleControls` 必须与模板实际读取的标准样式对应；`settings` 含 style 才启用控件，缺省保持描边/线宽/线型，空数组关闭。注册模板不会获得对宿主只读对象的编辑权限。多个图表可重复使用模板，销毁一个图不注销全局模板。缺少注册时构造会在修改容器前抛错，原容器保留。图表生命周期和原生 IndexedDB 仍由示例的既有所有者释放。
+
+## 0.15 通用级别集
+
+`level-bands.mjs` 注册 `EXAMPLE/LevelBands`，只导入已安装包的 `resolveDrawingLevels` 与 peer `registerOverlay`。任意参数键 `zones` 声明 `kind:'level-set'`，可从工具选择器搜索“示例级别带”直接绘制。单选设置支持逐级比例／外观／正文；模板仅保存外观，一次撤销保完整正文。
+
+“载入旧级别定义”按钮以公开提交接口导入含负值／重复／外延值的旧数字数组。打开／取消设置不改写，实际级别编辑后得到稳定ID对象；示例构造参数还演示纯读取v1偏好。通过宿主共享及命名工作台保存／重开，A销毁后B仍能编辑，资源由原所有者释放。所有行情仍是隔离合成输入。
+
+`EXAMPLE/LevelBands` uses the installed public level resolver and peer registration under an arbitrary `zones` parameter. The visible legacy-definition button demonstrates nonmutating array reads and first-edit materialization; the constructor also accepts v1 preferences. Per-level text stays out of presets, one undo restores the edit, native stores survive reopen, and B remains usable after A is disposed. No EvoTrader service or private types are required.

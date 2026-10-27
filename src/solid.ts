@@ -1,5 +1,11 @@
 export type {DrawingAnalyticsState,DrawingAnalyticsMethod,VwapPriceSource,VwapBandMode,VwapBandBoundary,VwapBandsSummary} from './drawing/analytics'
 export type {DrawingStyleControl,DrawingToolDescriptor} from './drawing/catalog'
+export {resolveDrawingLevels,validateDrawingLevelSet,validateDrawingLevelPresetSet,isDrawingLevelSet,extractDrawingLevelPreset,instantiateDrawingLevelPreset,applyDrawingLevelPreset} from './drawing/levels'
+export type {DrawingLevel,DrawingLevelSet,DrawingLevelAppearance,DrawingLevelPresetSet,DrawingLevelInput,DrawingLevelPresetInput} from './drawing/levels'
+export {extractDrawingStylePreset,instantiateDrawingPresetParameters,applyDrawingPresetParameters,validateDrawingPresetParameters} from './drawing/presets'
+export {migrateDrawingPreferences} from './drawing/preferences'
+export type {DrawingPreferences,DrawingPreferencesV1,DrawingPreferencesInput,DrawingPreferencesPatch,DrawingPreferencesState,DrawingPreferencesStore,DrawingTemplate,DrawingStylePreset,DrawingPresetParameters,DrawingSnappingOptions} from './drawing/preferences'
+export type {DrawingSnapshot,DrawingParameters,DrawingParameterPrimitive} from './drawing/types'
 // Analytical widgets (state-first; no domain recomputation)
 export type * from './alert/drawingTypes'
 export { WidgetState } from './widget/shared/WidgetState'

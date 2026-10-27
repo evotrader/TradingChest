@@ -94,7 +94,10 @@ export {saveLayoutV4,loadLayoutV4,deleteLayoutV4,listLayoutsV4,migrateLayoutToV4
 export type {ChartLayoutV4} from './persistence/v4'
 export {builtinDrawingCatalog} from './drawing/catalog'
 export type {DrawingToolDescriptor,DrawingParameter,DrawingCategory,DrawingStyleControl} from './drawing/catalog'
-export type {DrawingAnchor,DrawingCommand,DrawingCommandResult,DrawingState,DrawingPresentation,DrawingScope,DrawingIntervalFilter} from './drawing/types'
+export type {DrawingAnchor,DrawingCommand,DrawingCommandResult,DrawingState,DrawingPresentation,DrawingScope,DrawingIntervalFilter,DrawingParameters,DrawingParameterPrimitive} from './drawing/types'
+export {resolveDrawingLevels,validateDrawingLevelSet,validateDrawingLevelPresetSet,isDrawingLevelSet,extractDrawingLevelPreset,instantiateDrawingLevelPreset,applyDrawingLevelPreset} from './drawing/levels'
+export type {DrawingLevel,DrawingLevelSet,DrawingLevelAppearance,DrawingLevelPresetSet,DrawingLevelInput,DrawingLevelPresetInput} from './drawing/levels'
+export {extractDrawingStylePreset,instantiateDrawingPresetParameters,applyDrawingPresetParameters,validateDrawingPresetParameters} from './drawing/presets'
 export type {DrawingAnalyticsState,DrawingAnalyticsMethod,VwapPriceSource,VwapBandMode,VwapBandBoundary,VwapBandsSummary} from './drawing/analytics'
 export type {ChartLayoutV3,LayoutResult,LayoutIndicatorV3} from './persistence/v3'
 export {ChartWorkspace,isWorkspaceDocument} from './workspace/ChartWorkspace'
@@ -117,8 +120,8 @@ export type {WorkspaceSummary,StoredWorkspace,WorkspaceWrite,WorkspaceStore,Work
 export {createIndexedDBWorkspaceStore} from './workspace/indexedDBStore'
 export {readLegacyWorkspace} from './workspace/legacy'
 
-export {createIndexedDBDrawingPreferencesStore,defaultDrawingPreferences} from './drawing/preferences'
-export type {DrawingPreferences,DrawingPreferencesState,DrawingPreferencesStore,DrawingTemplate,DrawingStylePreset} from './drawing/preferences'
+export {createIndexedDBDrawingPreferencesStore,defaultDrawingPreferences,migrateDrawingPreferences} from './drawing/preferences'
+export type {DrawingPreferences,DrawingPreferencesV1,DrawingPreferencesInput,DrawingPreferencesPatch,DrawingPreferencesState,DrawingPreferencesStore,DrawingTemplate,DrawingStylePreset,DrawingPresetParameters,DrawingSnappingOptions} from './drawing/preferences'
 
 export {DrawingSession,DrawingSessionRegistry} from './drawing/session'
 export type {DrawingShareResolver,DrawingShareResolution,DrawingSharedReference,DrawingSessionState} from './drawing/session'

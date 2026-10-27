@@ -3,6 +3,7 @@ import type {ChartLayoutV4} from './v4'
 import {validateAnchor} from '../drawing/anchors'
 import {drawingShareKey} from '../drawing/document'
 import {jsonSafe} from './v2'
+import {isDrawingLevelSet} from '../drawing/levels'
 import {isChartLayoutV3} from './v3'
 
 export function isDrawingPresentation(value:unknown):value is DrawingPresentation {
@@ -31,7 +32,7 @@ function drawingSnapshotShape(value:unknown):value is DrawingSnapshot {
   if(d.migration&&(d.migration.direction!==undefined&&d.migration.direction!=='from-host'||!['prepared','uncertain'].includes(d.migration.status)||!isSharedReference(d.migration.target)||d.migration.target.logicalId!==d.logicalId||d.owner!=='local'))return false
   if(d.yAxisId!==undefined&&typeof d.yAxisId!=='string'||d.presentation!==undefined&&!isDrawingPresentation(d.presentation))return false
   if(d.anchors!==undefined){if(!Array.isArray(d.anchors)||d.anchors.length!==o.points.length)return false;try{d.anchors.forEach(validateAnchor)}catch{return false}}
-  return d.parameters===undefined||!!d.parameters&&typeof d.parameters==='object'&&!Array.isArray(d.parameters)&&Object.values(d.parameters).every(v=>typeof v==='string'||typeof v==='boolean'||typeof v==='number'&&Number.isFinite(v)||Array.isArray(v)&&v.every(n=>typeof n==='number'&&Number.isFinite(n)))
+  return d.parameters===undefined||!!d.parameters&&typeof d.parameters==='object'&&!Array.isArray(d.parameters)&&Object.values(d.parameters).every(v=>typeof v==='string'||typeof v==='boolean'||typeof v==='number'&&Number.isFinite(v)||Array.isArray(v)&&v.every(n=>typeof n==='number'&&Number.isFinite(n))||isDrawingLevelSet(v))
 }
 export function isChartLayoutV4(value:unknown):value is ChartLayoutV4 {
   return jsonSafe(value)&&chartLayoutV4Shape(value)

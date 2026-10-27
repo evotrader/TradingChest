@@ -1,14 +1,17 @@
-import {builtinDrawingCatalog,KLineChartPro,DrawingStoreError,ChartWorkspace,DrawingSessionRegistry,createIndexedDBDrawingDocumentStore,createIndexedDBDrawingPreferencesStore,createIndexedDBWorkspaceStore,drawingShareKey} from 'trading-chest/chart'
+import {builtinDrawingCatalog,KLineChartPro,DrawingStoreError,ChartWorkspace,DrawingSessionRegistry,createIndexedDBDrawingDocumentStore,createIndexedDBDrawingPreferencesStore,createIndexedDBWorkspaceStore,drawingShareKey,defaultDrawingPreferences} from 'trading-chest/chart'
 import 'trading-chest/dist/trading-chest.css'
 import {analysisZoneDescriptor} from './analysis-zone.mjs'
 import {attachedTools} from './attached-tools.mjs'
-const drawingCatalog=[...builtinDrawingCatalog,analysisZoneDescriptor,...attachedTools]
+import {levelBandsDescriptor} from './level-bands.mjs'
+const drawingCatalog=[...builtinDrawingCatalog,analysisZoneDescriptor,...attachedTools,levelBandsDescriptor]
 import {createHTTPDrawingStore} from './http-store.mjs'
 
 // Deterministic synthetic inputs are confined to this isolated public-package example.
 const bars=Array.from({length:300},(_,i)=>{const close=100+Math.sin(i/7)*3;return {timestamp:1700000000000+i*60000,open:close-.1,close,high:close+1,low:close-1,volume:100+i}})
 const symbol={ticker:'ISOLATED.X',market:'test',exchange:'X',priceCurrency:'USD',pricePrecision:2,tickSize:.25},period={multiplier:1,timespan:'minute',text:'1m'}
 const identity={namespace:'isolated-drawing-example',symbol:{ticker:symbol.ticker,market:symbol.market,exchange:symbol.exchange,priceCurrency:symbol.priceCurrency},priceBasisKey:'unadjusted'},resolution={identity,documentId:drawingShareKey(identity)}
+// A v1 host preference document is read without rewriting the caller's object.
+const legacyPreferences={...defaultDrawingPreferences(),version:1};delete legacyPreferences.ui.snapping
 const status=document.querySelector('#status'),selector=document.querySelector('#store');selector.options[1].disabled=!import.meta.env.DEV
 let workspaces=[],registries=[],owned=[],mounted=false,generation=0
 const charts=()=>workspaces.flatMap(w=>w.getCells().map(c=>c.chart).filter(Boolean))
@@ -22,7 +25,7 @@ async function mount(){
   const registry=index===2?independent:shared
   const workspace=new ChartWorkspace({container:document.querySelector('#'+id),context:'isolated-drawing-'+id,symbols:[symbol],initialSymbol:symbol,initialPeriod:period,getPeriods:async()=>[period,{multiplier:1,timespan:'hour',text:'1h'}],store:layouts,resolveDrawingShareKey:()=>resolution,mountCell:(container,cell)=>{
    let resolve;const ready=new Promise(r=>resolve=r)
-   const pro=new KLineChartPro({container,drawingCatalog,symbol:cell.symbol,period:cell.period,drawingHostSessions:registry,resolveDrawingShareKey:()=>resolution,drawingPreferencesStore:preferences,drawingPreferencesScope:'isolated-example-'+id,onDataReady:()=>queueMicrotask(()=>resolve(pro)),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>({bars:query.kind==='before'?bars.filter(b=>b.timestamp<query.before):bars.filter(b=>b.timestamp>=query.from&&b.timestamp<query.to),hasMoreBefore:false,basis:'unadjusted'}),subscribe:()=>{},unsubscribe:()=>{}}})
+   const pro=new KLineChartPro({container,drawingCatalog,symbol:cell.symbol,period:cell.period,drawingHostSessions:registry,resolveDrawingShareKey:()=>resolution,drawingPreferences:legacyPreferences,drawingPreferencesStore:preferences,drawingPreferencesScope:'isolated-example-'+id,onDataReady:()=>queueMicrotask(()=>resolve(pro)),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>({bars:query.kind==='before'?bars.filter(b=>b.timestamp<query.before):bars.filter(b=>b.timestamp>=query.from&&b.timestamp<query.to),hasMoreBefore:false,basis:'unadjusted'}),subscribe:()=>{},unsubscribe:()=>{}}})
    return {ready,dispose:()=>pro.dispose()}
   }})
   workspaces.push(workspace)
@@ -31,6 +34,13 @@ async function mount(){
  window.drawingDemo.ready=true;show('共享绘图已就绪；请通过图内工具栏和对象管理绘制与编辑')
 }
 const action=(id,fn)=>document.querySelector('#'+id).addEventListener('click',()=>Promise.resolve().then(fn).catch(e=>show(e.message)))
+action('level-legacy',async()=>{
+ if(!mounted||!window.drawingDemo.ready)throw Error('请先等待图表就绪')
+ const chart=charts()[0],loaded=chart.getChart().getDataList(),points=[loaded.at(-80),loaded.at(-30)].map(bar=>({timestamp:bar.timestamp,value:bar.close})),logicalId='legacy-level-'+crypto.randomUUID()
+ const result=await chart.commitDrawing({kind:'create',logicalId,source:'programmatic',after:{logicalId,owner:'local',parameters:{zones:[-.25,.5,.5,1.25]},anchors:points.map(point=>({kind:'market',...point})),overlay:{id:logicalId,name:levelBandsDescriptor.overlayName,points,paneId:'candle_pane',groupId:'drawing_tools',styles:null,extendData:null,visible:true,lock:false}}})
+ if(result.status!=='confirmed')throw Error('旧级别定义创建未确认')
+ show('旧数组定义已载入；打开设置只读，实际修改后保存为带稳定 ID 的级别表')
+})
 action('volume',async()=>{
  if(!mounted||!window.drawingDemo.ready)throw Error('请先等待图表就绪')
  const chart=charts()[0],loaded=chart.getChart().getDataList(),from=loaded.at(-80),to=loaded.at(-1)

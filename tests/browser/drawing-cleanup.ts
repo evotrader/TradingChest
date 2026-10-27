@@ -1,4 +1,4 @@
-import {DrawingSession,DrawingSessionRegistry,createIndexedDBDrawingPreferencesStore,createIndexedDBDrawingDocumentStore} from '/src/chart.ts'
+import {DrawingSession,DrawingSessionRegistry,resolveDrawingLevels,createIndexedDBDrawingPreferencesStore,createIndexedDBDrawingDocumentStore} from '/src/chart.ts'
 import {drawingAnalyticsRuntimes} from '/src/drawing/analyticsRuntime.ts'
 import {hasCurveGeometry} from '/src/extension/curves.ts'
 import {DrawingAlertRuntime} from '/src/alert/drawingRuntime.ts'
@@ -39,7 +39,11 @@ export function installDrawingCleanup(){
      const points=(name==='doubleCurve'?[[45,.6],[30,.6],[40,.3],[35,.8]]:[[45,.6],[30,.6],[38,.3]]).map(([offset,y])=>({timestamp:bars.at(-offset).timestamp,value:axis.convertFromPixel(height*y)})),id=`cleanup-${name}`
      return {logicalId:id,owner:'local',parameters:{startMarker:'arrow',endMarker:'circle',background:true},anchors:points.map(point=>({kind:'market',...point})),presentation:{name:`清理曲线 ${index}`},overlay:{id,name,paneId:'candle_pane',groupId:'drawing_tools',points,visible:true,lock:false,styles:null,extendData:null}}
     })
-    pro.restoreDrawings('local',[...pro.getDrawings().filter((d:any)=>(d.presentation?.scope??'chart')==='chart'),...curves])
+    const fibPoints=[[45,.3],[25,.6]].map(([offset,y])=>({timestamp:bars.at(-offset)!.timestamp,value:axis.convertFromPixel(height*y)}))
+    const fib={logicalId:'cleanup-fib',owner:'local',parameters:{levels:resolveDrawingLevels([0,.5,1])},anchors:fibPoints.map(point=>({kind:'market',...point})),overlay:{id:'cleanup-fib',name:'fibonacciLine',paneId:'candle_pane',groupId:'drawing_tools',points:fibPoints,visible:true,lock:false,styles:null,extendData:null}}
+    pro.restoreDrawings('local',[...pro.getDrawings().filter((d:any)=>(d.presentation?.scope??'chart')==='chart'),...curves,fib])
+    await pro.executeDrawingCommand({type:'preferences',patch:{templates:[{id:'cleanup-level-template',name:'清理绘前模板',toolId:'fibonacciLine',styles:{line:{color:'#1677ff'}},parameters:{levels:[0,.5,1]}}]}})
+    await pro.executeDrawingCommand({type:'preferences-retry'})
     const label=await pro.executeDrawingCommand({type:'update',ids:['bench-0000'],patch:{text:'清理附着文字\n实例自有',parameters:{labelVisible:true}}})
     if(label.status!=='completed')throw Error('清理验收未建立附着文字')
     const original=pro.getDrawings().find((drawing:any)=>drawing.logicalId==='bench-0000'),point={timestamp:bars.at(-30).timestamp,value:axis.convertFromPixel(height*.5)},overlaps=[0,1].map(index=>{const id=`cleanup-overlap-${index}`;return {...original,logicalId:id,anchors:[{kind:'market',...point}],overlay:{...original.overlay,id,name:'horizontalStraightLine',points:[point]}}})
@@ -65,7 +69,7 @@ export function installDrawingCleanup(){
    return {connections:connections.size,subscribers}
   },
   async finish(){const cleanup=await bench.dispose();cacheLeaks=analytics.filter(x=>drawingAnalyticsRuntimes.has(x.chart)||x.runtime?.size!==0).length+curveCharts.filter(hasCurveGeometry).length+alertLeaks+(alertDisposals===2?0:1);analytics=[];curveCharts=[];resources.registry.dispose();resources.preferences.dispose();resources.documents.dispose();await new Promise<void>((resolve,reject)=>{const request=indexedDB.deleteDatabase(resources.databaseName);request.onsuccess=()=>resolve();request.onerror=()=>reject(request.error);request.onblocked=()=>reject(Error('清理存储仍有连接'))});resources=undefined;return cleanup},
-  report(hasGC:boolean){for(let i=listeners.length-1;i>=0;i--)if(!listeners[i].target.deref())listeners.splice(i,1);const active=listeners.filter(x=>{const target=x.target.deref();return target&&(hasGC||target===window||target===document||target.isConnected)});return {caches:cacheLeaks,listeners:active.length,timers:timers.size,frames:frames.size,observers:observers.size,subscribers,connections:connections.size,editors:document.querySelectorAll('.tc-drawing-context,.tc-drawing-workbench,.tc-drawing-handle,.tc-drawing-color-palette,[role=dialog]').length,details:active.map(x=>({type:x.type,target:x.target.deref()?.constructor.name,source:x.source}))}},
+  report(hasGC:boolean){for(let i=listeners.length-1;i>=0;i--)if(!listeners[i].target.deref())listeners.splice(i,1);const active=listeners.filter(x=>{const target=x.target.deref();return target&&(hasGC||target===window||target===document||target.isConnected)});return {caches:cacheLeaks,listeners:active.length,timers:timers.size,frames:frames.size,observers:observers.size,subscribers,connections:connections.size,editors:document.querySelectorAll('.tc-drawing-context,.tc-drawing-workbench,.tc-drawing-handle,.tc-drawing-color-palette,.tc-drawing-tool-picker,.tc-drawing-snap-settings,[role=dialog]').length,details:active.map(x=>({type:x.type,target:x.target.deref()?.constructor.name,source:x.source}))}},
   restore(){DrawingAlertRuntime.prototype.dispose=disposeAlerts;EventTarget.prototype.addEventListener=add;EventTarget.prototype.removeEventListener=remove;window.setTimeout=timeout;window.clearTimeout=clearTimeout;window.setInterval=interval;window.clearInterval=clearInterval;window.requestAnimationFrame=raf;window.cancelAnimationFrame=cancelRaf;window.ResizeObserver=Observer;IDBFactory.prototype.open=open;IDBDatabase.prototype.close=close;DrawingSession.prototype.subscribe=subscribe}
  }
 }

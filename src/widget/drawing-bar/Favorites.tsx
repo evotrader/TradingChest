@@ -9,7 +9,7 @@ const DrawingFavorites:Component<{state:DrawingState;catalog:DrawingToolDescript
   let toolbar:HTMLDivElement|undefined,start:{x:number;y:number;left:number;top:number}|undefined
   const location=()=>position()??props.state.preferences?.value.ui.favoritesPosition??{x:72,y:10}
   const clamp=(value:{x:number;y:number})=>parentSize&&toolbarSize?{x:Math.max(0,Math.min(value.x,parentSize.width-toolbarSize.width)),y:Math.max(0,Math.min(value.y,parentSize.height-toolbarSize.height))}:value
-  const save=()=>{const ui=props.state.preferences?.value.ui;if(ui)void props.execute({type:'preferences',patch:{ui:{...ui,favoritesPosition:location()}}})}
+  const save=()=>{if(props.state.preferences)void props.execute({type:'preferences',patch:{ui:{favoritesPosition:location()}}})}
   const fit=()=>{if(!toolbar)return;const before=location(),next=clamp(before);if(before.x!==next.x||before.y!==next.y)setPosition(next)}
   createEffect(()=>{location();fit()})
   let observer:ResizeObserver|undefined
@@ -20,8 +20,7 @@ const DrawingFavorites:Component<{state:DrawingState;catalog:DrawingToolDescript
     setDragging(false);start=undefined
     if(event.currentTarget instanceof Element&&event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId)
     if(cancel){setPosition(undefined);return}
-    const ui=props.state.preferences?.value.ui
-    if(ui)void props.execute({type:'preferences',patch:{ui:{...ui,favoritesPosition:location()}}})
+    save()
   }
   return <div ref={toolbar} class="tc-drawing-favorites" role="toolbar" aria-label={props.locale==='en-US'?'Favorite drawing tools':'收藏绘图工具'} style={{left:`${location().x}px`,top:`${location().y}px`}}>
     <button aria-label={props.locale==='en-US'?'Move favorites toolbar':'移动收藏栏'} class="tc-favorites-drag" onKeyDown={event=>{const keys:Record<string,[number,number]>={ArrowLeft:[-10,0],ArrowRight:[10,0],ArrowUp:[0,-10],ArrowDown:[0,10]};const delta=keys[event.key];if(delta){event.preventDefault();event.stopPropagation();const current=location();setPosition(clamp({x:current.x+delta[0],y:current.y+delta[1]}));save()}}} onPointerDown={event=>{event.currentTarget.focus();const p=location();start={x:event.clientX,y:event.clientY,left:p.x,top:p.y};setDragging(true);event.currentTarget.setPointerCapture(event.pointerId);event.preventDefault()}} onPointerMove={event=>{if(!start||!toolbar?.parentElement)return;setPosition(clamp({x:start.left+event.clientX-start.x,y:start.top+event.clientY-start.y}))}} onPointerUp={event=>end(event)} onPointerCancel={event=>end(event,true)}><svg width="16" height="20" viewBox="0 0 16 20" aria-hidden="true"><path fill="currentColor" d="M4 3h3v3H4zM10 3h3v3h-3zM4 9h3v3H4zM10 9h3v3h-3zM4 15h3v3H4zM10 15h3v3h-3z"/></svg></button>

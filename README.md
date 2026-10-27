@@ -17,7 +17,7 @@
 
 ## 0.15.0 local candidate
 
-The two Fib tools gain stable-ID level tables, per-level text, linear/log calculation and explicit rendering options. Favorites, recent tools, continuous drawing, pre-draw templates and configurable snap sources improve the drawing workflow. Generic third-party level-set capabilities use the same public helpers and editor. Preferences migrate from v1 to v2; layout/workspace/shared schemas and the 56-tool catalog remain unchanged. Local validation is in progress and this candidate has not been published to npm. See [0.15 migration](docs/en-US/upgrade/0.15.0.md).
+The two Fib tools gain stable-ID level tables, per-level text, linear/log calculation and explicit rendering options. Favorites, recent tools, continuous drawing, pre-draw templates and configurable snap sources improve the drawing workflow. Generic third-party level-set capabilities use the same public helpers and editor. Preferences migrate from v1 to v2; layout/workspace/shared schemas and the 56-tool catalog remain unchanged. Local functional, package/framework, real-backend and performance checks passed, including all 172 performance obligations without budget changes and both 100-cycle cleanup workloads. This candidate has not been published to npm. See [0.15 migration](docs/en-US/upgrade/0.15.0.md).
 
 ## 0.14.0 local candidate
 

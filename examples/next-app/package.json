@@ -7,7 +7,7 @@
     "start": "next start --hostname 127.0.0.1"
   },
   "dependencies": {
-    "trading-chest": "file:../trading-chest-0.14.0.tgz",
+    "trading-chest": "file:../trading-chest-0.15.0.tgz",
     "klinecharts": "10.1.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",

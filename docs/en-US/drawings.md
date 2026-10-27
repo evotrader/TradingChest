@@ -174,7 +174,7 @@ Translation follows existing whole-batch preflight, per-object permission/contex
 
 ## 0.15 levels and drawing entry points {#drawing-workflow}
 
-Local validation is in progress; this version is not on npm. The two Fib tools support 1–64 editable rows with custom ratios, visibility, appearance, text and ordering. The complete draft confirms as one edit/undo; cancellation writes nothing. Calculation, reverse, extension, background and label options are explicit. Legacy numeric arrays remain unchanged on read. Text belongs to objects; presets strip row IDs and text.
+Local functional, performance and cleanup checks passed; this version is not on npm. The two Fib tools support 1–64 editable rows with custom ratios, visibility, appearance, text and ordering. The complete draft confirms as one edit/undo; cancellation writes nothing. Calculation, reverse, extension, background and label options are explicit. Legacy numeric arrays remain unchanged on read. Text belongs to objects; presets strip row IDs and text.
 
 The picker supports direct favorites and 12 recent tools. The toolbar exposes continuous drawing and matching pre-draw templates. Selecting a template does not edit selected objects, and continuous objects get fresh row IDs and empty text. Snap settings independently select OHLC/visible indicators and 4/8/12/16px weak distances; disabling both shows a clear message without changing existing anchors.
 

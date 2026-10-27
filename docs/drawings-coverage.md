@@ -80,9 +80,13 @@
 | U13 | 失败/部分/未知/慢提交 | history / session / drawing backend stage |
 | U14 | 320px/单双四图/DPR/边界 | drawing-touch / drawing-sharing / drawing-performance |
 | U15 | 键盘/焦点/触屏菜单 | drawing-input-audit / drawing-touch |
-| U16 | 七工具附着文字/元数据/模板正文边界 | drawing-expressiveness（0.14 验收中） |
-| U17 | 重叠完整候选/虚拟行/键盘/选择零内容写 | drawing-expressiveness（0.14 验收中） |
-| U18 | 真实根数/价格/tick平移及确认边界 | numericMove / drawing-expressiveness（0.14 验收中） |
+| U16 | 七工具附着文字/元数据/模板正文边界 | drawing-expressiveness |
+| U17 | 重叠完整候选/虚拟行/键盘/选择零内容写 | drawing-expressiveness |
+| U18 | 真实根数/价格/tick平移及确认边界 | numericMove / drawing-expressiveness |
+| U19 | 两Fib的64级/公式/正文/草稿确认取消 | drawing-workflow / performance-drawing-workflow |
+| U20 | 预设正文边界/绘前模板/偏好迁移/第三方级别集 | drawing-workflow / integration drawing-workbench |
+| U21 | 收藏/最近/连续绘制/320px菜单与焦点 | drawing-workflow |
+| U22 | 吸附来源/灵敏度/实际同轴/异步结果代次 | drawing-workflow |
 
 ## 明确差距
 

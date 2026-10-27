@@ -176,6 +176,8 @@ onUnmounted(() => { controller.abort(); chart?.dispose() })
 完整静态站产物的[演示索引](/demos/)提供 Next.js 源码下载包，内含同版 TradingChest tarball 与独立锁；解包进入 next-app 后运行 npm ci、npm run build、npm start。Next.js 仍需 Node 服务。
 
 
-## 绘图工作台独立示例
+## 绘图工作台独立示例 {#drawing-workbench-example}
 
 drawing-workbench 示例实际安装同版公开 tarball。两个工作台借用同一宿主绘图 registry，第三个实例显式刷新；首方 IndexedDB 保存偏好和绘图。可运行的 loopback HTTP CAS 示例仅在开发服务可用，静态站禁用该选项。所有权与格式迁移见绘图页及 0.10.0 升级页。
+
+0.15 的 `EXAMPLE/LevelBands` 通过公开 `kind:'level-set'`、`resolveDrawingLevels` 和 peer `registerOverlay` 声明并绘制级别。示例覆盖旧数字数组／v1偏好读取、级别与正文编辑、正文不进模板、一次撤销和原生存储重开；不依赖 EvoTrader DTO 或服务。

@@ -176,6 +176,8 @@ Maintainers run `npm ci`, `npm run build`, then `npm run docs:site` to merge doc
 The complete static artifact provides a downloadable Next.js source archive in the [demo index](/demos/), including the matching TradingChest tarball and independent lock. Extract it, enter next-app, and run npm ci, npm run build, and npm start. Next.js still requires a Node server.
 
 
-## Drawing workbench example
+## Drawing workbench example {#drawing-workbench-example}
 
 The drawing-workbench example installs the same public tarball. Two workspaces borrow one host drawing registry; a third refreshes explicitly. First-party IndexedDB persists preferences and drawings across reloads. Its optional loopback HTTP CAS server runs only in development; static builds disable it. See the drawing and 0.10.0 migration pages for ownership and format changes.
+
+In 0.15, `EXAMPLE/LevelBands` declares and renders levels using public `kind:'level-set'`, `resolveDrawingLevels` and the peer's `registerOverlay`. It covers legacy numeric arrays/v1 preferences, level/text editing, content-free templates, one undo and native persistence without EvoTrader DTOs or services.

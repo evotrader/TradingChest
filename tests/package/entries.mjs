@@ -136,6 +136,9 @@ import type {DrawingLevelSet as SolidLevels,DrawingLevelPresetSet as SolidPreset
 const runtime:DrawingLevelSet=resolveDrawingLevels([-.25,.5,.5,1.25]);runtime.items[0].text='Document content';
 const rootLevels:RootLevels=runtime;const solidLevels:SolidLevels=rootLevels;void solidLevels;
 const preset:DrawingLevelPresetSet=extractDrawingLevelPreset(runtime);const solidPreset:SolidPreset=preset;void instantiateDrawingLevelPreset(solidPreset);
+const presetDefaultTool:RootTool={...publicTool,parameters:[{key:'segments',label:'Host levels',kind:'level-set',defaultValue:preset}]};void presetDefaultTool;
+// @ts-expect-error Catalog defaults cannot carry per-document IDs or text.
+const contentDefaultTool:RootTool={...publicTool,parameters:[{key:'algorithm',label:'Host levels',kind:'level-set',defaultValue:{version:1,items:[{id:'content-id',value:1,visible:true,text:'Body'}]}}]};void contentDefaultTool;
 declare const oldPreferences:DrawingPreferencesInput;const rootPreferences:RootPreferences=oldPreferences;void migrateDrawingPreferences(rootPreferences);
 const sourcePatch:DrawingPreferencesPatch={ui:{snapping:{ohlc:false,weakSensitivity:4}}};void sourcePatch;
 const snapping:DrawingSnappingOptions=chart.getDrawingState().snapping;void snapping;

@@ -80,9 +80,13 @@ The catalog contains 51 existing ordinary tools, two volume drawings and three c
 | U13 | Rejected/partial/uncertain/slow writes | history / session / drawing backend stage |
 | U14 | 320px, 1/2/4 charts, DPR, bounds | drawing-touch / drawing-sharing / drawing-performance |
 | U15 | Keyboard, focus, touch menu | drawing-input-audit / drawing-touch |
-| U16 | Seven attached-text tools, metadata, template/body boundary | drawing-expressiveness (0.14 validation in progress) |
-| U17 | Complete overlap candidates, virtual rows, keyboard, selection without writes | drawing-expressiveness (0.14 validation in progress) |
-| U18 | Real-bar/price/tick translation and confirmation boundaries | numericMove / drawing-expressiveness (0.14 validation in progress) |
+| U16 | Seven attached-text tools, metadata, template/body boundary | drawing-expressiveness |
+| U17 | Complete overlap candidates, virtual rows, keyboard, selection without writes | drawing-expressiveness |
+| U18 | Real-bar/price/tick translation and confirmation boundaries | numericMove / drawing-expressiveness |
+| U19 | Both Fib tools: 64 levels, formulas, text, draft confirmation/cancellation | drawing-workflow / performance-drawing-workflow |
+| U20 | Content-free presets, pre-draw templates, preference migration, third-party levels | drawing-workflow / integration drawing-workbench |
+| U21 | Favorites, recent tools, continuous drawing, 320px menus and focus | drawing-workflow |
+| U22 | Snap sources, sensitivity, actual axes and async calculation generations | drawing-workflow |
 
 ## Deliberate differences
 

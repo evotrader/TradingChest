@@ -108,6 +108,7 @@
 @media(max-width:600px){.tc-drawing-workbench{top:auto;left:8px;right:8px;bottom:8px;width:auto;max-height:80%;}.tc-drawing-favorites{max-width:calc(100% - 56px);}.klinecharts-pro-drawing-history button{min-height:44px;}}
 .tc-drawing-handles{position:absolute;inset:0;pointer-events:none;z-index:14;overflow:hidden;contain:strict;transform:translateZ(0);}
 .tc-drawing-axis-labels{position:absolute;inset:0;pointer-events:none;z-index:13;contain:layout style;transform:translateZ(0);}
+.tc-drawing-handle-layer,.tc-drawing-label-layer{position:absolute;inset:0;pointer-events:none;will-change:transform;}
 .tc-drawing-handle{position:absolute;width:44px;height:44px;border:0;background:transparent;padding:16px;pointer-events:auto;touch-action:none;cursor:move;span{display:block;width:10px;height:10px;border-radius:50%;border:1px solid #1677ff;background:var(--klinecharts-pro-background-color,#fff);} &:focus-visible{outline:2px solid #1677ff;outline-offset:-8px;}}
 .tc-drawing-box{position:absolute;pointer-events:none;z-index:15;border:1px solid #1677ff;background:#1677ff22;}
 .tc-drawing-context{position:absolute;z-index:45;display:flex;flex-direction:column;max-width:calc(100% - 16px);background:var(--klinecharts-pro-background-color,#fff);box-shadow:0 4px 20px #0004;padding:6px;border:1px solid var(--klinecharts-pro-border-color);border-radius:6px;button{min-height:44px;background:transparent;color:inherit;border:0;text-align:left;}}

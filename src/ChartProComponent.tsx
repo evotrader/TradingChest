@@ -593,11 +593,17 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     const overlay=selectedOverlay(),first=overlay&&handles.find(handle=>handle.id===overlay.id&&handle.index===0)
     if(first){const x=Math.max(0,Math.min(root.width-240,first.x)),y=Math.max(10,Math.min(root.height-48,first.y>=74?first.y-64:first.y+32));if(x!==overlay.x||y!==overlay.y)setSelectedOverlay({...overlay,x,y})}
   }
-  let handleLayoutFrame:number|undefined,handleResizeObserver:ResizeObserver|undefined
+  let handleLayoutFrame:number|undefined,handleResizeFrame:number|undefined,handleResizeObserver:ResizeObserver|undefined
   const refreshDrawingHandleLayout=()=>{
     handleGeometryKey=''
     refreshDrawingHandles()
     if(handleLayoutFrame===undefined)handleLayoutFrame=requestAnimationFrame(()=>{handleLayoutFrame=undefined;refreshDrawingHandles()})
+  }
+  const resizeDrawingHandleLayout=()=>{
+    if(handleResizeFrame!==undefined)cancelAnimationFrame(handleResizeFrame)
+    // KLineCharts schedules resize in a frame and completes its pane layout in a microtask.
+    // Observers may run in either order, so project controls after that native layout.
+    handleResizeFrame=requestAnimationFrame(()=>{if(disposed){handleResizeFrame=undefined;return}handleResizeFrame=requestAnimationFrame(()=>{handleResizeFrame=undefined;if(!disposed)refreshDrawingHandleLayout()})})
   }
   let handleDrag:{handle:DrawingHandle;before:DrawingSnapshot;invalid?:string}|undefined
   const startDrawingHandle=(handle:DrawingHandle)=>{const before=drawingCoordinator.getDrawing(handle.id);if(before)handleDrag={handle,before}}
@@ -617,12 +623,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     try{if(!sameDrawing(drawingCoordinator.getDrawing(handle.id),drag.before))throw Error('绘图已被更新，本次拖动已取消，请重新选择')
       const preview=controlPointProposal(drag.before,handle.index,{x:event.clientX-pane.left,y:event.clientY-pane.top});drawingPreviews.set(handle.id,preview);widget!.overrideOverlay({id:handle.id,points:preview.overlay.points})
       refreshDrawingHandles()
-      const root=(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.getBoundingClientRect(),button=event.currentTarget as HTMLElement;if(root){button.style.left=`${event.clientX-root.left-22}px`;button.style.top=`${event.clientY-root.top-22}px`}
+      const root=(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.getBoundingClientRect(),button=event.currentTarget as HTMLElement
+      if(root){const offset=new DOMMatrixReadOnly(button.parentElement?.style.transform);button.style.left=`${event.clientX-root.left-22-offset.m41}px`;button.style.top=`${event.clientY-root.top-22-offset.m42}px`}
     }catch(error){drag.invalid=error instanceof Error?error.message:String(error);setSnapHint(drag.invalid)}
   }
   const endDrawingHandle=(handle:DrawingHandle,cancel:boolean)=>{const drag=handleDrag,preview=drawingPreviews.get(handle.id);handleDrag=undefined;if(!drag)return
     if(cancel||drag.invalid||!preview||!sameDrawing(drawingCoordinator.getDrawing(handle.id),drag.before)){restoreCurrentDrawings([handle.id]);return}
-    void drawingController.commitPreview({type:'update',ids:[handle.id],patch:{anchors:preview.anchors}},[drag.before]).then(result=>{if(result.status==='rejected')restoreCurrentDrawings([handle.id]);else refreshDrawingHandles()})
+    return drawingController.commitPreview({type:'update',ids:[handle.id],patch:{anchors:preview.anchors}},[drag.before]).then(result=>{if(result.status==='rejected')restoreCurrentDrawings([handle.id]);else refreshDrawingHandles()})
   }
   const nudgeDrawingHandle=(handle:DrawingHandle,dx:number,dy:number)=>{if(!temporaryPan()&&!handle.locked)void drawingController.nudgePoint(handle.id,handle.index,dx,dy)}
   let nativeDrawingDrag:{id:string;before:DrawingSnapshot;objects:DrawingSnapshot[];x:number;y:number;pointIndex:number|null;clone:boolean;dx:number;dy:number;invalid?:string}|undefined
@@ -1331,7 +1338,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     }
     retryInitialization()
     for(const action of ['onZoom','onScroll','onVisibleRangeChange','onPaneDrag'] as const)widget?.subscribeAction(action,refreshDrawingHandleLayout)
-    handleResizeObserver=new ResizeObserver(refreshDrawingHandleLayout)
+    handleResizeObserver=new ResizeObserver(resizeDrawingHandleLayout)
     handleResizeObserver.observe(widgetRef!)
     widget?.subscribeAction('onIndicatorTooltipFeatureClick', (event) => {
       const data = event as {indicator: Indicator; feature: {id:string}; paneId:string}
@@ -1366,6 +1373,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if(widget)drawingBindings.delete(widget)
     if(handleLayoutFrame!==undefined)cancelAnimationFrame(handleLayoutFrame)
     handleResizeObserver?.disconnect()
+    if(handleResizeFrame!==undefined)cancelAnimationFrame(handleResizeFrame)
     for(const action of ['onZoom','onScroll','onVisibleRangeChange','onPaneDrag'] as const)widget?.unsubscribeAction(action,refreshDrawingHandleLayout)
     ++sharingEpoch;drawingCoordinator.dispose();drawingPreferences.dispose();drawingController.dispose();drawingHistory.dispose()
     projectedDrawingDefinitions.clear();projectedDrawingObjects.clear();curveSelectedIds.clear();if(widget)clearCurveGeometry(widget)

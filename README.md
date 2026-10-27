@@ -15,9 +15,9 @@
   <img src="docs/public/image.png" alt="TradingChest Screenshot" width="800" />
 </p>
 
-## 0.14.0 local upgrade in validation
+## 0.14.0 local candidate
 
-Seven existing line/channel/rectangle tools gain attached text. A stable-ID overlap picker and explicit bar/price/tick translation support dense drawing edits; third-party tools declare the same capabilities. Text, changes and persistence use the existing confirmation and undo paths. The catalog stays at 56 tools, KLineCharts at 10.1.0, and document schemas remain unchanged. See [0.14 migration](docs/en-US/upgrade/0.14.0.md) and [drawing usage](docs/en-US/drawings.md#drawing-expressiveness). Acceptance is still in progress; this is not a performance-pass or npm-publication announcement. The pinned installation below remains the published stable version.
+Seven existing line/channel/rectangle tools gain attached text. A stable-ID overlap picker and explicit bar/price/tick translation support dense drawing edits; third-party tools declare the same capabilities. Text, changes and persistence use the existing confirmation and undo paths. The catalog stays at 56 tools, KLineCharts at 10.1.0, and document schemas remain unchanged. See [0.14 migration](docs/en-US/upgrade/0.14.0.md) and [drawing usage](docs/en-US/drawings.md#drawing-expressiveness). Local acceptance is complete under the approved performance budgets. This candidate has not been published to npm; the pinned installation below remains the published stable version.
 
 ## 0.13.0 local candidate
 

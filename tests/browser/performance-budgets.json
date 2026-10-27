@@ -1,5 +1,5 @@
 {
-  "source": "2026-10-17 READY plan G4; original 2026-10-15 single/comparison final gates.limit and first workspace baseline; approved long/comparison cold 500ms; 2026-10-19 operator approved 10k single cold 350ms and 50k single analysis cold 500ms",
+  "source": "2026-10-17 READY plan G4; original 2026-10-15 single/comparison final gates.limit and first workspace baseline; approved long/comparison cold 500ms; 2026-10-19 operator approved 10k single cold 350ms and 50k single analysis cold 500ms; 2026-10-27 operator approved only 50k/3-comparison cold at 525ms after focused implementation R6",
   "cases": {
     "10000": {
       "cold": 350,
@@ -17,7 +17,7 @@
       "interaction": 52.50000007152558
     },
     "50000x3compare": {
-      "cold": 500,
+      "cold": 525,
       "update": 220.37500008940697,
       "interaction": 52.49999995231629
     },

@@ -20,10 +20,15 @@
   "approvedOn": "2026-10-21",
   "overrides": {
     "10000:reorder": {
-      "maximumLatency": 600
+      "maximumLatency": 650,
+      "approvedOn": "2026-10-27",
+      "source": "Operator approved only the 10k reorder maximum latency at 650ms after focused 0.14 implementation R6; retain both complete formal cohorts."
     },
     "10000:style": {
-      "maximumLatency": 1200
+      "maximumLatency": 1200,
+      "maximumLongTask": 275,
+      "approvedOn": "2026-10-27",
+      "source": "Operator approved only the 10k style complete longtask at 275ms after focused 0.14 implementation R6; retain the 1200ms total latency limit."
     },
     "10000:delete": {
       "maximumLatency": 650,
@@ -39,10 +44,10 @@
       "maximumLongTask": 300
     },
     "50000:delete": {
-      "maximumLongTask": 325,
-      "maximumLatency": 650,
-      "approvedOn": "2026-10-24",
-      "source": "Operator approved only total deletion latency at 650ms; retain the existing 325ms complete longtask limit."
+      "maximumLongTask": 850,
+      "maximumLatency": 1250,
+      "approvedOn": "2026-10-27",
+      "source": "Operator approved 50k deletion total latency at 1250ms and complete longtask at 850ms after focused 0.14 implementation R6; retain the initial 1177.6ms/796ms samples and evaluate both complete formal cohorts separately."
     },
     "50000:restore": {
       "maximumLongTask": 500,

@@ -4,7 +4,7 @@ import {validateDrawingParameters,type DrawingToolDescriptor,type DrawingParamet
 import {applyDrawingLevelPreset,extractDrawingLevelPreset,instantiateDrawingLevelPreset,isDrawingLevelValues,validateDrawingLevelPresetSet,type DrawingLevelInput,type DrawingLevelPresetInput} from './levels'
 
 const clone=<T>(value:T):T=>structuredClone(value)
-const defaults=(parameter:DrawingParameter)=>parameter.defaultValue as Exclude<DrawingLevelInput,undefined>
+const defaults=(parameter:DrawingParameter)=>parameter.defaultValue as Exclude<DrawingLevelPresetInput,undefined>
 
 /** Also used without a catalog at the storage boundary, where content must still be rejected. */
 export function validateDrawingPresetParameters(parameters:unknown,tool?:DrawingToolDescriptor):asserts parameters is DrawingPresetParameters {

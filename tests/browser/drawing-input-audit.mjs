@@ -71,7 +71,11 @@ try{
   }
   return result
  })
- for(const item of numeric)assert.ok(/不能显示|调整级别|线性轴/.test(item.figures),`${item.name}: expected a domain error, got ${item.figures.slice(0,200)}`)
+ for(const item of numeric){
+  if(['fibonacciLine','fibonacciExtension'].includes(item.name)){
+   const figures=JSON.parse(item.figures);assert.ok(figures.some(figure=>figure.key==='fibonacci-warning'&&figure.ignoreEvent&&figure.attrs.text.includes('当前价格轴不能投影此级别')),item.figures);assert.ok(!figures.some(figure=>figure.key?.startsWith('fibonacci-level:')),item.figures)
+  }else assert.ok(/不能显示|调整级别|线性轴/.test(item.figures),`${item.name}: expected a domain error, got ${item.figures.slice(0,200)}`)
+ }
  results.push({scenario:'real-logarithmic-axis-rejects-derived-nonpositive-fib-gann',tools:numeric.map(n=>n.name)})
  assert.deepEqual(errors,[]);const evidence={passed:true,scope:'isolated-native-engine-review-counterexamples',results,errors};if(process.argv[2])writeFileSync(process.argv[2],JSON.stringify(evidence,null,2));await page.evaluate(()=>{pro.dispose();preferenceStore.dispose()});console.log(JSON.stringify(evidence))
 }finally{await browser.close()}

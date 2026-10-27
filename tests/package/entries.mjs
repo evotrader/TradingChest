@@ -37,11 +37,13 @@ console.log('Packed log interpolation/extrapolation equality ESM/CJS PASS');`)
   for(const name of ['klinecharts','solid-js'])renameSync(path.join(dir,'node_modules',name),path.join(held,name))
   try{console.log(run(process.execPath,['alerts.mjs']))}finally{for(const name of ['klinecharts','solid-js'])renameSync(path.join(held,name),path.join(dir,'node_modules',name))}
   // Chart entrypoints are browser modules, including the CJS browser bundle.
-  const browserFixture = (name, source) => {
+  const nativeDrawingFixtures=[]
+  const browserFixture = (name, source, nativeBrowser=false) => {
     const entry = path.join(dir, name);
     writeFileSync(entry, source);
     const code = buildSync({entryPoints:[entry],bundle:true,write:false,format:'iife',platform:'browser',
       mainFields:['browser','module','main'],conditions:['browser']}).outputFiles[0].text;
+    if(nativeBrowser){nativeDrawingFixtures.push(code);return}
     const dom = new JSDOM('<div id="host"></div>', {url:'http://localhost',runScripts:'outside-only'});
     try { dom.window.eval(code); } finally { dom.window.close(); }
   };
@@ -76,10 +78,9 @@ levels.validateDrawingLevelSet(set);const preset=levels.extractDrawingLevelPrese
 if(preset.items.some(item=>'id' in item||'text' in item))throw Error('A preset leaked document content');
 const a=levels.instantiateDrawingLevelPreset(preset),b=levels.instantiateDrawingLevelPreset(preset);
 if(a.items[0].id===b.items[0].id||legacy.length!==4)throw Error('Fresh preview IDs or legacy purity failed');
-const v1=levels.defaultDrawingPreferences();v1.version=1;delete v1.ui.snapping;
+const v1={version:1,favorites:[],recent:[],defaults:{},templates:[],shortcuts:{},ui:{continuous:false,favoritesPosition:{x:72,y:10}}};
 const migrated=levels.migrateDrawingPreferences(v1);if(migrated.version!==2||migrated.ui.snapping.weakSensitivity!==8||v1.version!==1||v1.ui.snapping)throw Error('Preference migration mutated the input');
-`)
-  console.log('Packed ESM/CJS level helpers, body-free presets and pure v1 preference migration PASS');
+`,true)
   writeFileSync(path.join(dir,'consumer.ts'), `
 import { KLineChartPro,registerIndicatorDefinition,builtinIndicatorCatalog,type DatafeedRequestContext,type ChartPro,type IndicatorDescriptor,type IndicatorParameterSchema,type IndicatorHandle,type AnalysisContext,type AnalysisLayerSpec,type AnalysisLayerHandle,type AnalysisEvent,type AnalysisLabelPoint,type HistoryQuery,type HistoryResult,type Datafeed,type WorkspaceStore,type WorkspaceWrite,type StoredWorkspace,createIndexedDBWorkspaceStore,ChartWorkspace } from 'trading-chest/chart';
 import type {AnalysisLayerSpec as RootLayer,IndicatorDescriptor as RootDescriptor} from 'trading-chest';
@@ -207,6 +208,8 @@ console.log('Legacy browser UMD and CSS paths PASS');
     page.on('pageerror',error=>{errors.push(error.message);console.error('Standalone example browser error:',error.message)})
     await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`)
     await page.waitForFunction(()=>window.analysisDemo?.ready&&window.mixedEntries)
+    for(const code of nativeDrawingFixtures)await page.evaluate(code=>new Function(code)(),code)
+    console.log('Packed ESM/CJS level helpers, body-free presets and pure v1 preference migration in real Chromium PASS')
     await page.waitForFunction(()=>window.analysisDemo.chart.getChart().getIndicators({name:'TC_ANALYSIS'}).every(i=>i.result.length===120))
     const rendered=await page.evaluate(()=>{
       const {chart,bars}=window.analysisDemo,engine=chart.getChart(),lines=engine.getIndicators({name:'TC_ANALYSIS'})

@@ -61,6 +61,7 @@ it('honors host-declared defaults, arbitrary extra parameters and old capability
  const original=builtinDrawingCatalog.find(tool=>tool.toolId==='fibonacciLine')!,value=args()
  value[drawingToolDefinition]={...original,parameters:[{key:'levels',label:'旧级别',kind:'levels',defaultValue:[-1,.25,2]},{key:'hostValue',label:'宿主字段',kind:'number',defaultValue:2}]};value.overlay.extendData.drawingParameters={hostValue:2}
  expect(lines(fibonacciLevelFigures(value,'fibonacciLine')).map(figure=>figure.attrs.coordinates[0].y)).toEqual([30,17.5,0])
+ value[drawingToolDefinition]={...original,parameters:[{key:'levels',label:'外观默认',kind:'level-set',defaultValue:{version:1,items:[{value:.25,visible:true,color:'#123456'},{value:.75,visible:false}]}}]};value.overlay.extendData.drawingParameters={};expect(lines(fibonacciLevelFigures(value,'fibonacciLine'))).toHaveLength(1);expect(lines(fibonacciLevelFigures(value,'fibonacciLine'))[0].styles.color).toBe('#123456')
  value[drawingToolDefinition]={...original,parameters:[]};value.overlay.extendData.drawingParameters={};expect(lines(fibonacciLevelFigures(value,'fibonacciLine'))).toHaveLength(7)
 })
 it('uses the actual native line hit test without granting selection to a hidden middle level',()=>{

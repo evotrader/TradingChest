@@ -1,8 +1,8 @@
 import {vwapBandOptions} from './vwapBands'
-import {defaultDrawingLevelValues,resolveDrawingLevels,validateDrawingLevelSet,isDrawingLevelValues,type DrawingLevelSet} from './levels'
+import {defaultDrawingLevelValues,validateDrawingLevelPresetSet,validateDrawingLevelSet,isDrawingLevelValues,type DrawingLevelPresetSet} from './levels'
 export const drawingToolDefinition=Symbol('drawing-tool-definition')
 export type DrawingCategory='lines'|'channels'|'geometry'|'fibonacci'|'waves'|'measurement'|'annotations'|'positions'|'volume'
-export interface DrawingParameter {key:string;label:string;kind:'number'|'text'|'boolean'|'levels'|'level-set'|'color';min?:number;max?:number;choices?:string[];defaultValue:number|string|boolean|number[]|DrawingLevelSet}
+export interface DrawingParameter {key:string;label:string;kind:'number'|'text'|'boolean'|'levels'|'level-set'|'color';min?:number;max?:number;choices?:string[];defaultValue:number|string|boolean|number[]|DrawingLevelPresetSet}
 export type DrawingStyleControl='stroke'|'fill'|'lineWidth'|'lineStyle'|'textColor'|'fontSize'
 export interface DrawingToolDescriptor {
   toolId:string
@@ -122,7 +122,7 @@ export function copyDrawingCatalog(input:DrawingToolDescriptor[]=builtinDrawingC
     if(item.textMode!==undefined&&!['body','attached'].includes(item.textMode)||item.textMode==='attached'&&!['line','box'].includes(item.labelGeometry??'')||item.textMode!=='attached'&&item.labelGeometry!==undefined)throw Error('绘图文字能力组合无效')
     if(item.numericMove!==undefined&&(!item.numericMove||typeof item.numericMove!=='object'||Array.isArray(item.numericMove)||Object.keys(item.numericMove).some(key=>!['bars','price'].includes(key))||typeof item.numericMove.bars!=='boolean'||typeof item.numericMove.price!=='boolean'))throw Error('绘图数值平移能力定义无效')
     if(!Array.isArray(item.parameters)||new Set(item.parameters.map(parameter=>parameter.key)).size!==item.parameters.length||item.parameters.some(parameter=>typeof parameter.key!=='string'||!parameter.key||!['number','text','boolean','levels','level-set','color'].includes(parameter.kind)))throw Error('绘图参数能力定义无效或重复')
-    for(const parameter of item.parameters){if(parameter.kind==='level-set')resolveDrawingLevels(undefined,parameter.defaultValue as number[]|DrawingLevelSet);validateDrawingParameters(item,{[parameter.key]:parameter.defaultValue})}
+    for(const parameter of item.parameters){if(parameter.kind==='level-set'){if(!isDrawingLevelValues(parameter.defaultValue))validateDrawingLevelPresetSet(parameter.defaultValue)}else validateDrawingParameters(item,{[parameter.key]:parameter.defaultValue})}
     ids.add(item.toolId);names.add(item.overlayName)
   }
   return structuredClone(input).map(withTextCapabilities)
@@ -135,7 +135,7 @@ export function validateDrawingParameters(tool:DrawingToolDescriptor,parameters:
     if(spec.kind==='number'&&(typeof value!=='number'||!Number.isFinite(value)||(spec.min!==undefined&&value<spec.min)||(spec.max!==undefined&&value>spec.max)))throw Error(`参数 ${spec.label} 无效`)
     if(spec.kind==='levels'&&(!Array.isArray(value)||!value.length||value.length>64||value.some(v=>typeof v!=='number'||!Number.isFinite(v))))throw Error(`参数 ${spec.label} 无效`)
     if(spec.kind==='level-set'&&!isDrawingLevelValues(value))validateDrawingLevelSet(value)
-    if((key==='segments'||tool.toolId==='fixedRangeVolumeProfile'&&key==='rows')&&!Number.isInteger(value))throw Error('行数或弧段数必须是整数')
+    if(spec.kind==='number'&&(tool.overlayName==='fibonacciSpiral'&&key==='segments'||tool.overlayName==='fixedRangeVolumeProfile'&&key==='rows')&&!Number.isInteger(value))throw Error('行数或弧段数必须是整数')
     if(spec.kind==='color'&&(typeof value!=='string'||!/^#[a-f0-9]{6}(?:[a-f0-9]{2})?$|^transparent$/i.test(value)))throw Error(`参数 ${spec.label} 颜色无效`)
     if(spec.kind==='text'&&typeof value!=='string'||spec.kind==='boolean'&&typeof value!=='boolean')throw Error(`参数 ${spec.label} 无效`)
     if(spec.kind==='text'&&spec.choices&&!spec.choices.includes(String(value)))throw Error(`参数 ${spec.label} 不在允许选项内`)

@@ -61,6 +61,11 @@ try{
   const protectedResult=await page.evaluate(async({key,toolId})=>{const prefs=pro.getDrawingState().preferences.value,source=prefs.templates.find(template=>template.toolId===toolId),danger={...source,id:'body-loss-'+toolId,name:'不应删除正文',parameters:{...source.parameters,[key]:{version:1,items:source.parameters[key].items.slice(1)}}};await pro.executeDrawingCommand({type:'preferences',patch:{templates:[...prefs.templates,danger]}});return pro.executeDrawingCommand({type:'template',action:'apply',templateId:danger.id,ids:pro.getDrawings().map(value=>value.logicalId)})},{key,toolId});assert.equal(protectedResult.status,'rejected');assert.match(protectedResult.message,/带正文/);assert.deepEqual(await page.evaluate(()=>pro.getDrawings()[0]),changed)
   result.results.push({scenario:`${toolId}-${count}-level-editor-raw-input-order-body-copy-one-undo-and-appearance-only-presets`,passed:true});save()
  }
+ await clear();await draw('hostReservedBands');await settings()
+ for(const label of ['弧段级别','算法级别'])await manager.getByRole('textbox',{name:label+' 2 正文',exact:true}).fill('任意参数键正文 '+label)
+ await manager.getByRole('button',{name:'确认修改',exact:true}).click();await wait()
+ const reserved=await page.evaluate(()=>pro.getDrawings()[0]);for(const key of ['segments','algorithm']){assert.equal(reserved.parameters[key].version,1);assert.equal(reserved.parameters[key].items.length,3);assert.ok(reserved.parameters[key].items[1].text.startsWith('任意参数键正文'))}
+ await manager.getByRole('button',{name:'关闭绘图管理',exact:true}).click();result.results.push({scenario:'appearance-only-descriptor-defaults-and-reserved-segments-algorithm-level-set-keys-use-generic-editor-and-canonical-path',passed:true});save()
  await checkWorkflowInput(browser,result,save)
  await checkWorkflowDpr(browser,result,save)
  result.results.push(await checkLegacyDrawingReader(page,browser,legacyReader,saved.key));save()

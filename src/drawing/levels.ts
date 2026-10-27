@@ -36,32 +36,33 @@ export function isDrawingLevelSet(value:unknown):value is DrawingLevelSet {try{v
 export function isDrawingLevelValues(value:unknown):value is number[] {return Array.isArray(value)&&value.length>=1&&value.length<=64&&value.every(item=>typeof item==='number'&&Number.isFinite(item))}
 
 /** Legacy arrays are read without rewriting the stored document or generating random IDs. */
-export function resolveDrawingLevels(value:DrawingLevelInput,defaults:Exclude<DrawingLevelInput,undefined>=defaultDrawingLevelValues):DrawingLevelSet {
+export function resolveDrawingLevels(value:DrawingLevelInput,defaults:Exclude<DrawingLevelPresetInput,undefined>=defaultDrawingLevelValues):DrawingLevelSet {
  const source=value??defaults
  if(Array.isArray(source)){
   if(!isDrawingLevelValues(source))throw Error('绘图级别必须为 1–64 个有限数值')
   return {version:1,items:source.map((value,index)=>({id:`legacy-${index}`,value,visible:true}))}
  }
+ if(value===undefined){validateDrawingLevelPresetSet(source);return {version:1,items:source.items.map((appearance,index)=>({...structuredClone(appearance),id:`default-${index}`}))}}
  validateDrawingLevelSet(source)
  return structuredClone(source)
 }
 
 /** Presets carry appearance only; IDs and level bodies remain document content. */
-export function extractDrawingLevelPreset(value:DrawingLevelInput,defaults:Exclude<DrawingLevelInput,undefined>=defaultDrawingLevelValues):DrawingLevelPresetSet {
+export function extractDrawingLevelPreset(value:DrawingLevelInput,defaults:Exclude<DrawingLevelPresetInput,undefined>=defaultDrawingLevelValues):DrawingLevelPresetSet {
  return {version:1,items:resolveDrawingLevels(value,defaults).items.map(({id,text,...appearance})=>appearance)}
 }
-function presetItems(value:DrawingLevelPresetInput,defaults:Exclude<DrawingLevelInput,undefined>):DrawingLevelAppearance[] {
+function presetItems(value:DrawingLevelPresetInput,defaults:Exclude<DrawingLevelPresetInput,undefined>):DrawingLevelAppearance[] {
  if(value===undefined)return extractDrawingLevelPreset(undefined,defaults).items
  if(Array.isArray(value))return extractDrawingLevelPreset(value,defaults).items
  validateDrawingLevelPresetSet(value);return structuredClone(value.items)
 }
 /** Instantiate once per preview; a continuous session calls this again for its next object. */
-export function instantiateDrawingLevelPreset(value:DrawingLevelPresetInput,defaults:Exclude<DrawingLevelInput,undefined>=defaultDrawingLevelValues):DrawingLevelSet {
+export function instantiateDrawingLevelPreset(value:DrawingLevelPresetInput,defaults:Exclude<DrawingLevelPresetInput,undefined>=defaultDrawingLevelValues):DrawingLevelSet {
  const result:DrawingLevelSet={version:1,items:presetItems(value,defaults).map(appearance=>({...appearance,id:createOpaqueId()}))}
  validateDrawingLevelSet(result);return result
 }
 /** Match equal ratios in occurrence order and reject implicit removal of existing bodies. */
-export function applyDrawingLevelPreset(previous:DrawingLevelInput,value:DrawingLevelPresetInput,defaults:Exclude<DrawingLevelInput,undefined>=defaultDrawingLevelValues):DrawingLevelSet {
+export function applyDrawingLevelPreset(previous:DrawingLevelInput,value:DrawingLevelPresetInput,defaults:Exclude<DrawingLevelPresetInput,undefined>=defaultDrawingLevelValues):DrawingLevelSet {
  const source=resolveDrawingLevels(previous,defaults),byValue=new Map<number,DrawingLevel[]>()
  for(const item of source.items){const matches=byValue.get(item.value)??[];matches.push(item);byValue.set(item.value,matches)}
  const items=presetItems(value,defaults).map(appearance=>{const matched=byValue.get(appearance.value)?.shift();return {...appearance,id:matched?.id??createOpaqueId(),...(matched&&Object.hasOwn(matched,'text')?{text:matched.text}:{})}})

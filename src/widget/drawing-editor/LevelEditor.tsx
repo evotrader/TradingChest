@@ -1,11 +1,11 @@
 import {createMemo,createSignal,onCleanup,For,Show,type Component} from 'solid-js'
 import {ColorPalette} from '../overlay-property-bar/ColorPalette'
 import {styleControlOptions} from '../../drawing/styleControls'
-import {resolveDrawingLevels,instantiateDrawingLevelPreset,validateDrawingLevelSet,type DrawingLevel,type DrawingLevelInput,type DrawingLevelSet} from '../../drawing/levels'
+import {resolveDrawingLevels,instantiateDrawingLevelPreset,validateDrawingLevelSet,type DrawingLevel,type DrawingLevelPresetInput,type DrawingLevelInput,type DrawingLevelSet} from '../../drawing/levels'
 
 /** Transient form strings are never written to a drawing or preference document. */
 export type DrawingLevelDraft=Omit<DrawingLevel,'value'>&{value:string}
-export const createDrawingLevelDraft=(value:DrawingLevelInput,defaults:Exclude<DrawingLevelInput,undefined>):DrawingLevelDraft[]=>resolveDrawingLevels(value,defaults).items.map(level=>({...level,value:String(level.value)}))
+export const createDrawingLevelDraft=(value:DrawingLevelInput,defaults:Exclude<DrawingLevelPresetInput,undefined>):DrawingLevelDraft[]=>resolveDrawingLevels(value,defaults).items.map(level=>({...level,value:String(level.value)}))
 export function parseDrawingLevelRatio(value:string):number {
  if(!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim())||!Number.isFinite(Number(value))||Number(value)===0&&/[1-9]/.test(value.split(/[eE]/)[0]))throw Error('请输入可表示的有限级别比例，例如 0.618 或 1e2')
  return Number(value)
@@ -14,7 +14,7 @@ export function drawingLevelsFromDraft(items:DrawingLevelDraft[]):DrawingLevelSe
  const value:DrawingLevelSet={version:1,items:items.map(item=>({...item,value:parseDrawingLevelRatio(item.value)}))}
  validateDrawingLevelSet(value);return value
 }
-export function drawingLevelDraftChanged(items:DrawingLevelDraft[],before:DrawingLevelInput,defaults:Exclude<DrawingLevelInput,undefined>):boolean {
+export function drawingLevelDraftChanged(items:DrawingLevelDraft[],before:DrawingLevelInput,defaults:Exclude<DrawingLevelPresetInput,undefined>):boolean {
  const actual=drawingLevelsFromDraft(items),original=resolveDrawingLevels(before,defaults)
  const content=(value:DrawingLevelSet)=>value.items.map(item=>[item.id,item.value,item.visible,item.color??null,item.width??null,item.style??null,item.text??''])
  return JSON.stringify(content(actual))!==JSON.stringify(content(original))

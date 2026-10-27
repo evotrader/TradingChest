@@ -1,4 +1,5 @@
 import {createOpaqueId} from './ids'
+import {DrawingSnapResults} from './drawing/snapResults'
 /**
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -927,6 +928,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     setSelectedOverlay(null);setTextEditor(null)
   }
   const deleteSelectedDrawing = () => {const ids=drawingController.getSelectedIds();if(ids.length)void drawingController.execute({type:'delete',ids})}
+  let drawingSnapResults:DrawingSnapResults|undefined
   const drawingPointInput=(overlay:Overlay,event:{x?:number;y?:number},index:number,phase:'drawing'|'edit'='drawing')=>{
     if(!widget||index<0||!Number.isFinite(event.x)||!Number.isFinite(event.y))return
     const current=drawingCoordinator.getDrawing(overlay.id),snapshot:DrawingSnapshot=current??{logicalId:overlay.id,owner:'local',overlay:snapshotOverlay(overlay),yAxisId:widget.getYAxes({paneId:overlay.paneId})[0]?.id}
@@ -948,8 +950,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     const confirmed=!!bar&&!!confirmedBar&&dataState()?.dataStatus!=='unconfirmed'&&confirmedBars.length===bars.length&&confirmedBars[0]?.timestamp===bars[0]?.timestamp&&confirmedBar.timestamp===bar.timestamp&&(['open','high','low','close'] as const).every(key=>confirmedBar[key]===bar[key])
     if(confirmed&&effective!=='normal'){
       if(snapping.ohlc&&overlay.paneId==='candle_pane'&&axisId===axes[0]?.id)for(const key of ['open','high','low','close'] as const)candidates.push({value:confirmedBar[key],label:(locale()==='en-US'?{open:'Open',high:'High',low:'Low',close:'Close'}:{open:'开盘',high:'最高',low:'最低',close:'收盘'})[key],source:'ohlc'})
-      if(snapping.indicators)for(const indicator of widget.getIndicators({paneId:overlay.paneId}))if(indicator.visible&&(indicator.yAxisId??axes[0]?.id)===axisId&&indicator.result.length===bars.length){
-        const row=indicator.result[barIndex] as Record<string,unknown>|undefined
+      if(snapping.indicators)for(const indicator of widget.getIndicators({paneId:overlay.paneId}))if(indicator.visible&&(indicator.yAxisId??axes[0]?.id)===axisId){
+        const results=drawingSnapResults?.getCurrent(indicator),row=results?.length===bars.length?results[barIndex] as Record<string,unknown>|undefined:undefined
         for(const figure of indicator.figures)if(['line','bar','circle'].includes(figure.type??'')&&row){const value=row[figure.key];if(typeof value==='number'&&Number.isFinite(value))candidates.push({value,label:`${indicator.shortName||indicator.name} · ${figure.title||figure.key}`,source:'indicator'})}
       }
     }
@@ -1265,6 +1267,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     })
 
     if (widget) {
+      drawingSnapResults=new DrawingSnapResults(widget,()=>confirmedAlertSeries?.confirmed?`${confirmedAlertSeries.epoch}:${confirmedAlertSeries.contentRevision}`:undefined)
       const watermarkContainer = widget.getDom('candle_pane', 'main')
       if (watermarkContainer) {
         let watermark = document.createElement('div')
@@ -1366,6 +1369,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   onCleanup(() => {
     disposed = true
+    drawingSnapResults?.dispose();drawingSnapResults=undefined
     drawingAlerts?.dispose();confirmedAlertSeries=undefined
     settleWorkspaceBinding(new DOMException('图表已关闭，共享绑定已取消','AbortError'));cancelSharedBinding()
     handleDrag=undefined;nativeDrawingDrag=undefined;temporaryPanGesture=undefined;drawingPreviews.clear()

@@ -482,7 +482,7 @@ type DrawingLevelAppearance = Omit<DrawingLevel, 'id'|'text'>
 interface DrawingLevelPresetSet { version: 1; items: DrawingLevelAppearance[] }
 ```
 
-`DrawingParameter.kind='level-set'` 可用于任意参数键；`defaultValue` 可为合法级别对象或旧数字数组。至少一行、最多64行；ID非空且对象内唯一，不解析格式；比例允许负值、外延及重复但必须有限。颜色沿原六／八位hex或transparent，宽度有限1–4，正文最长500个UTF-16单元且不得换行；未设外观继承对象实际样式，空正文不绘制。拒绝未知字段、重复ID及坏类型。
+`DrawingParameter.kind='level-set'` 可用于任意参数键；`defaultValue` 可为不含ID／正文的 `DrawingLevelPresetSet` 或旧数字数组。至少一行、最多64行；ID非空且对象内唯一，不解析格式；比例允许负值、外延及重复但必须有限。颜色沿原六／八位hex或transparent，宽度有限1–4，正文最长500个UTF-16单元且不得换行；未设外观继承对象实际样式，空正文不绘制。拒绝未知字段、重复ID及坏类型。
 
 `validateDrawingLevelSet`／`validateDrawingLevelPresetSet` 校验两种闭合结构；`resolveDrawingLevels(value, defaults?)` 返回隔离运行时副本，支持旧数组及缺省值且不改调用方。`extractDrawingLevelPreset` 剥离ID／正文；`instantiateDrawingLevelPreset` 创建新ID；`applyDrawingLevelPreset` 按比例及重复顺序保匹配正文，移除有正文行时抛错。`extractDrawingStylePreset`、`instantiateDrawingPresetParameters`、`applyDrawingPresetParameters` 与 `validateDrawingPresetParameters` 统一处理 descriptor 下的参数；不能把运行时级别对象直接存为模板。
 

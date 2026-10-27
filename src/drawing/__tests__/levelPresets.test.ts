@@ -1,5 +1,5 @@
 import {expect,it,vi} from 'vitest'
-import {builtinDrawingCatalog,validateDrawingParameters,type DrawingToolDescriptor} from '../catalog'
+import {builtinDrawingCatalog,copyDrawingCatalog,validateDrawingParameters,type DrawingToolDescriptor} from '../catalog'
 import {DrawingController} from '../controller'
 import {DrawingHistory} from '../history'
 import {DrawingPreferencesManager,defaultDrawingPreferences,validateDrawingPreferences} from '../preferences'
@@ -79,4 +79,14 @@ it('derives detached snap options from the same preference authority without con
  await s.controller.execute({type:'preferences',patch:{ui:{favoritesPosition:{x:80,y:20}}}});expect(s.controller.getState().continuous).toBe(true)
  await s.controller.execute({type:'preferences',patch:{ui:{continuous:false}}});expect(s.controller.getState().continuous).toBe(false);expect(s.history.getDrawings()).toEqual(source)
  s.controller.dispose();s.preferences.dispose();s.history.dispose()
+})
+
+it('uses closed appearance-only catalog defaults for arbitrary level-set keys and fresh runtime IDs',()=>{
+ const defaults={version:1 as const,items:[{value:-.25,visible:true,color:'#123456'},{value:.5,visible:true},{value:.5,visible:false},{value:1.25,visible:true}]}
+ const custom:DrawingToolDescriptor={...structuredClone(tool),toolId:'HostReserved',overlayName:'EXAMPLE/Reserved',parameters:['segments','algorithm'].map(key=>({key,label:key,kind:'level-set' as const,defaultValue:defaults}))}
+ expect(()=>copyDrawingCatalog([custom])).not.toThrow()
+ const a=instantiateDrawingPresetParameters(undefined,custom)!,b=instantiateDrawingPresetParameters(undefined,custom)!
+ for(const key of ['segments','algorithm']){expect(()=>validateDrawingParameters(custom,{[key]:a[key]})).not.toThrow();expect((a[key] as DrawingLevelSet).items.map(item=>item.id)).not.toEqual((b[key] as DrawingLevelSet).items.map(item=>item.id));expect((a[key] as DrawingLevelSet).items.every(item=>!Object.hasOwn(item,'text'))).toBe(true)}
+ expect(()=>copyDrawingCatalog([{...custom,parameters:[{...custom.parameters[0],defaultValue:{version:1,items:[{id:'document-id',value:1,visible:true,text:'Document content'}]}} as any]}])).toThrow()
+ expect(defaults.items[0]).not.toHaveProperty('id')
 })

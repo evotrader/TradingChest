@@ -1,6 +1,6 @@
 import type {LineStyle,OverlayCreateFiguresCallbackParams,OverlayFigure} from 'klinecharts'
 import {builtinDrawingCatalog,validateDrawingParameters,drawingToolDefinition,type DrawingToolDescriptor} from '../drawing/catalog'
-import {resolveDrawingLevels,type DrawingLevel,type DrawingLevelInput,type DrawingLevelSet} from '../drawing/levels'
+import {resolveDrawingLevels,type DrawingLevel,type DrawingLevelInput,type DrawingLevelPresetInput,type DrawingLevelSet} from '../drawing/levels'
 import {drawingStyleAuxiliary,drawingStyleInput,type DrawingStyleFigure} from '../drawing/styleControls'
 import {canProjectAxisValue,toolParameters} from './numerics'
 
@@ -25,11 +25,11 @@ export function fibonacciLevelFigures(args:OverlayCreateFiguresCallbackParams<un
  try{
   validateDrawingParameters(tool,parameters)
   const resolved=Object.fromEntries(builtin.parameters.map(parameter=>[parameter.key,parameters[parameter.key]??tool.parameters.find(spec=>spec.key===parameter.key)?.defaultValue??parameter.defaultValue]))
-  validateDrawingParameters(builtin,resolved)
+  const defaults=(tool.parameters.find(parameter=>parameter.key==='levels')??builtin.parameters.find(parameter=>parameter.key==='levels'))!.defaultValue as Exclude<DrawingLevelPresetInput,undefined>
+  const raw=parameters.levels as DrawingLevelInput
+  const levels=raw===undefined||Array.isArray(raw)?resolveDrawingLevels(raw,defaults):raw as DrawingLevelSet
+  validateDrawingParameters(builtin,{...resolved,levels})
   const option=<T,>(key:string):T=>resolved[key] as T
-  const raw=resolved.levels,defaults=resolved.levels as Exclude<DrawingLevelInput,undefined>
-  // The runtime set has just passed the shared validator. Rendering does not mutate it.
-  const levels=raw===undefined||Array.isArray(raw)?resolveDrawingLevels(raw as DrawingLevelInput,defaults):raw as DrawingLevelSet
   const enabled=levels.items.filter(level=>level.visible)
   if(!enabled.length)return []
   const count=kind==='fibonacciLine'?2:3,global=chart.getStyles().overlay,line:LineStyle={...global.line,...overlay.styles?.line}

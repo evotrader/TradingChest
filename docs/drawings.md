@@ -6,7 +6,7 @@
 
 交互草稿取消不提交。local 内容由库确认；backend 内容仍由 drawingOwner／commitDrawing 的原宿主 authority 确认。名称、分组、排序、周期过滤属于文档呈现，不发送后端标注 CRUD。全局隐藏与防拖动是视图状态，不覆盖对象的 visible／lock。
 
-程序操作和界面使用同一命令入口：tool、select、cancel、update、delete、duplicate、copy、paste、group、ungroup、reorder、presentation、view、undo、redo。多对象内容修改先全批预检，后端串行提交；检查结果 status 及逐对象 items，partial／uncertain 不能当完成。未知写入按原 logicalId 刷新 authority，禁止自动重发创建。
+程序操作和界面使用同一命令入口：tool、select、cancel、update、move、translate、delete、duplicate、copy、paste、group、ungroup、reorder、presentation、view、undo、redo。多对象内容修改先全批预检，后端串行提交；检查结果 status 及逐对象 items，partial／uncertain 不能当完成。未知写入按原 logicalId 刷新 authority，禁止自动重发创建。
 
 状态中的 scope 是新工具作用域，historyScope 是当前撤销目标；选中对象决定操作会话。跨会话批量内容操作明确拒绝。通知 origin 为 user、history 或 projection；投影不提交业务写。输入框继续使用浏览器原生撤销。
 
@@ -46,7 +46,7 @@ scope 命令选择新工具作用域，transfer 移动既有对象，shared 命�
 
 DrawingPreferencesStore.read/write 携 AbortSignal；drawingPreferencesScope 是宿主不透明 scope。默认仅实例内存，显式传入 createIndexedDBDrawingPreferencesStore 后跨刷新保存。加载迟到时保留原模板及本次字段修改；读取失败不覆盖未读原件，界面保留会话修改并允许重试。
 
-模板包含本工具样式与参数，不含点、正文、身份、后端 ID 或共享作用域。template 命令支持保存、覆盖、改名、删除、应用和默认；异类工具只能显式选择共同样式。参数通过目录校验，snapshot.parameters 是唯一权威，engine extendData 中的派生参数不作为第二份内容保存。
+模板、默认及最近样式只包含本工具样式与参数，不含点、正文、身份、后端 ID 或共享作用域。template 命令支持保存、覆盖、改名、删除、应用和默认；异类工具只能显式选择共同样式。参数通过目录校验，snapshot.parameters 是唯一权威，engine extendData 中的派生参数不作为第二份内容保存。
 
 ## 绘制与精确编辑
 
@@ -131,3 +131,41 @@ FRVP新增 `profileSide:'left'|'right'`（默认left）、`profileWidth`有限(0
 三曲线的设置增加起点／终点 none/arrow/circle、背景开关与[0,1]透明度。背景由曲线和两端直弦闭合，填充色沿标准 polygon.color，默认沿实际描边；不成为控制点或截获填充区域命中。旧定义保持关闭。显示变更不改变曲率或原细分误差与段数；同工具参数模板保全部参数，跨工具仅共同样式保持原交集语义。
 
 规则文档独立于布局；稳定 scope、恢复暂停、确认数据、实时／回放隔离、后台边界及原生 IndexedDB 组合例子见[0.13 升级说明](./upgrade/0.13.0.md)。
+
+## 0.14 附着文字与密集编辑 {#drawing-expressiveness}
+
+本节描述仍在验收的本地升级契约，完整迁移边界见 [0.14 升级说明](./upgrade/0.14.0.md)。目录仍有 56 个工具，不增加文档版本；此处不代表 npm 已发布或性能验收通过。
+
+### 附着文字
+
+`horizontalStraightLine`、`straightLine`、`segment`、`rayLine`、`parallelStraightLine`、`priceChannelLine` 使用 `textMode:'attached', labelGeometry:'line'`，`rect` 使用 `labelGeometry:'box'`。`textAnnotation`、`callout`、`note`、`anchoredText` 保持 `textMode:'body'` 的正文行为；其它内置工具不增加附着文字。
+
+选中支持的绘图，使用右键“添加／编辑文字”、双击编辑或绘图管理的文字设置。附着模式画完线不自动弹框。首次输入正文时，UI 将正文和显示开关一起确认；API 单独提交 `patch.text` 只改正文，需要显示时显式同时传入 `parameters:{labelVisible:true}`。空正文不绘制标签，取消草稿不提交；组合输入、Ctrl/Cmd＋Enter 确认和 Esc 取消沿原编辑器。
+
+| 参数 | 缺省行为与选项 |
+| --- | --- |
+| `labelVisible` | `false`；是否显示附着文字 |
+| `labelAlign` | `center`；`left/center/right` |
+| `labelPosition` | `above`；`above/on/below` |
+
+正文只存于原 `overlay.extendData` 字符串或普通对象的 `text` 字段；修改保留普通对象的其它元数据。数组或其它原始内容不能被附着文字编辑强制转成对象，操作拒绝并保原。文字样式沿标准 `overlay.styles.text`，不另存标签坐标。line 按原 figure 顺序取第一条可见有效线段，左右按屏幕 x、垂直线按 y 定位；box 使用第一个真实矩形边界。上／下与几何间隔 8 CSS px，`on` 居中。多行绘制与命中共用几何，长文字按 pane 裁剪，平移、缩放及轴变更后重新投影，不扩大价格轴范围。
+
+显隐、对齐与位置可以进入同工具模板、默认和最近样式，正文不进入这些预设。复制／粘贴对象保正文并生成新 ID。文字修改不改锚点或画线提醒的比较点；移动绘图仍按原提醒逻辑重建比较。
+
+第三方目录显式声明 `textMode`，附着模式必须同时声明 `labelGeometry` 并返回对应标准 line、rect 或矩形 polygon figure。库补入相同参数与编辑控件；省略声明不会按分类或名称推断附着能力。声明不改变原所有权、确认或共享限制。
+
+### 选择重叠对象
+
+在命中位置右键或触摸长按，打开“选择此处对象（N）”。候选按原生 zLevel 从高到低显示，同层保持原事件路由顺序，名称、工具、scope 和不透明 logicalId 用于区分同名对象。只列当前 pane 内可见、周期允许、有当前投影的已确认对象；宿主管理的不可选项显示原因，锁定对象的选择沿原 select 规则。
+
+完整候选以稳定 ID 保留，列表只挂载可见行与 overscan，最多 60 行。ArrowUp/Down、Home/End 可以到达全部候选，Enter 选择，Esc 关闭且保留原选择，关闭后返回原焦点。菜单打开期间重新核对隐藏、删除、排序和 scope 变化；上下文切换或图表关闭取消菜单。选择或取消只改变选择状态，不提交绘图内容或后端标注。
+
+### 按根数、价格或 tick 平移
+
+在绘图管理中选择对象，打开“精确平移”，填写有符号 K 线根数或价格位移，并选择价格值／Tick。空输入不当零；根数及 tick 数量须为安全整数，价格值须有限。Tick 只在 `SymbolInfo.tickSize` 为明确的有限正数时可用，不由显示精度或市场名称推断。原拖动和 `move(dx,dy)` 继续以像素为单位。
+
+内置 `anchoredText` 不支持本入口；`anchoredVwap`、`fixedRangeVolumeProfile`、`regressionTrend`、`regressionChannel` 只支持根数；其余 51 项声明根数及价格能力。第三方必须显式声明 `numericMove:{bars:boolean,price:boolean}`，省略时两项均为 false。能力声明之外，每个对象还须有当前可解析的 market 锚点，并属于同一可写文档／scope、pane 和有效价格轴。logical／viewport 锚点可继续用原移动操作；混合对象不会自动拆批。
+
+根数按已加载真实 K 线索引移动，保留 bar 间的分数位置；午休、周末及稀疏行情均不按自然时长换算。目标越界、缺相邻 bar 或参考不可解析时整批预检拒绝，不造未来 timestamp。仅价格位移完整保留原时间锚点。价格在原始值域用独立 50 位精度的 Decimal 配置乘加，最后转换一次 Number，不按显示精度舍入；非有限结果、log 非正或无效几何拒绝。
+
+平移沿原全批预检、逐对象权限与上下文检查、串行确认及历史链。排队／让出后时间结构或绑定变化会取消旧操作；已确认前缀保留，未尝试项显式返回。检查 `status` 与逐项 `items`；partial／uncertain 不能当成功，未知写入不自动重试。全零请求不写内容或历史；成功整批只有一笔 undo/redo。

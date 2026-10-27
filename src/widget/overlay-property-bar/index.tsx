@@ -11,6 +11,7 @@ export interface OverlayPropertyBarProps {
   insetLeft?:number
   objects:DrawingSnapshot[]
   handles:Array<{x:number;y:number}>
+  obstacles?:Array<{left:number;right:number;top:number;bottom:number}>
   controls:DrawingStyleControl[]
   catalog:DrawingToolDescriptor[]
   values:Partial<Record<DrawingStyleControl,string|number|undefined>>
@@ -51,8 +52,9 @@ const OverlayPropertyBar:Component<OverlayPropertyBarProps>=props=>{
  const position=createMemo(()=>{
    const size=layout(),inset=props.insetLeft??8,width=Math.min(660,size.width-inset-8),left=Math.max(inset,Math.min(props.position.x,size.width-width-8)),height=size.barHeight
    const points=props.handles.filter(point=>point.x>=left-22&&point.x<=left+width+22),clamp=(top:number)=>Math.max(8,Math.min(top,size.height-height-8))
-   const candidates=[props.position.y,...(points.length?[Math.min(...points.map(point=>point.y))-height-26,Math.max(...points.map(point=>point.y))+26]:[]),8,size.height-height-8].map(clamp)
-   const top=candidates.find(top=>points.every(point=>point.y<top-22||point.y>top+height+22))??candidates[0]
+   const obstacles=(props.obstacles??[]).filter(box=>box.right>=left&&box.left<=left+width)
+   const candidates=[props.position.y,...(points.length?[Math.min(...points.map(point=>point.y))-height-26,Math.max(...points.map(point=>point.y))+26]:[]),...(obstacles.length?[Math.min(...obstacles.map(box=>box.top))-height-4,Math.max(...obstacles.map(box=>box.bottom))+4]:[]),8,size.height-height-8].map(clamp)
+   const top=candidates.find(top=>points.every(point=>point.y<top-22||point.y>top+height+22)&&obstacles.every(box=>top+height+4<=box.top||top-4>=box.bottom))??candidates[0]
    return {left,top}
  })
  return <Show when={props.objects.length}><div ref={element} role="region" aria-label={t('绘图属性','Drawing properties')} class={`klinecharts-pro-overlay-property-bar${narrow()?' tc-drawing-property-docked':''}`} style={{'--tc-drawing-property-inset':`${props.insetLeft??8}px`,left:`${position().left}px`,top:`${position().top}px`}} onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();if(palette())closePalette();else props.onClose()}}}>

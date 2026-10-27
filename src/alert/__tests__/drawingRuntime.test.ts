@@ -45,6 +45,12 @@ describe('drawing alert confirmed runtime',()=>{
   s.runtime.execute({type:'update',id:'r',patch:{condition:'crossing-down'}})
   expect(s.runtime.getState()[0]).toMatchObject({status:'data-unavailable',reason:'读取失败'})
  })
+ it('keeps the live comparison seed when attached text or label appearance changes',()=>{
+  const s=setup();s.create();s.consume(9)
+  const before=s.history.getDrawing('d')!,label={...before,parameters:{labelVisible:true,labelAlign:'right',labelPosition:'below'},overlay:{...before.overlay,extendData:{text:'附着正文',metadata:{source:'host'}},styles:{text:{color:'#123456',size:18}}}} as DrawingSnapshot
+  s.history.reconcile('local',[label]);s.runtime.refreshSources();expect(s.runtime.getState()[0].status).toBe('monitoring')
+  s.consume(11);expect(s.trigger).toHaveBeenCalledTimes(1);expect(s.history.getDrawing('d')!.anchors).toEqual(before.anchors)
+ })
  it.each([{connection:'disconnected'},{connection:'reconnecting'},{connection:'failed'},{error:'读取失败'},{revisionRequired:true},{dataStatus:'unconfirmed'},{dataStatus:'empty'}] as const)('clears the comparison for unavailable data %o',patch=>{
   const s=setup();s.create();s.consume(9);s.consume(11,100,patch);s.consume(11);expect(s.trigger).not.toHaveBeenCalled();s.consume(9);expect(s.trigger).toHaveBeenCalledTimes(1)
  })

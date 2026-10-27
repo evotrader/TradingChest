@@ -14,6 +14,9 @@ export interface DrawingToolDescriptor {
   maxPoints:number|null
   settings:Array<'style'|'text'|'coordinates'|'visibility'|'parameters'>
   styleControls?:DrawingStyleControl[]
+  textMode?:'body'|'attached'
+  labelGeometry?:'line'|'box'
+  numericMove?:{bars:boolean;price:boolean}
   parameters:DrawingParameter[]
 }
 const groups:Array<[DrawingCategory,Array<[string,string,string,number,string?]>]>=[
@@ -30,6 +33,24 @@ const groups:Array<[DrawingCategory,Array<[string,string,string,number,string?]>
   ['positions',[['longPosition','多头仓位','Long position',3],['shortPosition','空头仓位','Short position',3]]],
   ['volume',[['anchoredVwap','锚定 VWAP','Anchored VWAP',1],['fixedRangeVolumeProfile','固定区间成交量分布','Fixed range volume profile',2]]]
 ]
+const attachedTools=new Set(['horizontalStraightLine','straightLine','segment','rayLine','parallelStraightLine','priceChannelLine','rect'])
+const bodyTools=new Set(['textAnnotation','callout','note','anchoredText'])
+const labelParameters:DrawingParameter[]=[
+  {key:'labelVisible',label:'显示附着文字',kind:'boolean',defaultValue:false},
+  {key:'labelAlign',label:'附着文字对齐',kind:'text',choices:['left','center','right'],defaultValue:'center'},
+  {key:'labelPosition',label:'附着文字位置',kind:'text',choices:['above','on','below'],defaultValue:'above'}
+]
+/** A capability adds the same declarative controls for built-in and host tools. */
+function withTextCapabilities(tool:DrawingToolDescriptor):DrawingToolDescriptor {
+  if(tool.textMode!=='attached')return tool
+  const parameters=[...tool.parameters]
+  for(const spec of labelParameters){
+    const existing=parameters.find(parameter=>parameter.key===spec.key)
+    if(existing&&(existing.kind!==spec.kind||existing.defaultValue!==spec.defaultValue||JSON.stringify(existing.choices)!==JSON.stringify(spec.choices)))throw Error(`附着文字参数 ${spec.key} 定义无效`)
+    if(!existing)parameters.push({...spec,...(spec.choices?{choices:[...spec.choices]}:{})})
+  }
+  return {...tool,parameters,settings:[...new Set([...tool.settings,'text' as const,'parameters' as const])],styleControls:[...new Set([...tool.styleControls??[],'textColor' as const,'fontSize' as const])]}
+}
 // Capabilities follow the actual figures, including fixed-color measurement figures.
 const builtinStyleControls=(id:string):DrawingStyleControl[]=>{
   if(['textAnnotation','note','anchoredText','priceLabel'].includes(id))return ['fill','textColor','fontSize']
@@ -41,7 +62,7 @@ const builtinStyleControls=(id:string):DrawingStyleControl[]=>{
   if(['callout','trendAngle','fibonacciLine','fibonacciSegment','fibonacciCircle','fibonacciExtension','fibonacciSpeedResistanceFan','xabcd','abcd','threeWaves','fiveWaves','eightWaves','anyWaves','longPosition','shortPosition'].includes(id))controls.push('textColor','fontSize')
   return controls
 }
-export const builtinDrawingCatalog:DrawingToolDescriptor[]=groups.flatMap(([category,items])=>items.map(([toolId,zh,en,points,shortcut])=>{
+const baseDrawingCatalog:DrawingToolDescriptor[]=groups.flatMap(([category,items])=>items.map(([toolId,zh,en,points,shortcut])=>{
   const text=['textAnnotation','callout','note','anchoredText'].includes(toolId),variable=['polyline','anyWaves'].includes(toolId)
   const curve=['curve','doubleCurve','arc'].includes(toolId)
   if(category==='volume')return {toolId,overlayName:toolId,styleControls:builtinStyleControls(toolId),labels:{'zh-CN':zh,'en-US':en},category,icon:toolId,shortcut,mode:'points',minPoints:points,maxPoints:points,settings:['style','coordinates','visibility','parameters'],parameters:toolId==='anchoredVwap'?[
@@ -72,14 +93,20 @@ export const builtinDrawingCatalog:DrawingToolDescriptor[]=groups.flatMap(([cate
       {key:'backgroundOpacity',label:'背景透明度',kind:'number',min:0,max:1,choices:['0','0.05','0.12','0.2','0.3','0.5','1'],defaultValue:.12}
     ]:toolId==='fibonacciSpiral'?[{key:'segments',label:'弧段数',kind:'number' as const,min:2,max:32,defaultValue:9}]:toolId.startsWith('regression')?[{key:'source',label:'回归价格',kind:'text' as const,choices:['open','high','low','close'],defaultValue:'close'},{key:'extend',label:'向右延伸',kind:'boolean' as const,defaultValue:true},...(toolId==='regressionChannel'?[{key:'deviations',label:'残差标准差倍数',kind:'number' as const,min:0,max:10,defaultValue:2}]:[])]:category==='fibonacci'?[{key:'levels',label:'级别',kind:'levels' as const,defaultValue:toolId==='gannBox'?[0,.25,.5,.75,1]:[0,.236,.382,.5,.618,.786,1]}]:text?[{key:'textAlign',label:'文字对齐',kind:'text' as const,defaultValue:'left',choices:['left','center','right']}]:[]}
 }))
+export const builtinDrawingCatalog:DrawingToolDescriptor[]=baseDrawingCatalog.map(tool=>withTextCapabilities({...tool,
+  ...(bodyTools.has(tool.toolId)?{textMode:'body' as const}:attachedTools.has(tool.toolId)?{textMode:'attached' as const,labelGeometry:tool.toolId==='rect'?'box' as const:'line' as const}:{}),
+  numericMove:{bars:tool.toolId!=='anchoredText',price:!['anchoredText','anchoredVwap','fixedRangeVolumeProfile','regressionTrend','regressionChannel'].includes(tool.toolId)}
+}))
 export function copyDrawingCatalog(input:DrawingToolDescriptor[]=builtinDrawingCatalog):DrawingToolDescriptor[] {
   const ids=new Set<string>(),names=new Set<string>()
   for(const item of input){
     if(!item.toolId||!item.overlayName||ids.has(item.toolId)||names.has(item.overlayName)||!item.labels?.['zh-CN']||!item.labels?.['en-US']||!Number.isInteger(item.minPoints)||item.minPoints<1||(item.maxPoints!==null&&(!Number.isInteger(item.maxPoints)||item.maxPoints<item.minPoints)))throw Error('绘图目录定义无效或重复')
     if(item.styleControls&&(!Array.isArray(item.styleControls)||new Set(item.styleControls).size!==item.styleControls.length||item.styleControls.some(control=>!['stroke','fill','lineWidth','lineStyle','textColor','fontSize'].includes(control))))throw Error('绘图样式能力定义无效或重复')
+    if(item.textMode!==undefined&&!['body','attached'].includes(item.textMode)||item.textMode==='attached'&&!['line','box'].includes(item.labelGeometry??'')||item.textMode!=='attached'&&item.labelGeometry!==undefined)throw Error('绘图文字能力组合无效')
+    if(item.numericMove!==undefined&&(!item.numericMove||typeof item.numericMove!=='object'||Array.isArray(item.numericMove)||Object.keys(item.numericMove).some(key=>!['bars','price'].includes(key))||typeof item.numericMove.bars!=='boolean'||typeof item.numericMove.price!=='boolean'))throw Error('绘图数值平移能力定义无效')
     ids.add(item.toolId);names.add(item.overlayName)
   }
-  return structuredClone(input)
+  return structuredClone(input).map(withTextCapabilities)
 }
 export function validateDrawingParameters(tool:DrawingToolDescriptor,parameters:Record<string,unknown>):void {
   if(tool.overlayName==='anchoredVwap')vwapBandOptions(parameters)

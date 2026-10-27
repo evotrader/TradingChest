@@ -28,7 +28,7 @@ export function anchorsFromPoints(points:Partial<Point>[],bars:KLineData[],perio
     return offset===0?{kind:'market',timestamp:bars[index].timestamp,value:point.value}:{kind:'logical',referenceTimestamp:bars[index].timestamp,offsetBars:offset,period:{multiplier:period.multiplier,timespan:period.timespan},value:point.value}
   })
 }
-export function projectAnchors(anchors:DrawingAnchor[],bars:KLineData[],period:Period,viewport?:(x:number,y:number)=>Partial<Point>):Partial<Point>[] {
+export function projectAnchors(anchors:DrawingAnchor[],bars:readonly KLineData[],period:Period,viewport?:(x:number,y:number)=>Partial<Point>):Partial<Point>[] {
   return anchors.map(anchor=>{
     validateAnchor(anchor)
     if(anchor.kind==='viewport'){if(!viewport)throw Error('视口尺寸尚未就绪');return viewport(anchor.x,anchor.y)}

@@ -40,6 +40,10 @@ export function installDrawingCleanup(){
      return {logicalId:id,owner:'local',parameters:{startMarker:'arrow',endMarker:'circle',background:true},anchors:points.map(point=>({kind:'market',...point})),presentation:{name:`清理曲线 ${index}`},overlay:{id,name,paneId:'candle_pane',groupId:'drawing_tools',points,visible:true,lock:false,styles:null,extendData:null}}
     })
     pro.restoreDrawings('local',[...pro.getDrawings().filter((d:any)=>(d.presentation?.scope??'chart')==='chart'),...curves])
+    const label=await pro.executeDrawingCommand({type:'update',ids:['bench-0000'],patch:{text:'清理附着文字\n实例自有',parameters:{labelVisible:true}}})
+    if(label.status!=='completed')throw Error('清理验收未建立附着文字')
+    const original=pro.getDrawings().find((drawing:any)=>drawing.logicalId==='bench-0000'),point={timestamp:bars.at(-30).timestamp,value:axis.convertFromPixel(height*.5)},overlaps=[0,1].map(index=>{const id=`cleanup-overlap-${index}`;return {...original,logicalId:id,anchors:[{kind:'market',...point}],overlay:{...original.overlay,id,name:'horizontalStraightLine',points:[point]}}})
+    pro.restoreDrawings('local',[...pro.getDrawings(),...overlaps])
     if(pro.executeDrawingAlertCommand({type:'create',drawingLogicalId:'bench-0000',frequency:'once-per-bar'}).status!=='completed'||pro.getDrawingAlertState().length!==1)throw Error('清理验收未建立真实画线提醒')
     if(volume){const result=await pro.executeDrawingCommand({type:'update',ids:['volume-0'],patch:{parameters:{bandMode:'standard-deviation',bandMultipliers:[1,2,3]}}});if(result.status!=='completed')throw Error('清理验收未启用三组标准差带')}
    }

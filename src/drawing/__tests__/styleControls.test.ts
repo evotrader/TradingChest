@@ -15,12 +15,12 @@ describe('declared style controls and commands',()=>{
   custom.styleControls=['fill','fill'];expect(()=>copyDrawingCatalog([custom])).toThrow('重复')
   custom.styleControls=['wrong' as any];expect(()=>copyDrawingCatalog([custom])).toThrow('无效')
   expect(styleControls({...tool('rect'),settings:[]})).toEqual([])
-  const catalog=copyDrawingCatalog();catalog[0].styleControls!.pop();expect(builtinDrawingCatalog[0].styleControls).toHaveLength(3)
+  const catalog=copyDrawingCatalog();catalog[0].styleControls!.pop();expect(builtinDrawingCatalog[0].styleControls).toHaveLength(5)
   expect(builtinDrawingCatalog.every(tool=>Array.isArray(tool.styleControls))).toBe(true)
  })
  it('intersects actual capabilities and keeps stroke independent from text and body',()=>{
-  expect(commonStyleControls([tool('rect'),tool('segment')])).toEqual(['stroke','lineWidth','lineStyle'])
-  expect(commonStyleControls([tool('note'),tool('segment')])).toEqual([])
+  expect(commonStyleControls([tool('rect'),tool('segment')])).toEqual(['stroke','lineWidth','lineStyle','textColor','fontSize'])
+  expect(commonStyleControls([tool('note'),tool('segment')])).toEqual(['textColor','fontSize'])
   expect(templateStylePatch({polygon:{borderColor:'#f44336'}},['stroke'])).toMatchObject({line:{color:'#f44336'},circle:{borderColor:'#f44336'}})
   expect(drawingStylePatch('stroke','#f44336')).not.toHaveProperty('text')
   expect(drawingStylePatch('fill','transparent')).toMatchObject({polygon:{color:'transparent'},text:{backgroundColor:'transparent'}})
@@ -35,7 +35,7 @@ describe('declared style controls and commands',()=>{
   const controller=new DrawingController({history,preferences,create:vi.fn(),cancel:vi.fn(),project:vi.fn(),validate:vi.fn(),owner:()=> 'local',editable:()=>true})
   const result=await controller.execute({type:'template',action:'apply',templateId:'preset',ids:['a','b'],styleOnly:true})
   expect(result.items.map(item=>item.status)).toEqual(['confirmed','confirmed'])
-  for(const value of history.getDrawings()){expect(value.overlay.styles?.line?.color).toBe('#2196f3');expect(value.overlay.styles?.text?.color).toBe('#111111');expect(value.overlay.extendData).toBe(null)}
+  for(const value of history.getDrawings()){expect(value.overlay.styles?.line?.color).toBe('#2196f3');expect(value.overlay.styles?.text?.color).toBe('#f44336');expect(value.overlay.extendData).toBe(null)}
   await controller.travel('undo');expect(history.getDrawings()).toEqual([a,b]);expect(history.getState().canUndo).toBe(false)
   preferences.dispose()
  })

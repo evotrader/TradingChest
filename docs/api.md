@@ -427,3 +427,43 @@ create 接受 drawingLogicalId、可选 id/condition/frequency/message；默认 
 对数参考价与穿越判断统一使用返回的 Number 价格。机器舍入难以区分的边界由独立精度配置的 decimal.js 计算后转换一次 Number，不使用固定价格／tick 容差，也不将相邻可表示价格视为同价；宿主的 Decimal 配置不影响评估器。包内 `THIRD_PARTY_NOTICES.md` 保留其 MIT 许可。
 
 完整边界、快照身份迁移及示例见 [0.13 升级](./upgrade/0.13.0.md)。本节为0.13候选 API，尚未由本地检查获得 npm 发布状态。
+
+## 0.14 绘图能力与数值平移
+
+以下为仍在验收的 0.14 本地升级 API，不代表已发布。`DrawingToolDescriptor` 和 `DrawingCommand` 继续从根、`chart`、`solid` 入口导出，React 沿原命令／状态接口透传。
+
+| `DrawingToolDescriptor` 新增可选字段 | 契约 |
+| --- | --- |
+| `textMode?: 'body' \| 'attached'` | 正文工具或附着文字；省略时不新增文字能力 |
+| `labelGeometry?: 'line' \| 'box'` | attached 必须声明，其它模式不得提供；使用工具实际返回的标准 figure |
+| `numericMove?: {bars:boolean;price:boolean}` | 显式数值位移能力；省略时两项均为 false，不按工具类别推断 |
+
+目录返回完整副本并校验能力组合。attached 自动提供文字设置、文字颜色／字号能力和 `labelVisible`、`labelAlign`、`labelPosition` 参数，默认分别为 `false`、`center`、`above`。七种内置 attached 及四种 body 工具的精确集合见[绘图使用](./drawings.md#drawing-expressiveness)。`styles.text` 仍负责文字样式；`DrawingSnapshot.parameters` 仍是参数权威。
+
+正文修改仍用 `{type:'update',ids,patch:{text:string}}`。唯一正文是 `overlay.extendData` 字符串或普通对象的 `text` 字段，保留其它元数据；attached 不接受把数组或其它原始值强制改成对象。`patch.text` 不暗开显隐；要同时显示，明确发送：
+
+```typescript
+const textResult = await chart.executeDrawingCommand({
+  type: 'update', ids: ['drawing-id'],
+  patch: {
+    text: '关注区域\n等待确认',
+    parameters: { labelVisible: true, labelAlign: 'center', labelPosition: 'above' },
+  },
+})
+```
+
+`DrawingCommand` 新增 `{type:'translate';ids:string[];bars?:number;price?:{unit:'price'|'tick';amount:number}}`：
+
+```typescript
+const moveResult = await chart.executeDrawingCommand({
+  type: 'translate', ids: ['drawing-id'],
+  bars: -2,
+  price: { unit: 'tick', amount: 3 },
+})
+```
+
+`bars` 与 tick 的 `amount` 必须为安全整数，price 的 `amount` 必须有限；至少提供一种位移，全零请求无内容提交或历史。Tick 需要当前标的明确的有限正 `tickSize`。价格以独立 50 位 Decimal 配置计算后转换一次 Number，不改变全局配置或按显示精度舍入。原 `move` 的 `dx/dy` 保持像素语义。
+
+目标必须有可解析的 market 锚点和对应工具的显式能力，且属于同一可写文档／scope、pane 和有效价格轴。非零 bars 使用确认行情的真实索引并保留分数位置；超出已加载范围或缺参考／相邻 bar 整批拒绝，不推算未来时间。仅价格平移保留原时间锚点。`anchoredText` 两项均禁用；`anchoredVwap`、`fixedRangeVolumeProfile`、`regressionTrend`、`regressionChannel` 仅支持 bars，非零价格请求整批零写入；其余 51 项支持两种能力。log 非正、非有限及无效几何拒绝。
+
+整批准备和预检后沿原逐对象 guard、确认、共享和 undo/redo 链；队列／让出后重新核文档和确认行情时间结构。结果仍为 `DrawingCommandResult`，区分 completed/cancelled/rejected/partial/uncertain，以及 confirmed/rejected/uncertain/not-attempted 逐项结果；保留已确认前缀，不自动重试未知写入，成功整批只有一次撤销。模板／默认／最近样式不含正文、锚点、身份或 scope；复制对象保正文并生成新 ID。ChartLayoutV4、WorkspaceDocument v2、shared v1 和 preferences v1 均不升版。完整 UI、保存及第三方边界见 [0.14 升级](./upgrade/0.14.0.md)。

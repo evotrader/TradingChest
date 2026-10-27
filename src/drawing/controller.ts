@@ -1,6 +1,8 @@
 import {commonStyleControls,templateStylePatch} from './styleControls'
 import {createOpaqueId} from '../ids'
 import {copyCanonical} from '../core/copyCanonical'
+import {withDrawingText} from './text'
+import {numericMoveIsZero} from './numericMove'
 import {copyDrawingCatalog,validateDrawingParameters,type DrawingToolDescriptor} from './catalog'
 import type {DrawingHistory,DrawingWriteGuard} from './history'
 import type {DrawingCoordinator} from './coordinator'
@@ -19,6 +21,8 @@ interface Options {
   cancel:()=>void
   finish?:()=>Promise<DrawingCommandResult>
   translate?:(snapshot:DrawingSnapshot,dx:number,dy:number)=>DrawingSnapshot
+  captureTranslation?:()=>()=>void
+  translateNumeric?:(snapshots:DrawingSnapshot[],command:Extract<DrawingCommand,{type:'translate'}>)=>DrawingSnapshot[]
   translateNudge?:(snapshot:DrawingSnapshot,dx:number,dy:number)=>DrawingSnapshot
   translatePoint?:(snapshot:DrawingSnapshot,index:number,dx:number,dy:number)=>DrawingSnapshot
   project:()=>void
@@ -108,16 +112,16 @@ export class DrawingController {
       return object
     })
   }
-  private writeGuard(history:DrawingHistory,allowLocked=false):DrawingWriteGuard{
+  private writeGuard(history:DrawingHistory,allowLocked=false,additionalGuard?:()=>void):DrawingWriteGuard{
     const assertContext=this.captureContext()
     return (before,after)=>{
-      assertContext();this.options.coordinator?.assertWritable(history)
+      assertContext();additionalGuard?.();this.options.coordinator?.assertWritable(history)
       const object=before??after
       if(object&&!this.options.editable(object))throw Error(`绘图 ${object.logicalId} 由宿主管理，不能编辑`)
       if(before?.overlay.lock&&!allowLocked)throw Error(`绘图 ${before.presentation?.name??before.logicalId} 已锁定，请先解锁`)
     }
   }
-  private async batch(build:()=>Array<{before?:DrawingSnapshot;after:DrawingSnapshot|null}>,allowLocked=false):Promise<DrawingCommandResult>{
+  private async batch(build:()=>Array<{before?:DrawingSnapshot;after:DrawingSnapshot|null}>,allowLocked=false,additionalGuard?:()=>void):Promise<DrawingCommandResult>{
     const history=this.history(true);this.rememberHistory(history)
     return history.submitBatch(()=>{
       for(const before of this.previewBases??[])if(JSON.stringify(this.options.coordinator?.getDrawing(before.logicalId)??this.options.history.getDrawing(before.logicalId))!==JSON.stringify(before))throw Error('绘图已被更新，本次手势已取消，请重新操作')
@@ -126,7 +130,7 @@ export class DrawingController {
       if(this.options.validateBatch)this.options.validateBatch(proposed)
       else for(const value of proposed)this.options.validate(value)
       return values.map(v=>({kind:v.before?v.after?'update' as const:'delete' as const:'create' as const,logicalId:(v.before??v.after)!.logicalId,after:v.after}))
-    },'programmatic',this.writeGuard(history,allowLocked))
+    },'programmatic',this.writeGuard(history,allowLocked,additionalGuard))
   }
   execute(command:DrawingCommand):Promise<DrawingCommandResult>{
     return this.enqueue(command)
@@ -152,7 +156,8 @@ export class DrawingController {
   nudgePoint(id:string,index:number,dx:number,dy:number):Promise<DrawingCommandResult>{return this.enqueue({type:'move-point',ids:[id],index,dx,dy})}
   nudgeSelection(ids:string[],dx:number,dy:number):Promise<DrawingCommandResult>{return this.enqueue({type:'nudge-selection',ids,dx,dy})}
   private enqueue(command:DrawingIntent,before?:DrawingSnapshot[]):Promise<DrawingCommandResult>{
-    const intent=copy(command),bases=before&&copy(before),assertContext=['preferences','preferences-retry','view'].includes(command.type)?undefined:this.captureContext(),run=this.tail.catch(()=>{}).then(()=>this.run(intent,bases,assertContext))
+    const intent=copy(command),bases=before&&copy(before),assertDocument=['preferences','preferences-retry','view'].includes(command.type)?undefined:this.captureContext(),assertTranslation=command.type==='translate'?this.options.captureTranslation?.():undefined
+    const assertContext=()=>{assertDocument?.();assertTranslation?.()},run=this.tail.catch(()=>{}).then(()=>this.run(intent,bases,assertContext))
     this.tail=run;return run
   }
   private async run(command:DrawingIntent,before?:DrawingSnapshot[],assertContext?:()=>void):Promise<DrawingCommandResult>{
@@ -250,6 +255,15 @@ export class DrawingController {
         return values
         })
         this.selectedIds=result.items.filter(i=>i.status==='confirmed').map(i=>i.logicalId);this.options.selected?.([...this.selectedIds])
+      }else if(command.type==='translate'){
+        if(numericMoveIsZero(command)){this.targets(command.ids,true);result=complete()}
+        else result=await this.batch(()=>{
+          const objects=this.targets(command.ids,true)
+          if(!this.options.translateNumeric)throw Error('精确平移的确认行情上下文尚未就绪')
+          const proposed=this.options.translateNumeric(objects,command)
+          if(proposed.length!==objects.length||proposed.some((after,index)=>after.logicalId!==objects[index].logicalId))throw Error('精确平移不能丢弃或替换对象身份')
+          return objects.map((before,index)=>({before,after:proposed[index]}))
+        },false,assertContext)
       }else{
         const presentation=['presentation','group','ungroup','reorder'].includes(command.type)
         const unlock=command.type==='update'&&Object.keys(command.patch).length===1&&command.patch.overlay&&Object.keys(command.patch.overlay).every(k=>k==='lock'||k==='visible')
@@ -310,7 +324,10 @@ export class DrawingController {
               const styles=overlay.styles?mergeDrawingStyles(after.overlay.styles,overlay.styles):overlay.styles
               after.overlay={...after.overlay,...copy(overlay),...(overlay.styles?{styles}:{}),id:after.logicalId,name:after.overlay.name}
             }
-            if(text!==undefined){const data=after.overlay.extendData;after.overlay.extendData=data&&typeof data==='object'?{...data,text}:text}
+            if(text!==undefined){
+              if(typeof text!=='string')throw Error('绘图正文必须是字符串')
+              after.overlay.extendData=withDrawingText(after.overlay.extendData,text,this.catalog.find(tool=>tool.overlayName===after.overlay.name)?.textMode==='attached')
+            }
             if(command.patch.anchors&&command.patch.overlay?.points)throw Error('一次坐标修改只能指定锚点或点，不能同时提供两种权威坐标')
             if(command.patch.anchors||command.patch.overlay?.points){if(!this.options.coordinates)throw Error('坐标转换尚未就绪');after=this.options.coordinates(after,command.patch)}
             const tool=this.catalog.find(t=>t.overlayName===after.overlay.name)

@@ -378,3 +378,43 @@ The DOM-free trading-chest/alerts entry exports evaluateDrawingAlert, validateDr
 Existing fixed-price alerts and feedPrice keep their semantics; feedPrice does not bypass confirmed data for drawing alerts. See [0.13 migration](./upgrade/0.13.0.md) for supported tools, finite domains, snapshot identity migration, persistence and background limits. These APIs describe the local candidate, not a publication result.
 
 Logarithmic references and crossing comparisons use the same returned Number price. Machine-rounding ambiguity is resolved with an independently configured decimal.js constructor before a single conversion to Number. There is no fixed price/tick tolerance or collapse of adjacent representable prices; host Decimal settings do not affect evaluation. Its MIT license is retained in the package's `THIRD_PARTY_NOTICES.md`.
+
+## 0.14 drawing capabilities and numeric translation
+
+These APIs describe the local 0.14 upgrade while validation is in progress, not a published release. `DrawingToolDescriptor` and `DrawingCommand` retain their root, `chart` and `solid` exports. React forwards existing commands and state.
+
+| New optional `DrawingToolDescriptor` field | Contract |
+| --- | --- |
+| `textMode?: 'body' \| 'attached'` | Body tool or attached text; omission adds no text capability |
+| `labelGeometry?: 'line' \| 'box'` | Required for attached mode and invalid for other modes; uses actual standard tool figures |
+| `numericMove?: {bars:boolean;price:boolean}` | Explicit numeric capabilities; omission means false for both, without category inference |
+
+Catalogs return full copies and validate capability combinations. Attached mode supplies text settings, text-color/font-size capabilities and `labelVisible`, `labelAlign`, `labelPosition` parameters, defaulting to `false`, `center`, `above`. See [drawing usage](./drawings.md#drawing-expressiveness) for the exact seven attached and four body built-ins. `styles.text` continues to style text, and `DrawingSnapshot.parameters` remains authoritative.
+
+Body edits retain `{type:'update',ids,patch:{text:string}}`. The sole body is the `overlay.extendData` string or plain object's `text`, preserving other metadata. Attached editing cannot convert arrays or other primitive content to objects. `patch.text` does not implicitly enable visibility. To show it explicitly:
+
+```typescript
+const textResult = await chart.executeDrawingCommand({
+  type: 'update', ids: ['drawing-id'],
+  patch: {
+    text: 'Area of interest\nAwait confirmation',
+    parameters: { labelVisible: true, labelAlign: 'center', labelPosition: 'above' },
+  },
+})
+```
+
+`DrawingCommand` adds `{type:'translate';ids:string[];bars?:number;price?:{unit:'price'|'tick';amount:number}}`:
+
+```typescript
+const moveResult = await chart.executeDrawingCommand({
+  type: 'translate', ids: ['drawing-id'],
+  bars: -2,
+  price: { unit: 'tick', amount: 3 },
+})
+```
+
+`bars` and tick `amount` must be safe integers; price `amount` must be finite. Supply at least one displacement. All-zero requests write no content/history. Tick requires an explicit finite positive current-symbol `tickSize`. Price arithmetic uses an independent 50-digit Decimal configuration before one Number conversion, without changing global settings or rounding to display precision. Existing `move` dx/dy remain pixels.
+
+Targets require resolvable market anchors, explicit tool capabilities and one writable document/scope, pane and effective price axis. Nonzero bars use confirmed real indices and preserve fractional positions. Unloaded targets or missing reference/neighbour bars reject the entire preflight without inventing future timestamps. Price-only moves preserve original time anchors. `anchoredText` disables both capabilities; `anchoredVwap`, `fixedRangeVolumeProfile`, `regressionTrend` and `regressionChannel` support bars only and reject nonzero price requests with zero batch writes. The remaining 51 built-ins support both. Nonpositive log values, nonfinite results and invalid geometry reject.
+
+Whole-batch preparation/preflight feeds existing per-object guards, confirmation, sharing and undo/redo. Document and confirmed time structure are rechecked after queuing/yielding. `DrawingCommandResult` retains completed/cancelled/rejected/partial/uncertain and confirmed/rejected/uncertain/not-attempted item results. Confirmed prefixes remain; unknown writes are not retried automatically. A successful batch is one undo. Templates/defaults/recent styles exclude bodies, anchors, identities and scopes; object copying preserves bodies with new IDs. ChartLayoutV4, WorkspaceDocument v2, shared v1 and preferences v1 stay unchanged. See [0.14 migration](./upgrade/0.14.0.md) for UI, persistence and third-party boundaries.

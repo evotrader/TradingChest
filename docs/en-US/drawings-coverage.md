@@ -80,6 +80,9 @@ The catalog contains 51 existing ordinary tools, two volume drawings and three c
 | U13 | Rejected/partial/uncertain/slow writes | history / session / drawing backend stage |
 | U14 | 320px, 1/2/4 charts, DPR, bounds | drawing-touch / drawing-sharing / drawing-performance |
 | U15 | Keyboard, focus, touch menu | drawing-input-audit / drawing-touch |
+| U16 | Seven attached-text tools, metadata, template/body boundary | drawing-expressiveness (0.14 validation in progress) |
+| U17 | Complete overlap candidates, virtual rows, keyboard, selection without writes | drawing-expressiveness (0.14 validation in progress) |
+| U18 | Real-bar/price/tick translation and confirmation boundaries | numericMove / drawing-expressiveness (0.14 validation in progress) |
 
 ## Deliberate differences
 
@@ -107,3 +110,17 @@ The anonymous TradingView chart was reachable on 2026-10-21, but attempting a ho
 Local witnesses include drawing-refinement, drawing-curves, installed-package drawing-comparison and the third-party example. Actual completion and failures belong to the implementation SUMMARY; an available entry does not imply all acceptance gates passed.
 
 0.13 alerts cover only horizontal/extended lines, finite segments and directed rays, using observed closes. They do not represent the full TradingView website alert catalog or a background service. Sources must be confirmed chart-local main-axis market drawings; backend sources retain their authority. Curve markers and chord-closed backgrounds do not alter definitions. See[0.13](./upgrade/0.13.0.md).
+
+## 0.14 expression and dense-editing boundaries
+
+The local 0.14 upgrade is still being validated; new verification entries above do not imply all gates passed. The catalog stays at 56. This update adds no live TradingView task, numerical-equivalence or timing-comparison claim.
+
+| Task | Local contract and limits |
+| --- | --- |
+| Attach text to geometry | Seven tools: horizontal/extended/trend lines, rays, parallel lines, price channels and rectangles; six use line geometry, rectangles box. Four body tools remain body; other built-ins gain no attached labels |
+| Select overlapping drawings | Confirmed, visible, period-eligible hits with current projections in the pane; retain all stable candidate IDs in native zLevel order, mount at most 60 rows and reach every item by keyboard. Selecting/cancelling writes no content |
+| Numeric translation | One writable document/scope, pane, effective price axis and resolvable market anchors. Loaded real bars preserve fractions; price/tick units are explicit, tickSize positive, and no future timestamps are fabricated |
+| Capability differences | anchoredText disables translation. AVWAP, FRVP and both regression tools allow bars only; 51 other built-ins allow bars and price. Omitted third-party numericMove means false for both without category inference |
+| Persistence/templates | Existing v4/v2/shared v1; extendData is the sole body, while templates/defaults/recent styles copy only styles and parameters. Object copying retains text with new IDs |
+
+Label styling/text does not change alert geometry or comparison points; moving geometry retains existing source handling. No account, quantity, leverage, order or background-service behavior is added. Restoration/data-computation performance requires complete current samples; feature descriptions do not imply performance acceptance. See [0.14 migration](./upgrade/0.14.0.md).

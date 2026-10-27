@@ -69,11 +69,15 @@ import {drawingParameters,drawingContent,engineDrawingData} from './drawing/cont
 import {drawingBindings} from './drawing/bindings'
 import {validateDrawingRestore,assertDrawingRestoreAuthority} from './drawing/restore'
 import {drawingFigureHit} from './drawing/hitTest'
+import {drawingText,withDrawingText,assertAttachedTextContent} from './drawing/text'
+import {attachedTextFigures} from './drawing/attachedText'
+import {multilineTextLayout} from './extension/rectText'
+import {numericMoveDrawings} from './drawing/numericMove'
 import {anchorsFromPoints,projectAnchors,intervalVisible,validateAnchor} from './drawing/anchors'
 import {copyDrawingCatalog,validateDrawingParameters} from './drawing/catalog'
 import DrawingTextEditor from './widget/drawing-editor/TextEditor'
 import DrawingAxisLabels from './widget/drawing-editor/AxisLabels'
-import DrawingContextMenu from './widget/drawing-editor/ContextMenu'
+import DrawingContextMenu,{type DrawingOverlapCandidate} from './widget/drawing-editor/ContextMenu'
 import DrawingHandles,{type DrawingHandle} from './widget/drawing-editor/Handles'
 import DrawingWorkbench from './widget/drawing-object-tree/DrawingWorkbench'
 import AnalyticsSummary from './widget/drawing-object-tree/AnalyticsSummary'
@@ -227,14 +231,16 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const [workbenchDirty,setWorkbenchDirty]=createSignal(false)
   const [workbenchPage,setWorkbenchPage]=createSignal<'objects'|'settings'|'templates'>('objects')
   const [workbenchRequest,setWorkbenchRequest]=createSignal(0)
-  const [drawingMenu,setDrawingMenu]=createSignal<{x:number;y:number}>()
+  const [drawingMenu,setDrawingMenu]=createSignal<{x:number;y:number;paneId:string;point:{x:number;y:number};targetIds:string[];bindingEpoch:number;contextEpoch:number}>()
+  const [overlapCandidates,setOverlapCandidates]=createSignal<DrawingOverlapCandidate[]>([])
+  const [drawingAlignmentRevision,setDrawingAlignmentRevision]=createSignal(-1)
   const [selectionBox,setSelectionBox]=createSignal<{x:number;y:number;width:number;height:number}>()
   const [drawingHandles,setDrawingHandles]=createSignal<DrawingHandle[]>([])
   const [drawingAxisLabels,setDrawingAxisLabels]=createSignal<Array<{id:string;x:number;y:number;text:string;side:'left'|'right'|'time'}>>([])
   const [temporaryPan,setTemporaryPan]=createSignal(false)
   const [textEditor,setTextEditor]=createSignal<{id:string;text:string;creating:boolean;target:Overlay}|null>(null)
-  const textOf=(value:unknown)=>typeof value==='string'?value:value&&typeof value==='object'&&'text' in value?String(value.text??''):''
-  const isText=(name:string)=>['textAnnotation','callout','note','anchoredText'].includes(name)
+  const textOf=drawingText
+  const isText=(name:string)=>drawingCatalog.find(tool=>tool.overlayName===name)?.textMode==='body'
   const notifyOverlay = (source: OverlayLifecycleSource, overlay: Overlay, kind: 'create' | 'update' | 'delete') => {
     if(applyingDrawing)return
     const value=snapshotOverlay(overlay),existing=drawingCoordinator?.getDrawing(overlay.id)??drawingHistory.getDrawing(overlay.id)
@@ -248,7 +254,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     }catch(reason){setDrawingState({...drawingHistory.getState(),error:reason instanceof Error?reason.message:String(reason)})}
   }
   const promptTextOverlay = (overlay:Overlay,creating=true) => {
-    if(!isText(overlay.name))return false
+    const mode=drawingCatalog.find(tool=>tool.overlayName===overlay.name)?.textMode
+    if(!mode||creating&&mode!=='body')return false
     setTextEditor({id:overlay.id,text:textOf(overlay.extendData),creating,target:overlay});return true
   }
   const finishText=(text:string|null)=>{
@@ -256,7 +263,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     setTextEditor(null)
     const overlay=widget?.getOverlays({id:editor.id})[0];if(overlay!==editor.target){setSnapHint('绘图对象已被替换，本次文字编辑已取消');return}
     if(text===null){if(editor.creating){applyingDrawing=true;try{widget?.removeOverlay({id:editor.id})}finally{applyingDrawing=false}ownedDrawingIds.delete(editor.id);completedDrawingIds.delete(editor.id)}return}
-    overlay.extendData=typeof overlay.extendData==='object'&&overlay.extendData?{...overlay.extendData,text}:text
+    if(!editor.creating&&drawingCatalog.find(tool=>tool.overlayName===overlay.name)?.textMode==='attached'){
+      void drawingController.execute({type:'update',ids:[editor.id],patch:{text,...(!editor.text&&text?{parameters:{labelVisible:true}}:{})}}).then(result=>{if(result.status!=='completed')setSnapHint(result.message??result.items.find(item=>item.status!=='confirmed')?.message??(locale()==='en-US'?'Text is not confirmed':'文字尚未确认'))});return
+    }
+    overlay.extendData=withDrawingText(overlay.extendData,text)
     notifyOverlay('property-bar',overlay,editor.creating?'create':'update')
   }
   const markSelectedOverlay = (overlay: Overlay,select=true) => {
@@ -443,13 +453,14 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       return
     }
     if(workbenchFrame!==undefined)return
-    workbenchFrame=requestAnimationFrame(()=>{
+    const present=()=>{
+      if(disposed){workbenchFrame=undefined;return}
+      if(drawingHistory.isYieldingLocalWork()){workbenchFrame=requestAnimationFrame(present);return}
       workbenchFrame=undefined
-      if(disposed)return
       const latest=drawingController.getState()
-      batch(()=>{setWorkbenchState(latest);setDrawingState(latest.history)})
-      refreshDrawingHandles()
-    })
+      batch(()=>{setWorkbenchState(latest);setDrawingState(latest.history);refreshDrawingHandles()})
+    }
+    workbenchFrame=requestAnimationFrame(present)
   }
   const editable=(overlay:OverlayLifecycleEvent['overlay'])=>drawingCatalog.some(t=>t.overlayName===overlay.name)&&overlay.name!=='alertLine'&&!overlay.id?.startsWith('alert_')&&(props.isDrawingEditable?.(overlay)??true)
   const validateDrawingTarget=(value:DrawingSnapshot,target?:import('./drawing/bindings').DrawingRestoreTarget)=>{
@@ -457,6 +468,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if(value.anchors)for(const anchor of value.anchors)validateAnchor(anchor)
     const definition=drawingCatalog.find(tool=>tool.overlayName===value.overlay.name)
     if(definition)validateDrawingParameters(definition,value.parameters??{})
+    if(definition?.textMode==='attached'&&value.parameters?.labelVisible)assertAttachedTextContent(value.overlay.extendData)
     if(isCurveDrawing(value.overlay.name)&&value.overlay.points.length!==definition?.minPoints)throw Error('曲线控制点数量与工具定义不一致，请保留完整控制点')
     if(isVolumeDrawing(value.overlay.name)){
       const tool=definition!
@@ -530,6 +542,21 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
   const drawingPreviews=new Map<string,DrawingSnapshot>()
   const drawingFigures=new WeakMap<Overlay,OverlayFigure[]>()
+  const propertyTextObstacles=()=>{
+    drawingHandles()
+    const root=(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.getBoundingClientRect()
+    if(!root||!widget)return []
+    return selectedPropertyDrawings().flatMap(drawing=>{
+      if(!drawing.parameters?.labelVisible||!drawingText(drawing.overlay.extendData))return []
+      const overlay=engineDrawing(drawing.logicalId),pane=widget?.getDom(drawing.overlay.paneId??'candle_pane','main')?.getBoundingClientRect()
+      if(!overlay||!pane)return []
+      return (drawingFigures.get(overlay)??[]).filter(figure=>figure.key==='attached-text').flatMap(figure=>([figure.attrs].flat() as any[]).flatMap(attrs=>{
+        const bounds=multilineTextLayout(attrs,{...widget!.getStyles().overlay.text,...drawing.overlay.styles?.text,...figure.styles as object})
+        const left=Math.max(0,bounds.x),right=Math.min(pane.width,bounds.x+bounds.width),top=Math.max(0,bounds.y),bottom=Math.min(pane.height,bounds.y+bounds.height)
+        return left<right&&top<bottom?[{left:pane.left-root.left+left,right:pane.left-root.left+right,top:pane.top-root.top+top,bottom:pane.top-root.top+bottom}]:[]
+      }))
+    })
+  }
   const drawingHandlePixel=(point:Overlay['points'][number],value:DrawingSnapshot,size:{height:number})=>{
     if(!isVolumeDrawing(value.overlay.name))return drawingToPixel(point,value)
     const bars=widget!.getDataList(),index=Math.max(0,Math.min(bars.length-1,Math.round(point.dataIndex??0)))
@@ -542,6 +569,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   let handleGeometryKey='',drawingProjectionData=''
   const refreshDrawingHandles=()=>{
     if(!widget||disposed)return
+    if(drawingMenu())refreshOverlapCandidates()
     const selected=(drawingController?.getSelectedIds()??[]).flatMap(id=>{const value=drawingPreviews.get(id)??drawingCoordinator.getDrawing(id);return value&&drawingIsVisible(value)?[value]:[]})
     const panes=[...new Set(selected.map(value=>value.overlay.paneId??'candle_pane'))]
     const geometryKey=JSON.stringify([drawingProjectionData,locale(),symbol().pricePrecision,period(),drawingController?.getViewState(),widget.getVisibleRange(),widget.getSize(),panes.map(paneId=>[paneId,widget!.getSize(paneId,'main'),widget!.getYAxes({paneId}).map(axis=>[axis.id,axis.name,axis.reverse,axis.getRange()])]),selected.map(value=>[value.logicalId,value.overlay.name,value.overlay.points,value.anchors,value.yAxisId,value.overlay.lock,value.presentation?.name])])
@@ -650,6 +678,22 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         if(selected)markSelectedOverlay(current,false)
         return value
       }
+      // Coordinate edits retain the native instance and its per-instance figure wrapper.
+      // Rebuilding every selected brush also rebuilds all native point/figure bookkeeping.
+      if(current&&previous){
+        const {points:_beforePoints,...beforeOverlay}=previous.document.overlay,{points:_afterPoints,...afterOverlay}=overlay
+        if(JSON.stringify([beforeOverlay,previous.document.yAxisId,previous.document.parameters])===JSON.stringify([afterOverlay,value.yAxisId,value.parameters])){
+          let points:Overlay['points']
+          try{points=projectDrawingPoints(value);points.forEach((point,index)=>{if(value.anchors?.[index]?.kind!=='viewport')drawingToPixel(point,value)})}catch(error){remove();throw error}
+          clearCurveGeometry(widget,id)
+          const view=drawingController?.getViewState()
+          widget.overrideOverlay({id,points,zLevel:value.presentation?.order??0,fixedZLevel:true,visible:overlay.visible&&!view?.hidden&&intervalVisible(value.presentation?.intervals,period()),lock:overlay.lock||view?.preventDragging||temporaryPan()})
+          if(curve)widget.overrideOverlay({id,styles:{}})
+          projectedDrawingDefinitions.set(id,{key,shapeKey,presentation,document:value})
+          if(selected)markSelectedOverlay(current,false)
+          return value
+        }
+      }
       let points:Overlay['points']
       try{points=projectDrawingPoints(value);points.forEach((point,index)=>{if(value.anchors?.[index]?.kind!=='viewport')drawingToPixel(point,value)})}catch(error){remove();throw error}
       remove()
@@ -661,6 +705,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       projectedDrawingDefinitions.set(id,{key,shapeKey,presentation,document:value})
       if(temporaryPan())temporaryPanLocks.set(id,{overlay:actual,lock:overlay.lock||!!state?.preventDragging})
       actual.needDefaultPointFigure=false;actual.needDefaultYAxisFigure=false;actual.needDefaultXAxisFigure=false
+      const textTool=drawingCatalog.find(tool=>tool.overlayName===overlay.name)
       for(const figure of ['createPointFigures','createYAxisFigures','createXAxisFigures'] as const){
         const draw=actual[figure];if(!draw)continue
         actual[figure]=args=>{
@@ -689,8 +734,12 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             return figure==='createPointFigures'?[{type:'rectText',ignoreEvent:true,attrs:{x:8,y:20,text:error instanceof Error?error.message:String(error),baseline:'top'},styles:{color:'#ef5350'}}]:[]
           }
           const axis=widget?.getYAxes({paneId:document.overlay.paneId??'candle_pane'}).find(axis=>!document.yAxisId||axis.id===document.yAxisId)
-          const figures=draw(Object.assign({...args,coordinates,yAxis:axis??args.yAxis,overlay:Object.assign(Object.create(args.overlay),{points:projected})},{[curveSelection]:curveSelectedIds.has(id)}))
-          if(figure==='createPointFigures')drawingFigures.set(actual,Array.isArray(figures)?figures:[figures])
+          let figures=draw(Object.assign({...args,coordinates,yAxis:axis??args.yAxis,overlay:Object.assign(Object.create(args.overlay),{points:projected})},{[curveSelection]:curveSelectedIds.has(id)}))
+          if(figure==='createPointFigures'&&textTool?.textMode==='attached'&&document.parameters?.labelVisible)figures=attachedTextFigures(Array.isArray(figures)?figures:[figures],textTool,document,drawingSize(document),widget?.getStyles().overlay.text)
+          if(figure==='createPointFigures'){
+            drawingFigures.set(actual,Array.isArray(figures)?figures:[figures])
+            if(untrack(drawingMenu)&&handleLayoutFrame===undefined)handleLayoutFrame=requestAnimationFrame(()=>{handleLayoutFrame=undefined;refreshDrawingHandles()})
+          }
           return figures
         }
       }
@@ -707,7 +756,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       const present=()=>{
         if(disposed){drawingPresentationFrame=undefined;return}
         if(drawingHistory.isYieldingLocalWork()){drawingPresentationFrame=requestAnimationFrame(present);return}
-        drawingPresentationFrame=undefined;drawingController?.refresh()
+        drawingPresentationFrame=undefined;drawingController?.refresh();refreshOverlapCandidates()
         const size=widget?.getSize()
         const node=widgetRef as HTMLDivElement|undefined
         if(node&&size&&(node.clientWidth!==Math.round(size.width)||node.clientHeight!==Math.round(size.height)))widget?.resize()
@@ -782,11 +831,10 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
   const drawingKeyUp=(event:KeyboardEvent)=>{drawingModifierKey(event);if(event.code==='Space')restoreSpaceDrawing()}
   const drawingInputBlur=()=>{drawingModifiers={shift:false,control:false,alt:false};setSnapHint('');restoreSpaceDrawing();cancelSelectionBox();clearDrawingHold()}
-  const showDrawingMenu=(overlay:Overlay|undefined,x:number,y:number)=>{
+  const showDrawingMenu=(overlay:Overlay|undefined,x:number,y:number,paneId=overlay?.paneId??'candle_pane')=>{
     if(overlay?.id===activeDrawingId&&overlay.currentStep>0){overlay.points=overlay.points.slice(0,Math.max(0,overlay.currentStep-1));widget?.resize();setSnapHint(locale()==='en-US'?'Unconfirmed point cancelled':'已取消当前未确认落点')}
-    else if(overlay)markSelectedOverlay(overlay)
-    const pane=widget?.getDom(overlay?.paneId??'candle_pane','main')?.getBoundingClientRect(),root=(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.getBoundingClientRect()
-    if(root&&pane)setDrawingMenu({x:Math.max(0,Math.min(root.width-180,pane.left-root.left+x)),y:Math.max(0,Math.min(root.height-280,pane.top-root.top+y))})
+    const pane=widget?.getDom(paneId,'main')?.getBoundingClientRect(),root=(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.getBoundingClientRect()
+    if(root&&pane){const selected=drawingController.getSelectedIds();setDrawingMenu({x:Math.max(0,Math.min(root.width-300,pane.left-root.left+x)),y:Math.max(0,Math.min(root.height-400,pane.top-root.top+y)),paneId,point:{x,y},targetIds:overlay&&!selected.includes(overlay.id)?[overlay.id]:selected,bindingEpoch:drawingCoordinator.getBindingEpoch(),contextEpoch:drawingContextEpoch()});refreshOverlapCandidates()}
   }
   let boxDrag:{x:number;y:number;paneId:string;pointerId:number}|undefined,holdTimer:ReturnType<typeof setTimeout>|undefined,holdPoint:{x:number;y:number}|undefined
   const clearDrawingHold=()=>{if(holdTimer!==undefined)clearTimeout(holdTimer);holdTimer=undefined;holdPoint=undefined}
@@ -812,12 +860,33 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     }
   }
   const cancelSelectionBox=()=>{boxDrag=undefined;setSelectionBox(undefined)}
+  const refreshOverlapCandidates=()=>{
+    const menu=drawingMenu();if(!menu||disposed||!widget){setOverlapCandidates([]);return}
+    if(menu.bindingEpoch!==drawingCoordinator.getBindingEpoch()||menu.contextEpoch!==drawingContextEpoch()){setDrawingMenu(undefined);setOverlapCandidates([]);return}
+    const rows:DrawingOverlapCandidate[]=[]
+    for(const overlay of widget.getOverlays({paneId:menu.paneId}).slice().reverse()){
+      if(!overlay.visible||!drawingFigureHit(menu.point,drawingFigures.get(overlay)??[],widget.getStyles().overlay,overlay.styles,'onRightClick'))continue
+      const value=drawingCoordinator.getDrawing(overlay.id);if(!value||!drawingIsVisible(value))continue
+      const tool=drawingCatalog.find(tool=>tool.overlayName===overlay.name),scope=value.presentation?.scope??'chart',name=value.presentation?.name??tool?.labels[locale()==='en-US'?'en-US':'zh-CN']??overlay.name
+      const disabled=!editable(value.overlay)
+      rows.push({id:value.logicalId,label:`${name} · ${tool?.labels[locale()==='en-US'?'en-US':'zh-CN']??overlay.name} · ${scope} · ${value.logicalId}`,disabled,reason:disabled?locale()==='en-US'?'Managed by host':'由宿主管理，不能选择':undefined})
+    }
+    setOverlapCandidates(rows)
+  }
+  const chooseOverlap=(id:string)=>{
+    const menu=drawingMenu(),value=drawingCoordinator.getDrawing(id),overlay=widget?.getOverlays({id})[0]
+    if(!menu||menu.bindingEpoch!==drawingCoordinator.getBindingEpoch()||menu.contextEpoch!==drawingContextEpoch()||!value||!overlay||!drawingIsVisible(value)||!editable(value.overlay)||!drawingFigureHit(menu.point,drawingFigures.get(overlay)??[],widget!.getStyles().overlay,overlay.styles,'onRightClick')){setSnapHint(locale()==='en-US'?'The object changed; open the candidate list again':'对象已改变，请重新打开候选列表');return}
+    void drawingController.execute({type:'select',ids:[id]}).then(result=>{if(result.status!=='completed')setSnapHint(result.message??'选择未完成')})
+  }
+  createEffect(()=>{drawingContextEpoch();symbol();period();setDrawingMenu(undefined);setOverlapCandidates([])})
+  createEffect(()=>{if(!drawingMenu())setOverlapCandidates([])})
+  onCleanup(()=>setOverlapCandidates([]))
   const drawingPointerStart=(event:PointerEvent)=>{
     drawingPointerDown(event);setDrawingMenu(undefined);if(temporaryPan()){lockTemporaryPan();return}
     const pane=drawingPaneAt(event.clientX,event.clientY);if(!pane)return
     const x=event.clientX-pane.rect.left,y=event.clientY-pane.rect.top,near=drawingNear(pane.paneId,x,y)
     if(event.shiftKey&&event.button===0&&!activeDrawingId&&!near){boxDrag={x,y,paneId:pane.paneId,pointerId:event.pointerId};(widgetRef as HTMLDivElement|undefined)?.setPointerCapture(event.pointerId);event.preventDefault();event.stopPropagation()}
-    if(event.pointerType==='touch'&&!activeDrawingId){clearDrawingHold();holdPoint={x:event.clientX,y:event.clientY};holdTimer=setTimeout(()=>{holdTimer=undefined;showDrawingMenu(near?widget?.getOverlays({id:near.logicalId})[0]:undefined,x,y)},550)}
+    if(event.pointerType==='touch'&&!activeDrawingId){clearDrawingHold();holdPoint={x:event.clientX,y:event.clientY};holdTimer=setTimeout(()=>{holdTimer=undefined;showDrawingMenu(near?widget?.getOverlays({id:near.logicalId})[0]:undefined,x,y,pane.paneId)},550)}
   }
   const drawingPointerMove=(event:PointerEvent)=>{
     if(temporaryPanGesture&&temporaryPanGesture.pointerId===event.pointerId){widget?.scrollByDistance(event.clientX-temporaryPanGesture.x);temporaryPanGesture.x=event.clientX;event.preventDefault();event.stopPropagation();refreshDrawingHandles();return}
@@ -834,7 +903,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     const pane=widget?.getDom(drag.paneId,'main')?.getBoundingClientRect(),root=(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.getBoundingClientRect();if(pane&&root){const left=box.x+root.left-pane.left,top=box.y+root.top-pane.top,values=drawingCoordinator.getDrawings().filter(value=>{if((value.overlay.paneId??'candle_pane')!==drag.paneId||!drawingIsVisible(value))return false;try{const b=drawingBounds(value);return b.right>=left&&b.left<=left+box.width&&b.bottom>=top&&b.top<=top+box.height}catch{return false}});void drawingController.execute({type:'select',ids:values.map(value=>value.logicalId)});setSnapHint(`${locale()==='en-US'?'Selected':'已选择'} ${values.length}${values.some(value=>value.overlay.lock)?locale()==='en-US'?' · Includes locked drawings':' · 含锁定对象，请先解锁或仅选择可操作对象':''}`)}
     event.preventDefault();event.stopPropagation()
   }
-  const drawingContext=(event:MouseEvent)=>{event.preventDefault();const pane=drawingPaneAt(event.clientX,event.clientY);if(!pane)return;const x=event.clientX-pane.rect.left,y=event.clientY-pane.rect.top,near=drawingNear(pane.paneId,x,y,'onRightClick');showDrawingMenu(activeDrawingId?widget?.getOverlays({id:activeDrawingId})[0]:near?widget?.getOverlays({id:near.logicalId})[0]:undefined,x,y);event.stopPropagation()}
+  const drawingContext=(event:MouseEvent)=>{event.preventDefault();const pane=drawingPaneAt(event.clientX,event.clientY);if(!pane)return;const x=event.clientX-pane.rect.left,y=event.clientY-pane.rect.top,near=drawingNear(pane.paneId,x,y,'onRightClick');showDrawingMenu(activeDrawingId?widget?.getOverlays({id:activeDrawingId})[0]:near?widget?.getOverlays({id:near.logicalId})[0]:undefined,x,y,pane.paneId);event.stopPropagation()}
 
   let activeDrawingId: string | null = null
   const cancelDrawing = () => {
@@ -882,7 +951,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   function drawingHandlers():Partial<OverlayCreate>{return {
       onDrawing:event=>{try{drawingPointInput(event.overlay,event,event.overlay.drawingMode==='continuous'?event.overlay.points.length-1:event.overlay.currentStep-1)}catch(error){setSnapHint(error instanceof Error?error.message:String(error))}drawingController?.setStep(event.overlay.currentStep)},
       onClick:event=>{if(!applyingDrawing&&!drawingController.getSelectedIds().includes(event.overlay.id))markSelectedOverlay(event.overlay)},
-      onDoubleClick:event=>{if(isText(event.overlay.name))promptTextOverlay(event.overlay,false)},
+      onDoubleClick:event=>{promptTextOverlay(event.overlay,false)},
       onRightClick:event=>{event.preventDefault?.();showDrawingMenu(event.overlay,event.x??0,event.y??0)},
       onDrawEnd: (event) => {
         const descriptor=drawingCatalog.find(tool=>tool.overlayName===event.overlay.name)
@@ -990,7 +1059,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
   const drawingPreferences=new DrawingPreferencesManager({catalog:drawingCatalog,initial:props.drawingPreferences,store:props.drawingPreferencesStore,scope:props.drawingPreferencesScope,changed:state=>{props.onDrawingShortcutsChange?.(state.value.shortcuts);drawingController?.refresh()}})
   props.onDrawingShortcutsChange?.(drawingPreferences.getState().value.shortcuts)
-  drawingController=new DrawingController({analytics:drawings=>drawingAnalytics.summaries(drawings),history:drawingHistory,coordinator:drawingCoordinator,finish:finishDrawing,translate:translateDrawing,translateNudge:nudgeDrawing,translatePoint:(before,index,dx,dy)=>{const point=projectDrawingPoints(before)[index];if(!point)throw Error('控制点不存在');const pixel=drawingToPixel(point,before);if(isVolumeDrawing(before.overlay.name)){if(!dx)return structuredClone(before);const bars=widget!.getDataList(),target=Math.round(marketIndex(point.timestamp!,bars))+dx,bar=bars[target];if(!bar)throw Error('量价控制点只能移动到已加载历史');return controlPointProposal(before,index,drawingToPixel({timestamp:bar.timestamp,dataIndex:target,value:point.value},before))}return controlPointProposal(before,index,{x:pixel.x+dx,y:pixel.y+dy})},preferences:drawingPreferences,catalog:drawingCatalog,
+  drawingController=new DrawingController({analytics:drawings=>drawingAnalytics.summaries(drawings),history:drawingHistory,coordinator:drawingCoordinator,finish:finishDrawing,
+    captureTranslation:()=>{
+      const captured=confirmedAlertSeries,chart=widget
+      return ()=>{const current=confirmedAlertSeries;if(disposed||widget!==chart||!captured?.confirmed||!current?.confirmed||current.epoch!==captured.epoch||current.revision!==captured.revision||current.basis!==captured.basis)throw new DOMException('确认行情结构已改变，精确平移已取消，请重新操作','AbortError')}
+    },
+    translateNumeric:(objects,command)=>numericMoveDrawings(objects,command,{bars:loader?.getConfirmedBars()??[],period:period(),tickSize:symbol().tickSize,defaultAxisId:widget?.getYAxes({paneId:objects[0]?.overlay.paneId??'candle_pane'})[0]?.id,tool:name=>drawingCatalog.find(tool=>tool.overlayName===name)}),
+    translate:translateDrawing,translateNudge:nudgeDrawing,translatePoint:(before,index,dx,dy)=>{const point=projectDrawingPoints(before)[index];if(!point)throw Error('控制点不存在');const pixel=drawingToPixel(point,before);if(isVolumeDrawing(before.overlay.name)){if(!dx)return structuredClone(before);const bars=widget!.getDataList(),target=Math.round(marketIndex(point.timestamp!,bars))+dx,bar=bars[target];if(!bar)throw Error('量价控制点只能移动到已加载历史');return controlPointProposal(before,index,drawingToPixel({timestamp:bar.timestamp,dataIndex:target,value:point.value},before))}return controlPointProposal(before,index,{x:pixel.x+dx,y:pixel.y+dy})},preferences:drawingPreferences,catalog:drawingCatalog,
     editable:value=>editable(value.overlay),validate:value=>drawingCoordinator.validate(value),validateBatch:values=>drawingCoordinator.validateBatch(values),
     create:tool=>{const preferences=drawingPreferences.getState().value,preset=preferences.lastStyles?.[tool.toolId]??preferences.defaults[tool.toolId];createDrawing({name:tool.overlayName,groupId:'drawing_tools',styles:preset?.styles,extendData:preset?.parameters?{drawingParameters:preset.parameters}:undefined})},cancel:cancelDrawing,
     owner:value=>props.drawingOwner?.(value.overlay)??'local',
@@ -1214,8 +1289,9 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     if (widget) loader = new EngineDataLoader(widget, props.datafeed, {
       committed:state=>{
         confirmedAlertSeries=state
+        setDrawingAlignmentRevision(state.revision)
         drawingProjectionData=JSON.stringify([state.epoch,state.revision,state.confirmed,state.replay,state.cutoff])
-        if(drawingController.getSelectedIds().length&&handleLayoutFrame===undefined)handleLayoutFrame=requestAnimationFrame(()=>{handleLayoutFrame=undefined;refreshDrawingHandles()})
+        if((drawingController.getSelectedIds().length||untrack(drawingMenu))&&handleLayoutFrame===undefined)handleLayoutFrame=requestAnimationFrame(()=>{handleLayoutFrame=undefined;refreshDrawingHandles()})
         const old=analysis.getContext()?.token;analysis.sync(state)
         setDrawingContextEpoch(state.epoch)
         const analyticsChanged=drawingAnalytics.sync(state,loader?.getConfirmedBars()??[])
@@ -1615,7 +1691,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             onRemoveClick={(groupId) => { for(const id of [...ownedDrawingIds]){const overlay=widget?.getOverlays({id})[0];if(overlay&&(!groupId||overlay.groupId===groupId))widget?.removeOverlay({id})} }}/>
         </Show>
         <Show when={drawingBarVisible()&&workbenchState()}>{state=><DrawingFavorites state={state()} catalog={drawingCatalog} locale={locale()} execute={command=>drawingController.execute(command)}/>}</Show>
-        <Show when={workbenchOpen()&&workbenchState()}>{state=><DrawingWorkbench onAlert={id=>openDrawingAlerts(id)} contextKey={JSON.stringify([drawingContextEpoch(),symbol(),period(),dataState()?.basis,workbenchState()?.sharing?.workspace?.key,workbenchState()?.sharing?.host?.key])} locale={locale()} state={state()} catalog={drawingCatalog} period={period()} periods={props.periods} tickSize={symbol().tickSize} styleValue={resolvedDrawingStyle} rotation={{read:object=>{const points=projectDrawingPoints(object).map(point=>drawingToPixel(point,object));return points.length>1?Math.atan2(points[0].y-points[1].y,points[1].x-points[0].x)*180/Math.PI:0},apply:(object,degrees)=>rotatedDrawing(object,degrees,{bars:widget?.getDataList()??[],period:period(),size:drawingSize,toPixel:drawingToPixel,fromPixel:drawingFromPixel,project:projectDrawingPoints})}} editId={workbenchEditing()} page={workbenchPage()} requestVersion={workbenchRequest()} onDirtyChange={setWorkbenchDirty} axes={object=>widget?.getYAxes({paneId:object.overlay.paneId??'candle_pane'}).map(axis=>({id:axis.id,name:axis.name}))??[]} execute={command=>drawingController.execute(command)} convertAnchor={convertDrawingAnchor} locate={object=>{scrollToDrawing(object);const rendered=widget?.getOverlays({id:object.logicalId})[0];if(rendered)markSelectedOverlay(rendered,false)}} onClose={()=>{setWorkbenchOpen(false);setWorkbenchEditing(undefined);queueMicrotask(()=>(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.querySelector<HTMLButtonElement>('[aria-label="Drawing properties"] button, [aria-label="绘图属性"] button')?.focus())}}/>}</Show>
+        <Show when={workbenchOpen()&&workbenchState()}>{state=><DrawingWorkbench translationContext={String(drawingAlignmentRevision())} onAlert={id=>openDrawingAlerts(id)} contextKey={JSON.stringify([drawingContextEpoch(),symbol(),period(),dataState()?.basis,workbenchState()?.sharing?.workspace?.key,workbenchState()?.sharing?.host?.key])} locale={locale()} state={state()} catalog={drawingCatalog} period={period()} periods={props.periods} tickSize={symbol().tickSize} styleValue={resolvedDrawingStyle} rotation={{read:object=>{const points=projectDrawingPoints(object).map(point=>drawingToPixel(point,object));return points.length>1?Math.atan2(points[0].y-points[1].y,points[1].x-points[0].x)*180/Math.PI:0},apply:(object,degrees)=>rotatedDrawing(object,degrees,{bars:widget?.getDataList()??[],period:period(),size:drawingSize,toPixel:drawingToPixel,fromPixel:drawingFromPixel,project:projectDrawingPoints})}} editId={workbenchEditing()} page={workbenchPage()} requestVersion={workbenchRequest()} onDirtyChange={setWorkbenchDirty} axes={object=>widget?.getYAxes({paneId:object.overlay.paneId??'candle_pane'}).map(axis=>({id:axis.id,name:axis.name}))??[]} execute={command=>drawingController.execute(command)} convertAnchor={convertDrawingAnchor} locate={object=>{scrollToDrawing(object);const rendered=widget?.getOverlays({id:object.logicalId})[0];if(rendered)markSelectedOverlay(rendered,false)}} onClose={()=>{setWorkbenchOpen(false);setWorkbenchEditing(undefined);queueMicrotask(()=>(widgetRef as HTMLDivElement|undefined)?.closest('.klinecharts-pro-content')?.querySelector<HTMLButtonElement>('[aria-label="Drawing properties"] button, [aria-label="绘图属性"] button')?.focus())}}/>}</Show>
         <div
           ref={widgetRef}
           class='klinecharts-pro-widget'
@@ -1624,12 +1700,13 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         <DrawingHandles locale={locale()} handles={drawingHandles()} suspended={temporaryPan()||!!workbenchState()?.toolId} start={startDrawingHandle} move={moveDrawingHandle} end={endDrawingHandle} nudge={nudgeDrawingHandle}/>
         <DrawingAxisLabels labels={drawingAxisLabels()}/>
         <Show when={selectionBox()}>{box=><div class="tc-drawing-box" style={{left:`${box().x}px`,top:`${box().y}px`,width:`${box().width}px`,height:`${box().height}px`}}/>}</Show>
-        <Show when={drawingMenu()}>{menu=><DrawingContextMenu x={menu().x} y={menu().y} label={locale()==='en-US'?'Drawing actions':'绘图操作'} close={()=>setDrawingMenu(undefined)} items={[
-          {label:locale()==='en-US'?'Copy':'复制',run:()=>void drawingController.execute({type:'copy',ids:drawingController.getSelectedIds()})},
+        <Show when={drawingMenu()}>{menu=><DrawingContextMenu x={menu().x} y={menu().y} label={locale()==='en-US'?'Drawing actions':'绘图操作'} close={()=>setDrawingMenu(undefined)} candidates={overlapCandidates()} candidateLabel={locale()==='en-US'?'Select objects here':'选择此处对象'} choose={chooseOverlap} items={[
+          {label:locale()==='en-US'?'Add / edit text':'添加／编辑文字',disabled:menu().targetIds.length!==1||!drawingCatalog.find(tool=>tool.overlayName===drawingCoordinator.getDrawing(menu().targetIds[0])?.overlay.name)?.textMode,run:()=>{const id=menu().targetIds[0],overlay=widget?.getOverlays({id})[0];if(overlay)promptTextOverlay(overlay,false)}},
+          {label:locale()==='en-US'?'Copy':'复制',run:()=>void drawingController.execute({type:'copy',ids:menu().targetIds})},
           {label:locale()==='en-US'?'Paste':'粘贴',run:()=>void drawingController.execute({type:'paste'})},
-          {label:locale()==='en-US'?'Duplicate':'克隆',run:()=>void drawingController.execute({type:'duplicate',ids:drawingController.getSelectedIds()})},
-          {label:locale()==='en-US'?'Settings':'设置',run:()=>{setWorkbenchPage('settings');setWorkbenchEditing(drawingController.getSelectedIds()[0]);setWorkbenchRequest(value=>value+1);setWorkbenchOpen(true)}},
-          {label:locale()==='en-US'?'Delete':'删除',run:deleteSelectedDrawing},
+          {label:locale()==='en-US'?'Duplicate':'克隆',run:()=>void drawingController.execute({type:'duplicate',ids:menu().targetIds})},
+          {label:locale()==='en-US'?'Settings':'设置',run:()=>{setWorkbenchPage('settings');setWorkbenchEditing(menu().targetIds[0]);setWorkbenchRequest(value=>value+1);setWorkbenchOpen(true)}},
+          {label:locale()==='en-US'?'Delete':'删除',run:()=>void drawingController.execute({type:'delete',ids:menu().targetIds})},
           {label:locale()==='en-US'?'Clear selection':'清空选择',run:()=>void drawingController.execute({type:'select',ids:[]})}
         ]}/>}</Show>
         <Show when={textEditor()}>{editor=><DrawingTextEditor locale={locale()} value={editor().text} onConfirm={value=>finishText(value)} onCancel={()=>finishText(null)}/>}</Show>
@@ -1642,6 +1719,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           controls={selectedPropertyControls()}
           catalog={drawingCatalog}
           handles={drawingHandles()}
+          obstacles={propertyTextObstacles()}
           values={selectedPropertyValues()}
           reason={workbenchDirty()?(locale()==='en-US'?'Confirm or cancel the open settings draft first':'请先确认或取消尚未提交的设置草稿'):selectionWriteReason(workbenchState(),selectedPropertyDrawings(),value=>editable(value.overlay),false,locale())}
           lockReason={workbenchDirty()?(locale()==='en-US'?'Confirm or cancel the settings draft first':'请先确认或取消设置草稿'):selectionWriteReason(workbenchState(),selectedPropertyDrawings(),value=>editable(value.overlay),true,locale())}

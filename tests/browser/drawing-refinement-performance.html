@@ -1,14 +1,15 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><body style="margin:0"><p>首次批量操作：隔离合成行情；使用真实图表、原确认链和原生 IndexedDB。</p><div id="charts" style="width:1200px"></div><script type="module">
 import {KLineChartPro,ChartWorkspace,createIndexedDBWorkspaceStore} from '/src/chart.ts'
 import {makeBars} from './syntheticBars.ts'
+import {assertVolumeTotals} from './volumeOracle.ts'
 const frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
 const host=document.querySelector('#charts'),period={multiplier:1,timespan:'minute',text:'1m'},symbol={ticker:'SYNTHETIC.X',pricePrecision:4,market:'test',exchange:'X',priceCurrency:'USD'}
-let charts=[],workspace,store,database,bars=[],subscriptions=0,metrics={create:0,update:0,delete:0,history:0}
+let charts=[],workspace,store,database,bars=[],quote,labelTotals,confirmedUpdates=0,confirmedTimestamp,subscriptions=0,metrics={create:0,update:0,delete:0,history:0}
 const id=index=>'bench-'+String(index).padStart(4,'0')
-const indicatorsReady=async pro=>{const deadline=performance.now()+10000;while(!['MA','VOL','MACD'].every(name=>pro.getChart().getIndicators({name})[0]?.result.length===bars.length)){if(performance.now()>deadline)throw Error('指标尚未完成');await new Promise(r=>setTimeout(r,1))}}
+const indicatorsReady=async(pro,expectedMA)=>{const deadline=performance.now()+10000;while(true){const chart=pro.getChart(),ma=chart.getIndicators({name:'MA'})[0];if(['MA','VOL','MACD'].every(name=>chart.getIndicators({name})[0]?.result.length===bars.length)&&(expectedMA===undefined||Math.abs((ma.result.at(-1).ma1??ma.result.at(-1).ma5)-expectedMA)<1e-9))return;if(performance.now()>deadline)throw Error('指标尚未完成');await new Promise(r=>setTimeout(r,1))}}
 function create(container,cell={symbol,period}){
  let resolve;const loaded=new Promise(r=>resolve=r)
- const pro=new KLineChartPro({container,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:['VOL','MACD'],onOverlayCreate:()=>metrics.create++,onOverlayUpdate:()=>metrics.update++,onOverlayDelete:()=>metrics.delete++,onDrawingHistoryChange:()=>metrics.history++,onDataReady:()=>resolve(),datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,q)=>({bars:q.kind==='before'?bars.filter(b=>b.timestamp<q.before):bars.filter(b=>b.timestamp>=q.from&&b.timestamp<q.to),basis:'isolated-unadjusted',hasMoreBefore:false}),subscribe:()=>subscriptions++,unsubscribe:()=>subscriptions--}})
+ const pro=new KLineChartPro({container,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:['VOL','MACD'],onOverlayCreate:()=>metrics.create++,onOverlayUpdate:()=>metrics.update++,onOverlayDelete:()=>metrics.delete++,onDrawingHistoryChange:()=>metrics.history++,onDataReady:()=>resolve(),onDataState:state=>{if(state.dataStatus==='ready'&&!state.restoring&&!state.error){confirmedUpdates++;confirmedTimestamp=state.timestamp}},datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,q)=>({bars:q.kind==='before'?bars.filter(b=>b.timestamp<q.before):bars.filter(b=>b.timestamp>=q.from&&b.timestamp<q.to),basis:'isolated-unadjusted',hasMoreBefore:false}),subscribe:(_s,_p,callback)=>{subscriptions++;quote=callback},unsubscribe:()=>{subscriptions--;quote=undefined}}})
  charts=[pro];return {ready:loaded.then(()=>indicatorsReady(pro)).then(()=>pro),dispose:()=>pro.dispose()}
 }
 function objects(pro,n){
@@ -22,7 +23,7 @@ function objects(pro,n){
 }
 function volumeObjects(){return ['anchoredVwap','fixedRangeVolumeProfile'].map((name,index)=>{const anchors=[bars[0],...(index?[bars.at(-1)]:[])].map(b=>({kind:'market',timestamp:b.timestamp,value:b.close}));return {logicalId:`volume-${index}`,owner:'local',anchors,presentation:{name:index?'量价区间':'量价起点'},parameters:index?{rows:192,valueArea:.7,mode:'total',algorithm:'bar-range-uniform-v1'}:{source:'hlc3',algorithm:'bar-price-volume-v1'},overlay:{id:`volume-${index}`,name,paneId:'candle_pane',groupId:'drawing_tools',points:anchors.map(a=>({timestamp:a.timestamp,value:a.value})),styles:null,extendData:null,visible:true,lock:false}}})}
 window.drawingBench={get charts(){return charts},get workspace(){return workspace},get metrics(){return {...metrics}},frame,async mount({count,n=1000,volume=true,restoreUI=false}){
- if(charts.length||workspace)throw Error('前一轮尚未释放');bars=makeBars(count);metrics={create:0,update:0,delete:0,history:0}
+ if(charts.length||workspace)throw Error('前一轮尚未释放');bars=makeBars(count);confirmedUpdates=0;confirmedTimestamp=undefined;metrics={create:0,update:0,delete:0,history:0}
  const started=performance.now(),container=document.createElement('div');container.style.height='760px';host.append(container)
  if(restoreUI){database='tc-refinement-'+crypto.randomUUID();store=createIndexedDBWorkspaceStore({databaseName:database});workspace=new ChartWorkspace({container,context:'refinement-local',symbols:[symbol],initialSymbol:symbol,initialPeriod:period,getPeriods:async()=>[period],store,mountCell:create})}
  else{const mounted=create(container);await mounted.ready}
@@ -36,5 +37,43 @@ window.drawingBench={get charts(){return charts},get workspace(){return workspac
  if(database){const name=database;database=undefined;await new Promise((resolve,reject)=>{const request=indexedDB.deleteDatabase(name);request.onsuccess=resolve;request.onerror=()=>reject(request.error);request.onblocked=()=>reject(Error('自有 IndexedDB 尚未关闭'))})}
  return {subscriptions,dom:host.querySelectorAll('*').length}
  }}
+// The new sampler reuses this exact workload and confirmation path.
+Object.assign(window.drawingBench,{
+ async configure({labels=0,overlap=false,interior=false}){
+  const pro=charts[0],chart=pro.getChart(),source=pro.getDrawings(),axis=chart.getYAxes({paneId:'candle_pane'})[0],size=chart.getSize('candle_pane','main'),range=chart.getVisibleRange(),at=Math.max(2,Math.min(bars.length-3,Math.floor((range.realFrom+range.realTo)/2))),value=axis.convertFromPixel(size.height*.5)
+  let objects=source.map((drawing,index)=>{
+   if(overlap){const anchors=[{kind:'market',timestamp:bars[at].timestamp,value}];return {...drawing,anchors,presentation:{name:'重叠 '+index,order:index},parameters:undefined,overlay:{...drawing.overlay,name:'horizontalStraightLine',points:anchors.map(a=>({timestamp:a.timestamp,value:a.value})),extendData:null}}}
+   let anchors=drawing.anchors.map(anchor=>{const old=bars.findIndex(bar=>bar.timestamp===anchor.timestamp),next=interior?Math.max(2,Math.min(bars.length-3,old)):old;return {...anchor,timestamp:bars[next].timestamp}})
+   // Keep the original 1000 ordinary + AVWAP + FRVP types and point counts.
+   if(interior&&drawing.overlay.name==='fixedRangeVolumeProfile')anchors=[{...anchors[0],timestamp:bars[2].timestamp},{...anchors[1],timestamp:bars[bars.length-3].timestamp}]
+   if(index<100){anchors=anchors.map((anchor,j)=>({...anchor,timestamp:bars[at+j*2].timestamp,value:value+(index%10-5)*.0001+j*.0001}));return {...drawing,anchors,parameters:{...drawing.parameters,labelVisible:index<labels},overlay:{...drawing.overlay,name:'segment',points:anchors.map(a=>({timestamp:a.timestamp,value:a.value})),extendData:'附着文字 '+index}}}
+   return {...drawing,anchors,overlay:{...drawing.overlay,points:anchors.map(a=>({timestamp:a.timestamp,value:a.value}))}}
+  })
+  pro.restoreDrawings('local',objects);await pro.executeDrawingCommand({type:'select',ids:[]});await frame()
+  labelTotals=bars.reduce((total,bar)=>({volume:total.volume+bar.volume,amount:total.amount+(bar.high+bar.low+bar.close)/3*bar.volume}),{volume:0,amount:0})
+  const labelIds=new Set()
+  const originals=[]
+  for(const overlay of chart.getOverlays()){
+   const draw=overlay.createPointFigures;originals.push([overlay,draw]);overlay.createPointFigures=args=>{const figures=draw(args);if(figures.some(figure=>figure.key==='attached-text'&&[figure.attrs].flat().some(attrs=>attrs.x>=0&&attrs.x<=size.width&&attrs.y>=0&&attrs.y<=size.height)))labelIds.add(overlay.id);return figures}
+  }
+  chart.resize();await frame();for(const [overlay,draw]of originals)overlay.createPointFigures=draw
+  if(labelIds.size!==labels||objects.slice(0,labels).some(drawing=>!labelIds.has(drawing.logicalId)))throw Error('必须由100个不同对象在真实可见区域绘制标签')
+  const pane=chart.getDom('candle_pane','main').getBoundingClientRect(),pixel=chart.convertToPixel({timestamp:bars[at].timestamp,value},{paneId:'candle_pane'})
+  return {objects:objects.length,labelFigures:labelIds.size,labelIds:[...labelIds],point:{x:pane.x+size.width*.75,y:pane.y+pixel.y}}
+ },async updateLabels(){
+  const pro=charts[0],chart=pro.getChart(),previous=confirmedUpdates,token=pro.getAnalysisContext().token,last=bars.at(-1),next={...last,close:last.close+.00001,high:Math.max(last.high,last.close+.00001),volume:last.volume+1};bars[bars.length-1]=next
+  const maPeriod=chart.getIndicators({name:'MA'})[0]?.calcParams[0];if(!Number.isSafeInteger(maPeriod)||maPeriod<1)throw Error('MA真实参数不可用')
+  const expectedMA=bars.slice(-maPeriod).reduce((total,bar)=>total+bar.close,0)/maPeriod
+  const start=performance.now();quote({...next});await frame();await indicatorsReady(pro,expectedMA)
+  if(confirmedUpdates<=previous||confirmedTimestamp!==next.timestamp||pro.getAnalysisContext().token!==token||chart.getDataList().at(-1).close!==next.close)throw Error('同bar更新未确认')
+  if(chart.getOverlays().length!==1002||pro.getDrawingHistoryState().pending)throw Error('完整对象或历史尚未就绪')
+  const analytics=pro.getDrawingState().analytics
+  if(['volume-0','volume-1'].some(id=>analytics[id]?.status!=='ready'))throw Error('量价指标尚未完成')
+  labelTotals.volume++;labelTotals.amount+=(next.high+next.low+next.close)/3*next.volume-(last.high+last.low+last.close)/3*last.volume
+  const expected={volume:labelTotals.volume,vwap:labelTotals.amount/labelTotals.volume,count:bars.length},actual={vwap:analytics['volume-0'].summary.vwap,volume:analytics['volume-0'].summary.volume,profileVolume:analytics['volume-1'].summary.volume,count:analytics['volume-0'].count,profileCount:analytics['volume-1'].count}
+  assertVolumeTotals(actual,expected)
+  return {latency:performance.now()-start,count:chart.getDataList().length,confirmation:confirmedUpdates,contextToken:token,ma:chart.getIndicators({name:'MA'})[0].result.at(-1),expectedMA,analytics:{avwap:actual.count,profile:actual.profileCount},actual,expected}
+ }
+})
 window.ready=true
 </script></body></html>

@@ -6,7 +6,7 @@ The drawing API uses `getDrawingTools()`, `getDrawingState()` and `executeDrawin
 
 Cancelled previews do not submit. Local content is confirmed by the library; backend content keeps the existing drawingOwner/commitDrawing authority. Document names, groups, ordering and interval filters do not issue annotation CRUD. Global hide and drag prevention are view masks and do not overwrite individual visible/lock values.
 
-UI and programmatic actions use the same commands: tool, select, cancel, update, delete, duplicate, copy, paste, group, ungroup, reorder, presentation, view, undo and redo. Batches preflight every target and serialize backend writes. Check result status and per-object items; partial or uncertain is never full success. Reconcile unknown results by the original logical ID without automatically repeating creates.
+UI and programmatic actions use the same commands: tool, select, cancel, update, move, translate, delete, duplicate, copy, paste, group, ungroup, reorder, presentation, view, undo and redo. Batches preflight every target and serialize backend writes. Check result status and per-object items; partial or uncertain is never full success. Reconcile unknown results by the original logical ID without automatically repeating creates.
 
 State scope selects the scope for new tools; historyScope identifies the current history target. Selection determines the writer, and cross-session content batches are rejected. Notifications distinguish user/history/projection origin; projection does not submit business writes. Text inputs retain native undo.
 
@@ -46,7 +46,7 @@ Use scope for new tools, transfer for existing objects, and shared to save/refre
 
 DrawingPreferencesStore read/write accept AbortSignal and an opaque drawingPreferencesScope. Defaults are session memory; explicitly provide createIndexedDBDrawingPreferencesStore for persistence. Late reads merge session changes without erasing unseen templates. Read failures retain session changes and never overwrite an unread record.
 
-Templates hold tool styles and parameters, excluding points, text body, identities, backend IDs and scopes. Template commands save, overwrite, rename, delete, apply or set a default. Applying across tool types requires explicit common-style mode. Catalog validation protects parameters, and snapshot.parameters remains authoritative; derived engine extendData parameters are not stored as a second content source.
+Templates, defaults and recent styles hold only tool styles and parameters, excluding points, text body, identities, backend IDs and scopes. Template commands save, overwrite, rename, delete, apply or set a default. Applying across tool types requires explicit common-style mode. Catalog validation protects parameters, and snapshot.parameters remains authoritative; derived engine extendData parameters are not stored as a second content source.
 
 ## Drawing and precision editing
 
@@ -133,3 +133,41 @@ Select a source in properties or Drawing manager, then Add alert; Drawing alerts
 Curve settings add none/arrow/circle start/end markers, a background switch and finite[0,1] opacity. Fill closes the curve with its endpoint chord, using standard polygon.color or the actual stroke by default. It ignores hits; markers add no control points. Old definitions remain off. Display changes do not alter curvature or original subdivision bounds. Full parameter templates remain same-tool; explicit cross-tool common styles keep the existing capability intersection.
 
 See [0.13 migration](./upgrade/0.13.0.md) for separate documents, stable scopes, paused restoration, confirmed data, live/replay isolation and the native IndexedDB composition example.
+
+## 0.14 attached text and dense editing {#drawing-expressiveness}
+
+This section describes the local upgrade contract while validation is in progress. See [0.14 migration](./upgrade/0.14.0.md) for migration boundaries. The catalog remains 56 tools and document versions stay unchanged. This is not an npm-publication or performance-pass announcement.
+
+### Attached text
+
+`horizontalStraightLine`, `straightLine`, `segment`, `rayLine`, `parallelStraightLine` and `priceChannelLine` declare `textMode:'attached', labelGeometry:'line'`; `rect` declares `labelGeometry:'box'`. `textAnnotation`, `callout`, `note` and `anchoredText` retain `textMode:'body'`. Other built-ins do not gain attached text.
+
+Select an eligible drawing and use Add / edit text in its context menu, double-click editing, or the Drawing manager text settings. Attached tools do not open a text prompt after every drawing. On the first body input, the UI confirms text and visibility together. An API `patch.text` changes only the body: include `parameters:{labelVisible:true}` explicitly to show it. Empty bodies draw no label. Cancelling drafts submits nothing; IME, Ctrl/Cmd+Enter confirmation and Escape use the original editor.
+
+| Parameter | Default and options |
+| --- | --- |
+| `labelVisible` | `false`; attached text visibility |
+| `labelAlign` | `center`; `left/center/right` |
+| `labelPosition` | `above`; `above/on/below` |
+
+The only body is the original `overlay.extendData` string or a plain object's `text` field. Editing preserves the object's other metadata. Arrays and other primitive content are rejected without converting or discarding the original. Text uses standard `overlay.styles.text`; label coordinates are not persisted. Lines use the complete visible path of the first valid reference line in original figure order, ordered by screen x or by y for vertical segments. Boxes use the first actual rectangle boundary. Above/below uses an 8 CSS px gap; on centers the text. Multiline rendering and hits share geometry. Long text clips to the pane and reprojects after movement, zoom and axis changes without enlarging the price range.
+
+Visibility, alignment and position may enter same-tool templates, defaults and recent styles; bodies do not. Object copy/paste preserves text and creates new IDs. Text edits do not change anchors or drawing-alert comparison points; moving geometry still resets comparisons through the original alert path.
+
+Third-party descriptors explicitly declare `textMode`. Attached mode also requires `labelGeometry` and corresponding standard line, rect or rectangular polygon figures. The library adds the same parameters and editing controls. Omission does not infer attached capabilities from a category or name. Ownership, confirmation and sharing restrictions still apply.
+
+### Selecting overlapping drawings
+
+Right-click or touch-and-hold at a hit location, then open Select objects here (N). Candidates follow native zLevel from high to low, with original event routing order for ties. Name, tool, scope and opaque logicalId distinguish identical names. Only confirmed, visible, period-eligible drawings with a current projection in that pane appear. Host-managed disabled entries explain why; locked objects retain the original select policy.
+
+All candidate IDs remain available while only visible rows and overscan mount, at most 60 rows. ArrowUp/Down and Home/End reach the complete list; Enter selects and Escape closes while preserving the previous selection. Closing restores focus. Open lists recheck hiding, deletion, ordering and scope changes; context switches or chart disposal cancel them. Choosing or cancelling changes selection only, without drawing-content or backend annotation writes.
+
+### Translation by bars, price or ticks
+
+Select objects in Drawing manager, open Precise translation, enter signed bars or price displacement and select Price value or Tick. Empty input is not zero. Bars and tick counts must be safe integers; price values must be finite. Tick requires an explicit finite positive `SymbolInfo.tickSize`, never inferred from display precision or market names. Existing dragging and `move(dx,dy)` retain pixel units.
+
+`anchoredText` does not support this entry. `anchoredVwap`, `fixedRangeVolumeProfile`, `regressionTrend` and `regressionChannel` support bars only; the other 51 built-ins declare both bars and price. Third-party tools must explicitly declare `numericMove:{bars:boolean,price:boolean}`; omission means false for both. Each object also needs currently resolvable market anchors in one writable document/scope, pane and effective price axis. Logical/viewport anchors retain existing move controls. Mixed targets are never split automatically.
+
+Bars move through actual loaded bar indices while preserving fractional positions between bars, including lunch breaks, weekends and sparse data. Out-of-range targets, missing neighbours or unresolved references reject the entire preflight without fabricating future timestamps. Price-only movement preserves the original time anchor completely. Price multiplication/addition uses a separate 50-digit Decimal configuration followed by one Number conversion, without display-precision rounding. Nonfinite results, nonpositive log values and invalid geometry reject.
+
+Translation follows existing whole-batch preflight, per-object permission/context guards, serial confirmation and history. A time-structure or binding change after queuing/yielding cancels the old operation. Confirmed prefixes remain; unattempted items are explicit. Check `status` and each `items` result. Partial/uncertain is not success, and unknown writes are not automatically retried. All-zero requests write no content/history; a successful batch is one undo/redo transaction.

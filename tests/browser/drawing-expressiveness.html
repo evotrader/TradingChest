@@ -1,0 +1,18 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="margin:0"><p>隔离合成行情与提交替身；本页不代表真实后端验收。</p><div id="chart" style="width:1100px;height:700px"></div><script type="module">
+import {KLineChartPro,builtinDrawingCatalog,createIndexedDBDrawingPreferencesStore} from '/src/chart.ts'
+import {registerOverlay} from 'klinecharts'
+import {makeBars} from './syntheticBars.ts'
+const line=builtinDrawingCatalog.find(tool=>tool.toolId==='segment'),box=builtinDrawingCatalog.find(tool=>tool.toolId==='rect')
+registerOverlay({name:'HostLine',totalStep:3,createPointFigures:({coordinates})=>coordinates.length<2?[]:[{type:'line',attrs:{coordinates}}]})
+registerOverlay({name:'HostBox',totalStep:3,createPointFigures:({coordinates})=>coordinates.length<2?[]:[{type:'rect',attrs:{x:Math.min(coordinates[0].x,coordinates[1].x),y:Math.min(coordinates[0].y,coordinates[1].y),width:Math.abs(coordinates[1].x-coordinates[0].x),height:Math.abs(coordinates[1].y-coordinates[0].y)},styles:{style:'stroke_fill',color:'#2196f322'}}]})
+registerOverlay({name:'HostNoText',totalStep:3,createPointFigures:({coordinates})=>coordinates.length<2?[]:[{type:'line',attrs:{coordinates}}]})
+const catalog=[...builtinDrawingCatalog,{...line,toolId:'hostLine',overlayName:'HostLine',labels:{'zh-CN':'宿主线','en-US':'Host line'},icon:'segment',shortcut:undefined,parameters:[]},{...box,toolId:'hostBox',overlayName:'HostBox',labels:{'zh-CN':'宿主矩形','en-US':'Host box'},icon:'rect',shortcut:undefined,parameters:[]},{...line,toolId:'hostNoText',overlayName:'HostNoText',labels:{'zh-CN':'无文字能力','en-US':'No text capability'},textMode:undefined,labelGeometry:undefined,numericMove:undefined,styleControls:['stroke','lineWidth','lineStyle'],settings:['style','coordinates'],icon:'segment',shortcut:undefined,parameters:[]}]
+window.fixtureBars=makeBars(2000);window.commits=[];window.ownerMode='local';window.mode='confirmed';window.subscriptions=0
+const database='tc-expressiveness-'+crypto.randomUUID(),store=createIndexedDBDrawingPreferencesStore({databaseName:database})
+window.pro=new KLineChartPro({container:document.querySelector('#chart'),symbol:{ticker:'TEST.X',market:'test',exchange:'X',priceCurrency:'USD',pricePrecision:2,tickSize:.25},period:{multiplier:1,timespan:'minute',text:'1m'},mainIndicators:['MA'],subIndicators:['VOL'],drawingCatalog:catalog,drawingPreferencesStore:store,drawingPreferencesScope:'expressiveness',drawingOwner:()=>ownerMode,onDataReady:()=>window.ready=true,commitDrawing:async change=>{
+ commits.push(structuredClone(change));if(mode==='rejected')return {status:'rejected',message:'隔离提交替身拒绝'};if(mode==='uncertain')return {status:'uncertain',message:'隔离提交替身结果未知'}
+ return {status:'confirmed',snapshot:change.after?{...change.after,backendId:change.before?.backendId??'backend-'+change.logicalId}:null}
+},datafeed:{searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,q)=>({bars:q.kind==='before'?fixtureBars.filter(bar=>bar.timestamp<q.before):fixtureBars.filter(bar=>bar.timestamp>=q.from&&bar.timestamp<q.to),basis:'isolated-raw',hasMoreBefore:false}),subscribe:()=>subscriptions++,unsubscribe:()=>subscriptions--}})
+window.frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
+window.destroy=async()=>{pro.dispose();store.dispose();await frame();await new Promise((resolve,reject)=>{const request=indexedDB.deleteDatabase(database);request.onsuccess=resolve;request.onerror=()=>reject(request.error);request.onblocked=()=>reject(Error('自有存储尚未关闭'))});return {subscriptions,dom:document.querySelector('#chart').querySelectorAll('*').length}}
+</script></body></html>

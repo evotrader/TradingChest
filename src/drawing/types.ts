@@ -48,6 +48,7 @@ export type DrawingCommand=
   | {type:'cancel'}
   | {type:'finish'}
   | {type:'move';ids:string[];dx:number;dy:number;clone?:boolean}
+  | {type:'translate';ids:string[];bars?:number;price?:{unit:'price'|'tick';amount:number}}
   | {type:'scope';scope:DrawingScope}
   | {type:'transfer';ids:string[];scope:DrawingScope}
   | {type:'recover-transfer';id:string;scope:DrawingScope}

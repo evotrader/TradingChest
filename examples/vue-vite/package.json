@@ -7,7 +7,7 @@
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
-    "trading-chest": "file:../trading-chest-0.13.0.tgz",
+    "trading-chest": "file:../trading-chest-0.14.0.tgz",
     "klinecharts": "10.1.0",
     "vue": "3.5.22"
   },

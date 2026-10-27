@@ -1,7 +1,8 @@
 import {builtinDrawingCatalog,KLineChartPro,DrawingStoreError,ChartWorkspace,DrawingSessionRegistry,createIndexedDBDrawingDocumentStore,createIndexedDBDrawingPreferencesStore,createIndexedDBWorkspaceStore,drawingShareKey} from 'trading-chest/chart'
 import 'trading-chest/dist/trading-chest.css'
 import {analysisZoneDescriptor} from './analysis-zone.mjs'
-const drawingCatalog=[...builtinDrawingCatalog,analysisZoneDescriptor]
+import {attachedTools} from './attached-tools.mjs'
+const drawingCatalog=[...builtinDrawingCatalog,analysisZoneDescriptor,...attachedTools]
 import {createHTTPDrawingStore} from './http-store.mjs'
 
 // Deterministic synthetic inputs are confined to this isolated public-package example.

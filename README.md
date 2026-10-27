@@ -15,6 +15,10 @@
   <img src="docs/public/image.png" alt="TradingChest Screenshot" width="800" />
 </p>
 
+## 0.14.0 local upgrade in validation
+
+Seven existing line/channel/rectangle tools gain attached text. A stable-ID overlap picker and explicit bar/price/tick translation support dense drawing edits; third-party tools declare the same capabilities. Text, changes and persistence use the existing confirmation and undo paths. The catalog stays at 56 tools, KLineCharts at 10.1.0, and document schemas remain unchanged. See [0.14 migration](docs/en-US/upgrade/0.14.0.md) and [drawing usage](docs/en-US/drawings.md#drawing-expressiveness). Acceptance is still in progress; this is not a performance-pass or npm-publication announcement. The pinned installation below remains the published stable version.
+
 ## 0.13.0 local candidate
 
 Drawing alerts add observed-close crossings for four confirmed chart-local line tools, separate live/replay state, portable documents and a DOM-free `trading-chest/alerts` evaluator. Curves add endpoint markers and chord-closed backgrounds. Rules are in memory by default; layout-only saves do not include alerts, and closing the page stops monitoring. See [0.13 migration](docs/en-US/upgrade/0.13.0.md). This is a local candidate; the pinned npm installation below remains the published stable version until a separate release.
@@ -74,6 +78,8 @@ This describes the 0.9.0 source contract. Local source/tarball validation does n
 
 - Hover tooltip on all tools
 - Text tools support inline editing + right-click edit
+- Seven line/channel/rectangle tools support optional attached text; templates retain styles and parameters without copying the body
+- Right-click or touch-and-hold selects overlapping drawings; the drawing manager translates eligible objects by real loaded bars, price values or explicit ticks
 - **Floating property toolbar on selected drawing** (TradingView-style):
   - 9×8 color palette (72 colors)
   - Line width selector (1–4px visual preview)

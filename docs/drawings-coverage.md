@@ -80,6 +80,9 @@
 | U13 | 失败/部分/未知/慢提交 | history / session / drawing backend stage |
 | U14 | 320px/单双四图/DPR/边界 | drawing-touch / drawing-sharing / drawing-performance |
 | U15 | 键盘/焦点/触屏菜单 | drawing-input-audit / drawing-touch |
+| U16 | 七工具附着文字/元数据/模板正文边界 | drawing-expressiveness（0.14 验收中） |
+| U17 | 重叠完整候选/虚拟行/键盘/选择零内容写 | drawing-expressiveness（0.14 验收中） |
+| U18 | 真实根数/价格/tick平移及确认边界 | numericMove / drawing-expressiveness（0.14 验收中） |
 
 ## 明确差距
 
@@ -113,3 +116,17 @@ TradingChest 共享限于已确认价格身份的本地主图市场锚点，后�
 本地证人包含`drawing-refinement`、`drawing-curves`和安装版`drawing-comparison`／第三方示例。正式完成状态及失败记录以本轮实施SUMMARY为准；入口存在不代表全部验收通过。
 
 0.13 首批画线提醒只覆盖水平线、直线、有限线段和有向射线，基于已观测 close；不等同 TradingView 网站全部技术提醒，也不提供后台服务。仅本图、主价格轴 market 锚点；backend 只读原确认来源。曲线端点及闭合背景不改变定义。具体边界见[0.13说明](./upgrade/0.13.0.md)。
+
+## 0.14 表达与密集编辑边界
+
+0.14 本地升级仍在验收，以上新增验证入口不等于已经全部通过。目录保持 56 项；本轮不增加 TradingView 在线操作、算法等价或耗时对比结论。
+
+| 任务 | 本地契约与边界 |
+| --- | --- |
+| 给既有图形加文字 | 水平线、直线、趋势线、射线、平行直线、价格通道及矩形共七种；前六种 line、矩形 box。四种正文工具保持 body，其它内置工具不新增标签 |
+| 重叠对象选择 | 当前 pane 的可见、周期允许、已确认且可投影命中；保完整稳定 ID 候选，按原生 zLevel 排序，最多挂载 60 行，键盘可到达全部对象；选择／取消不写内容 |
+| 数值平移 | 同一可写文档／scope、pane、有效价格轴及可解析 market 锚点；按真实已加载 bar 保分数位置，或明确价格／正 tickSize，不能制造未来时标 |
+| 工具能力差异 | anchoredText 禁用数值平移；AVWAP、FRVP 和两个回归工具只许根数，其余 51 项允许根数及价格。第三方省略 numericMove 两项即 false，不按类别猜测 |
+| 保存与模板 | 原 v4／v2／shared v1；正文仅 extendData，模板／默认／最近只传样式和参数，复制对象才保正文并生成新 ID |
+
+标签样式／正文不改提醒几何或比较点；移动图形沿原提醒来源处理。新能力不增加账户、数量、杠杆、订单或后台服务。恢复及行情计算的性能结论须依据完整本轮样本；功能说明不代表性能达标。使用与迁移见 [0.14 说明](./upgrade/0.14.0.md)。

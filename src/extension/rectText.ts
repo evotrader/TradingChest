@@ -1,7 +1,7 @@
 import {type FigureTemplate,type TextAttrs,type TextStyle,getFigureClass,utils} from 'klinecharts'
 
 /** Multi-line bounds use the same measured font, padding and alignment as native text. */
-export function multilineTextLayout(attrs:TextAttrs,styles:Partial<TextStyle>){
+export function multilineTextLayout(attrs:TextAttrs,styles:Partial<Pick<TextStyle,'size'|'weight'|'family'|'paddingLeft'|'paddingRight'|'paddingTop'|'paddingBottom'>>){
   const lines=String(attrs.text).split(/\r?\n/),size=styles.size??12,lineHeight=size*1.35,left=styles.paddingLeft??0,right=styles.paddingRight??0,top=styles.paddingTop??0,bottom=styles.paddingBottom??0
   const width=attrs.width??Math.max(...lines.map(line=>utils.calcTextWidth(line,size,styles.weight,styles.family)))+left+right,height=attrs.height??lines.length*lineHeight+top+bottom
   const align=attrs.align??'left',baseline=attrs.baseline??'top'

@@ -22,6 +22,8 @@ A restored local logicalId must not already belong to a current or prospective s
 
 ## Shared ownership
 
+Saving a shared draft as a new document, adopting shared layout references or detaching ends the current drawing session and removes uncommitted previews, including pending text and Space-suspended previews. Choose a tool again for the new document. A removed native object's delayed completion cannot create a drawing or advance its successor session.
+
 Sharing accepts local user drawings on the main price pane with market anchors. Backend objects, indicator panes, future logical anchors and viewport anchors remain chart-local. The host implements resolveDrawingShareKey(confirmedContext), returning `{identity, documentId?}` or `{reason}`. Identity requires an opaque namespace, full market/exchange/ticker/priceCurrency and an established priceBasisKey. The library does not parse provider-specific basis, infer currency/ticks or assume raw prices.
 
 ChartWorkspace owns its workspace DrawingSessionRegistry, while charts borrow it through bindDrawingWorkspace. Host sharing requires an explicitly owned DrawingDocumentStore and host registry supplied through drawingHostSessions. Borrowers unsubscribe on disposal; the final owner disposes the registry and then the store. No store owns a feed or opens IndexedDB during SSR.
@@ -177,5 +179,7 @@ Translation follows existing whole-batch preflight, per-object permission/contex
 Local functional, performance and cleanup checks passed; this version is not on npm. The two Fib tools support 1–64 editable rows with custom ratios, visibility, appearance, text and ordering. The complete draft confirms as one edit/undo; cancellation writes nothing. Calculation, reverse, extension, background and label options are explicit. Legacy numeric arrays remain unchanged on read. Text belongs to objects; presets strip row IDs and text.
 
 The picker supports direct favorites and 12 recent tools. The toolbar exposes continuous drawing and matching pre-draw templates. Selecting a template does not edit selected objects, and continuous objects get fresh row IDs and empty text. Snap settings independently select OHLC/visible indicators and 4/8/12/16px weak distances; disabling both shows a clear message without changing existing anchors.
+
+Fib previews and confirmed objects use the same instance catalog defaults and parameter declarations, including continuous drawing and Space restoration. Indicator snapping accepts only valid results actually published by the current calculator. A late success or failure from a replaced calculator invalidates eligibility when its shared result array may have changed; a subsequent valid publication by the current calculator restores snapping.
 
 Third-party descriptors can declare `kind:'level-set'` under any key and use the same editor and public resolver. Omission does not infer capability. Preferences migrate purely from v1 to v2; layout/workspace/shared versions stay unchanged. The old 0.14 reader rejects new level objects while retaining storage. See [0.15 migration](./upgrade/0.15.0.md).

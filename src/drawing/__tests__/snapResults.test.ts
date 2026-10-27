@@ -43,6 +43,30 @@ it('invalidates an aliased result when an old failed calculation mutates it',asy
  shared[0].value=12;jobs[0].reject(Error('Old calculation failed'));expect(await old).toBe(false);expect(s.indicator.result).toEqual([{value:12}]);expect(s.reader.getCurrent(s.indicator)).toBeUndefined()
  const recovered=s.run();shared[0].value=32;jobs[2].resolve(shared);await recovered;expect(s.reader.getCurrent(s.indicator)).toEqual([{value:32}]);s.reader.dispose()
 })
+it.each(['latest-first','old-first'].flatMap(order=>['resolve','reject'].map(completion=>({order,completion}))))('invalidates shared results across calculator replacement: $order / $completion',async({order,completion})=>{
+ const s=setup(),oldJob=deferred(),newJob=deferred(),shared:{value:number}[]=[]
+ s.chart.overrideIndicator({id:s.indicator.id,calc:()=>oldJob.promise});const old=s.run()
+ const replacement=vi.fn(()=>newJob.promise)
+ s.chart.overrideIndicator({id:s.indicator.id,calc:replacement});const latest=s.run()
+ const finishOld=async()=>{shared.splice(0,shared.length,{value:12});if(completion==='resolve')oldJob.resolve(shared);else oldJob.reject(Error('Old calculator failed'));expect(await old).toBe(completion==='resolve')}
+ const finishLatest=async()=>{shared.splice(0,shared.length,{value:22});newJob.resolve(shared);expect(await latest).toBe(true);expect(s.reader.getCurrent(s.indicator)).toBe(shared)}
+ if(order==='latest-first'){await finishLatest();await finishOld();expect(s.reader.getCurrent(s.indicator)).toBeUndefined()}
+ else {await finishOld();expect(s.reader.getCurrent(s.indicator)).toBeUndefined();await finishLatest()}
+ s.chart.overrideIndicator({id:s.indicator.id,calc:()=>{shared.splice(0,shared.length,{value:32});return shared}})
+ await s.run();expect(s.reader.getCurrent(s.indicator)).toBe(shared);expect(shared).toEqual([{value:32}]);s.reader.dispose()
+})
+it('does not authorize a replaced wrapper invoked after its successor was installed',async()=>{
+ const s=setup(),job=deferred(),shared:{value:number}[]=[]
+ s.chart.overrideIndicator({id:s.indicator.id,calc:()=>job.promise});const oldCalc=s.indicator.calc
+ s.chart.overrideIndicator({id:s.indicator.id,calc:()=>{shared.splice(0,shared.length,{value:22});return shared}});await s.run()
+ const late=oldCalc.call(s.indicator,[],s.indicator);shared.splice(0,shared.length,{value:12});job.resolve(shared);s.indicator.result=await late
+ expect(s.reader.getCurrent(s.indicator)).toBeUndefined();await s.run();expect(s.reader.getCurrent(s.indicator)).toEqual([{value:22}]);s.reader.dispose()
+})
+it('accepts a previously observed calculator restored through the native override API',async()=>{
+ const s=setup();await s.run();const saved=s.indicator.calc
+ s.chart.overrideIndicator({id:s.indicator.id,calc:()=>[{value:30}]});await s.run();expect(s.reader.getCurrent(s.indicator)).toEqual([{value:30}])
+ s.chart.overrideIndicator({id:s.indicator.id,calc:saved});await s.run();expect(s.reader.getCurrent(s.indicator)).toEqual([{value:12}]);s.reader.dispose()
+})
 it('observes a replaced native calculator and releases methods and results on disposal',async()=>{
  const s=setup(),calc=vi.fn(function(this:unknown){expect(this).toBe(s.indicator);return [{value:30}]});s.chart.overrideIndicator({id:s.indicator.id,calc});await s.run();expect(s.reader.getCurrent(s.indicator)).toEqual([{value:30}]);s.reader.dispose();expect(s.chart.createIndicator).toBe(s.create);expect(s.chart.overrideIndicator).toBe(s.override);expect(s.indicator.calc).toBe(calc);expect(s.reader.getCurrent(s.indicator)).toBeUndefined()
 })

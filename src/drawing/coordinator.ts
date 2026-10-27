@@ -57,7 +57,7 @@ export class DrawingCoordinator {
   private retainedBindings=new Set<object>()
   private origin:'user'|'history'|'projection'='projection'
   reason='请等待行情与共享价格口径确认'
-  constructor(readonly local:DrawingHistory,private options:{project:(id:string,value:DrawingSnapshot|null)=>void;changed:()=>void;saveAs?:(session:DrawingSession,identity:DrawingSession['identity'])=>Promise<DrawingSession>;owns?:(id:string)=>boolean;validate:(value:DrawingSnapshot)=>void;validateBatch?:(values:DrawingSnapshot[])=>void}){}
+  constructor(readonly local:DrawingHistory,private options:{project:(id:string,value:DrawingSnapshot|null)=>void;changed:()=>void;bindingChanging?:()=>void;saveAs?:(session:DrawingSession,identity:DrawingSession['identity'])=>Promise<DrawingSession>;owns?:(id:string)=>boolean;validate:(value:DrawingSnapshot)=>void;validateBatch?:(values:DrawingSnapshot[])=>void}){}
   bind(workspace?:DrawingSession,host?:DrawingSession):void {
     this.attach(workspace,host,{})
   }
@@ -68,6 +68,7 @@ export class DrawingCoordinator {
     this.project()
   }
   detach(reason='共享上下文正在切换'):void{
+    this.options.bindingChanging?.()
     ++this.bindingEpoch
     this.historyBinding={}
     for(const unsubscribe of this.unsubscribers)unsubscribe();this.unsubscribers=[]

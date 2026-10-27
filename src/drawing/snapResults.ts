@@ -26,17 +26,22 @@ export class DrawingSnapResults {
    if(this.states.get(indicator)?.wrapper===indicator.calc)continue
    const owner=this,delegate=indicator.calc
    const state:ResultState={delegate,wrapper:undefined!,generation:0,pending:true}
+   const invalidate=()=>{
+    state.result=undefined;state.key=undefined
+    // A replaced calculator can still mutate the current publication's array.
+    const current=owner.states.get(indicator);if(current&&current!==state){current.result=undefined;current.key=undefined}
+   }
    const wrapper:Calculation=function(this:Indicator,...args){
     const generation=++state.generation,key=owner.readKey?.();state.pending=true;state.result=undefined;state.key=undefined
     const accept=(result:Indicator['result'])=>{
      if(owner.chart){
-      if(generation===state.generation){state.pending=false;state.result=result;state.key=key}
+      if(generation===state.generation&&owner.states.get(indicator)===state){state.pending=false;state.result=result;state.key=key}
       // An old calculator may mutate the same array the latest one published.
-      else{state.result=undefined;state.key=undefined}
+      else invalidate()
      }
      return result
     }
-    const reject=(error:unknown):never=>{if(generation===state.generation)state.pending=false;state.result=undefined;state.key=undefined;throw error}
+    const reject=(error:unknown):never=>{if(generation===state.generation)state.pending=false;invalidate();throw error}
     try{
      const result=delegate.apply(this,args)
      return result&&typeof (result as Promise<Indicator['result']>).then==='function'?Promise.resolve(result).then(accept,reject):accept(result as Indicator['result'])

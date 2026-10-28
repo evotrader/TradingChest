@@ -424,10 +424,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   const nativeDrawingPreviews = new WeakSet<Overlay>()
   const drawingPreviewBindings = new WeakMap<Overlay,number>()
   const currentDrawingPreview=(overlay:Overlay):boolean=>!disposed&&nativeDrawingPreviews.has(overlay)&&widget?.getOverlays({id:overlay.id})[0]===overlay&&drawingPreviewBindings.get(overlay)===drawingCoordinator.getBindingEpoch()&&(!drawingToolSessions.has(overlay)||drawingToolSessions.get(overlay)===drawingController.getToolSession())
-  const drawingFigureParameters=<T extends object>(args:T,tool:DrawingToolDescriptor|undefined)=>{
-    (args as T&{[drawingToolDefinition]:DrawingToolDescriptor|undefined})[drawingToolDefinition]=tool
-    return args
-  }
+  const drawingFigureParameters=<T extends object>(args:T,tool:DrawingToolDescriptor|undefined)=>Object.assign(args,{[drawingToolDefinition]:tool})
   const configureDrawingFigures=(overlay:Overlay)=>{
     const tool=drawingCatalog.find(tool=>tool.overlayName===overlay.name)
     for(const figure of ['createPointFigures','createYAxisFigures','createXAxisFigures'] as const){
@@ -764,7 +761,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
             return figure==='createPointFigures'?[{type:'rectText',ignoreEvent:true,attrs:{x:8,y:20,text:error instanceof Error?error.message:String(error),baseline:'top'},styles:{color:'#ef5350'}}]:[]
           }
           const axis=widget?.getYAxes({paneId:document.overlay.paneId??'candle_pane'}).find(axis=>!document.yAxisId||axis.id===document.yAxisId)
-          let figures=draw(drawingFigureParameters({...args,coordinates,yAxis:axis??args.yAxis,overlay:Object.assign(Object.create(args.overlay),{points:projected}),[curveSelection]:curveSelectedIds.has(id)},textTool))
+          let figures=draw(drawingFigureParameters(Object.assign({...args,coordinates,yAxis:axis??args.yAxis,overlay:Object.assign(Object.create(args.overlay),{points:projected})},{[curveSelection]:curveSelectedIds.has(id)}),textTool))
           if(figure==='createPointFigures'&&textTool?.textMode==='attached'&&document.parameters?.labelVisible)figures=attachedTextFigures(Array.isArray(figures)?figures:[figures],textTool,document,drawingSize(document),widget?.getStyles().overlay.text)
           if(figure==='createPointFigures'){
             drawingFigures.set(actual,Array.isArray(figures)?figures:[figures])

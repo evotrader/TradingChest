@@ -1,5 +1,5 @@
 {
-  "source": "2026-10-17 READY plan G4; original 2026-10-15 single/comparison final gates.limit and first workspace baseline; approved long/comparison cold 500ms; 2026-10-19 operator approved 10k single cold 350ms and 50k single analysis cold 500ms; 2026-10-27 operator approved only 50k/3-comparison cold at 525ms after focused implementation R6",
+  "source": "2026-10-17 READY plan G4; original 2026-10-15 single/comparison final gates.limit and first workspace baseline; approved long/comparison cold 500ms; 2026-10-19 operator approved 10k single cold 350ms and 50k single analysis cold 500ms; 2026-10-27 operator approved only 50k/3-comparison cold at 525ms after focused implementation R6; 2026-10-29 operator accepted the exact 0.16 audit-fix proposal after R3: 10k dual/quad cold 550/800ms, 50k dual cold 900ms and dual analysis cold 850ms, original alert append 10k 80ms and 50k 275ms for both 0/100 rules. Recheck both complete original cohorts separately; retain all failed samples and the other 172 gates.",
   "cases": {
     "10000": {
       "cold": 350,
@@ -22,17 +22,17 @@
       "interaction": 52.49999995231629
     },
     "10000x2": {
-      "cold": 484,
+      "cold": 550,
       "update": 58.80000002384186,
       "interaction": 52.99999995231629
     },
     "10000x4": {
-      "cold": 632.250000089407,
+      "cold": 800,
       "update": 105.75000002980232,
       "interaction": 54.90000004768372
     },
     "50000x2": {
-      "cold": 829.624999910593,
+      "cold": 900,
       "update": 161.875,
       "interaction": 54.2
     },
@@ -43,10 +43,10 @@
     }
   },
   "drawingAlertAppendUpdates": {
-    "10000:0": 70,
-    "10000:100": 70,
-    "50000:0": 250,
-    "50000:100": 250
+    "10000:0": 80,
+    "10000:100": 80,
+    "50000:0": 275,
+    "50000:100": 275
   },
   "analysisUpdateOverrides": {
     "50000": {
@@ -62,9 +62,9 @@
       "source": "Operator approved TradingChest 0.11 dual-chart analysis cold ceilings of 375ms (10k) and 800ms (50k), with focused independent review and original-sample recheck; all other existing gates unchanged"
     },
     "50000x2": {
-      "limit": 800,
-      "approvedOn": "2026-10-20",
-      "source": "Operator approved TradingChest 0.11 dual-chart analysis cold ceilings of 375ms (10k) and 800ms (50k), with focused independent review and original-sample recheck; all other existing gates unchanged"
+      "limit": 850,
+      "approvedOn": "2026-10-29",
+      "source": "Operator accepted the exact 0.16 audit-fix proposal after R3: only 50k dual-chart analysis cold 850ms; retain the 10k 375ms override and recheck both complete original cohorts separately."
     },
     "50000": {
       "limit": 500,

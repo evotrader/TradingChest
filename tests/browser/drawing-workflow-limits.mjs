@@ -1,5 +1,5 @@
-// Operator-approved on 2026-10-28: only 10k mixed uses an absolute ceiling; 50k retains the 10% target.
-export const workflowBudgets=Object.freeze({histories:[10000,50000],tools:['fibonacciLine','fibonacciExtension'],mounts:10,moves:20,levels:64,dragP95:150,mixed10kMaximum:1550})
+// Operator-approved on 2026-10-29 after audit-fix R3: 10k mixed 1700ms; 50k retains the 10% target.
+export const workflowBudgets=Object.freeze({histories:[10000,50000],tools:['fibonacciLine','fibonacciExtension'],mounts:10,moves:20,levels:64,dragP95:150,mixed10kMaximum:1700})
 
 /** Retain the complete original mixed workload, even when its old limit failed. */
 function validateMixed(value,name){

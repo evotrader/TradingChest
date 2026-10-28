@@ -16,7 +16,7 @@ try{
  }
  for(const count of [10000,50000])for(const append of [false,true]){
   const samples=rules=>result.samples.filter(sample=>sample.count===count&&sample.append===append&&sample.rules===rules)
-  for(const rules of [0,100]){const values=samples(rules),originalLimit=budgets.cases[String(count)].update,limit=append?(approvedAppendUpdates[`${count}:${rules}`]??originalLimit):originalLimit;assert.equal(values.length,rounds);gate(`update-${count}-${append?'append':'same'}-${rules}`,p95(values.flatMap(sample=>sample.updates)),limit,{n:rounds*100,...(limit!==originalLimit?{originalLimit,approvedOn:'2026-10-24'}:{})})}
+  for(const rules of [0,100]){const values=samples(rules),originalLimit=budgets.cases[String(count)].update,limit=append?(approvedAppendUpdates[`${count}:${rules}`]??originalLimit):originalLimit;assert.equal(values.length,rounds);gate(`update-${count}-${append?'append':'same'}-${rules}`,p95(values.flatMap(sample=>sample.updates)),limit,{n:rounds*100,...(limit!==originalLimit?{originalLimit,approvedOn:'2026-10-29'}:{})})}
   const control=p95(samples(0).flatMap(sample=>sample.updates)),candidate=p95(samples(100).flatMap(sample=>sample.updates))
   gate(`increment-${count}-${append?'append':'same'}`,candidate-control,10,{control,candidate,n:rounds*100})
   gate(`batch100-${count}-${append?'append':'same'}`,p95(samples(100).flatMap(sample=>sample.batches)),10,{n:rounds*100})

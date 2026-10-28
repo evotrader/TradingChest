@@ -3,6 +3,7 @@ import {builtinDrawingCatalog,validateDrawingParameters,drawingToolDefinition,ty
 import {resolveDrawingLevels,type DrawingLevel,type DrawingLevelInput,type DrawingLevelPresetInput,type DrawingLevelSet} from '../drawing/levels'
 import {drawingStyleAuxiliary,drawingStyleInput,type DrawingStyleFigure} from '../drawing/styleControls'
 import {canProjectAxisValue,toolParameters} from './numerics'
+import {resolveFibonacciParameters} from '../drawing/fibonacciParameters'
 
 import {fibonacciLevelPrice,type FibonacciKind as Kind} from '../drawing/fibonacciMath'
 export {fibonacciLevelPrice} from '../drawing/fibonacciMath'
@@ -14,7 +15,7 @@ export function fibonacciLevelFigures(args:OverlayCreateFiguresCallbackParams<un
  const warning=(text:string):Figure=>({key:'fibonacci-warning',type:'rectText',ignoreEvent:true,attrs:{x:8,y:20,text,baseline:'top'},styles:{color:'#ef5350'},[drawingStyleAuxiliary]:true})
  try{
   validateDrawingParameters(tool,parameters)
-  const resolved=Object.fromEntries(builtin.parameters.map(parameter=>[parameter.key,parameters[parameter.key]??tool.parameters.find(spec=>spec.key===parameter.key)?.defaultValue??parameter.defaultValue]))
+  const resolved=resolveFibonacciParameters(kind,parameters,tool.parameters)
   const defaults=(tool.parameters.find(parameter=>parameter.key==='levels')??builtin.parameters.find(parameter=>parameter.key==='levels'))!.defaultValue as Exclude<DrawingLevelPresetInput,undefined>
   const raw=parameters.levels as DrawingLevelInput
   const levels=raw===undefined||Array.isArray(raw)?resolveDrawingLevels(raw,defaults):raw as DrawingLevelSet

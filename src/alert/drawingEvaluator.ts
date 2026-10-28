@@ -17,6 +17,8 @@ export function evaluateDrawingAlert(input:DrawingAlertEvaluation):DrawingAlertE
     if(geometry.kind==='line'&&(!drawingAlertTools.includes(geometry.toolId)||geometry.anchors.length!==count))throw Error('提醒来源工具或锚点数量无效')
     if(geometry.kind==='level'){
       if(rule.target.kind!=='level'||!geometry.target||geometry.target.kind!=='level'||geometry.target.resolverId!==rule.target.resolverId||geometry.target.parameterKey!==rule.target.parameterKey||geometry.target.levelId!==rule.target.levelId||!Number.isFinite(geometry.levelValue)||geometry.levelText!==undefined&&typeof geometry.levelText!=='string')throw Error('提醒级别目标或事件快照无效')
+      const required=geometry.target.resolverId==='tradingchest/fibonacciLine'?2:geometry.target.resolverId==='tradingchest/fibonacciExtension'?3:undefined
+      if(required!==undefined&&geometry.anchors.length!==required)throw Error('提醒来源锚点数量无效')
       validateDrawingAlertLevelResolution({status:'ready',referencePrice:geometry.referencePrice,from:geometry.from,to:geometry.to,comparisonKey:geometry.comparisonKey})
     }
     if(rule.frequency==='once'&&state.hasTriggered)return {state,status:'triggered',reason:'此提醒已触发，请重置并启用'}

@@ -1,3 +1,4 @@
+import {fibonacciLevelParameters} from './fibonacciParameters'
 import {vwapBandOptions} from './vwapBands'
 import {defaultDrawingLevelValues,validateDrawingLevelPresetSet,validateDrawingLevelSet,isDrawingLevelValues,type DrawingLevelPresetSet} from './levels'
 export const drawingToolDefinition=Symbol('drawing-tool-definition')
@@ -65,21 +66,6 @@ const builtinStyleControls=(id:string):DrawingStyleControl[]=>{
   if(['callout','trendAngle','fibonacciLine','fibonacciSegment','fibonacciCircle','fibonacciExtension','fibonacciSpeedResistanceFan','xabcd','abcd','threeWaves','fiveWaves','eightWaves','anyWaves','longPosition','shortPosition'].includes(id))controls.push('textColor','fontSize')
   return controls
 }
-const fibonacciLevelParameters=(extension:boolean):DrawingParameter[]=>[
-  {key:'levels',label:'级别',kind:'level-set',defaultValue:[...defaultDrawingLevelValues]},
-  {key:'calculationMode',label:'计算方式',kind:'text',choices:['linear','log'],defaultValue:'linear'},
-  {key:'reverse',label:'反向计算',kind:'boolean',defaultValue:false},
-  {key:'extendLeft',label:'向左延长',kind:'boolean',defaultValue:!extension},
-  {key:'extendRight',label:'向右延长',kind:'boolean',defaultValue:!extension},
-  {key:'backgroundVisible',label:'填充级别背景',kind:'boolean',defaultValue:false},
-  {key:'backgroundOpacity',label:'背景透明度',kind:'number',min:0,max:1,choices:['0','0.05','0.12','0.2','0.3','0.5','1'],defaultValue:.12},
-  {key:'showLevelPrices',label:'显示级别价格',kind:'boolean',defaultValue:true},
-  {key:'showLevelValues',label:'显示级别比例',kind:'boolean',defaultValue:true},
-  {key:'showLevelText',label:'显示级别正文',kind:'boolean',defaultValue:true},
-  {key:'levelValueFormat',label:'级别比例格式',kind:'text',choices:['value','percent'],defaultValue:'percent'},
-  {key:'levelLabelAlign',label:'级别标签对齐',kind:'text',choices:['left','center','right'],defaultValue:'left'},
-  {key:'levelLabelPosition',label:'级别标签位置',kind:'text',choices:['above','on','below'],defaultValue:'above'},
-]
 const baseDrawingCatalog:DrawingToolDescriptor[]=groups.flatMap(([category,items])=>items.map(([toolId,zh,en,points,shortcut])=>{
   const text=['textAnnotation','callout','note','anchoredText'].includes(toolId),variable=['polyline','anyWaves'].includes(toolId)
   const curve=['curve','doubleCurve','arc'].includes(toolId)

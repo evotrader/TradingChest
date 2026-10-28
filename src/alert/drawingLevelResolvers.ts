@@ -1,10 +1,11 @@
 import {fibonacciLevelPrice,fibonacciLevelDomain,type FibonacciKind} from '../drawing/fibonacciMath'
 import {drawingAlertTimestamp} from './drawingAnchors'
+import {resolveFibonacciParameters} from '../drawing/fibonacciParameters'
 import type {DrawingAlertLevelResolution,DrawingAlertLevelResolver} from './drawingTypes'
 
 function fibonacciResolver(kind:FibonacciKind):DrawingAlertLevelResolver {
  return Object.freeze<DrawingAlertLevelResolver>({id:`tradingchest/${kind}`,resolve:({anchors,level,parameters})=>{
-  const {calculationMode,reverse,extendLeft,extendRight}=parameters
+  const {calculationMode,reverse,extendLeft,extendRight}=resolveFibonacciParameters(kind,parameters)
   if(!['linear','log'].includes(calculationMode as string)||[reverse,extendLeft,extendRight].some(value=>typeof value!=='boolean'))return {status:'unavailable',reason:'Fib 计算或延伸参数无效'}
   const times=anchors.map(drawingAlertTimestamp),values=anchors.map(anchor=>anchor.value)
   const referencePrice=fibonacciLevelPrice(kind,values,level.value,calculationMode as 'linear'|'log',reverse as boolean)
@@ -25,6 +26,10 @@ export function createDrawingAlertResolverMap(custom:readonly DrawingAlertLevelR
 export function validateDrawingAlertLevelResolution(value:unknown):asserts value is DrawingAlertLevelResolution {
  if(!value||typeof value!=='object'||Array.isArray(value))throw Error('级别提醒解析器返回无效结果')
  const result=value as Record<string,unknown>
+ if(typeof result.then==='function'){
+  void Promise.resolve(value).catch(()=>{})
+  throw Error('级别提醒解析器必须同步返回结果')
+ }
  if(result.status==='unavailable'){
   if(Object.keys(result).some(key=>!['status','reason'].includes(key))||typeof result.reason!=='string'||!result.reason.trim())throw Error('级别提醒解析器缺少不可用原因')
   return

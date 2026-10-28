@@ -1,3 +1,5 @@
+import {preciseLogarithmicPrice} from '../core/logarithmicPrice'
+
 export type FibonacciKind='fibonacciLine'|'fibonacciExtension'
 export function fibonacciLevelPrice(kind:FibonacciKind,values:readonly number[],ratio:number,mode:'linear'|'log',reverse:boolean):number {
  if(values.length!==(kind==='fibonacciLine'?2:3))throw Error('级别锚点数量无效')
@@ -5,11 +7,14 @@ export function fibonacciLevelPrice(kind:FibonacciKind,values:readonly number[],
  const [a,b,c]=values
  if(mode==='log'&&values.some(value=>value<=0))throw Error('对数计算需要所有价格锚点大于零')
  const start=reverse?b:a,end=reverse?a:b
- const result=kind==='fibonacciLine'
-  ?mode==='log'?Math.exp(Math.log(end)+(Math.log(start)-Math.log(end))*ratio):end+(start-end)*ratio
-  :mode==='log'?Math.exp(Math.log(c)+(Math.log(b)-Math.log(a))*ratio*(reverse?-1:1)):c+(b-a)*ratio*(reverse?-1:1)
+ const result=mode==='log'?logarithmicLevel(kind,start,end,a,b,c,ratio,reverse):kind==='fibonacciLine'?end+(start-end)*ratio:c+(b-a)*ratio*(reverse?-1:1)
  if(!Number.isFinite(result)||mode==='log'&&result<=0)throw Error('级别结果超出有限数值范围')
  return result
+}
+
+function logarithmicLevel(kind:FibonacciKind,start:number,end:number,a:number,b:number,c:number,ratio:number,reverse:boolean):number {
+ if(kind==='fibonacciLine')return ratio===0||start===end?end:ratio===1?start:preciseLogarithmicPrice(end,end,start,ratio)
+ return ratio===0||a===b?c:preciseLogarithmicPrice(c,a,b,ratio*(reverse?-1:1))
 }
 
 /** Closed market-time domain; omitted boundaries extend to infinity. */

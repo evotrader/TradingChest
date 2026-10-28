@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="margin:0"><p>级别提醒验收：隔离合成行情与提交替身，真实图表引擎。</p><div id="chart" style="width:100%;height:850px"></div><script type="module">
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="margin:0"><p>级别提醒验收：隔离合成行情与提交替身，真实图表引擎。</p><button id="audit-restore" hidden>恢复审计布局</button><div id="chart" style="width:100%;height:850px"></div><script type="module">
 import {KLineChartPro,captureLayout,restoreLayout,instantiateDrawingLevelPreset} from '/src/chart.ts'
 import {DrawingAlertRuntime} from '/src/alert/drawingRuntime.ts'
 import {makeBars} from './syntheticBars.ts'
@@ -6,6 +6,12 @@ const symbol={ticker:'LEVEL.X',market:'test',exchange:'X',priceCurrency:'USD',pr
 const otherSymbol={...symbol,ticker:'OTHER.X'}
 let bars=makeBars(260),push,subscriptions=0,instance=0,sourceReads=0,initializationMode='confirmed',releaseInitialization,holdHistory=false,dataState
 const pendingHistory=[]
+let auditLayout,auditRestoreResult,failAuditAxis=false
+document.querySelector('#audit-restore').onclick=async()=>{
+ const chart=pro.getChart(),override=chart.overrideYAxis;let failedAfterAxis=false
+ chart.overrideYAxis=function(options){const result=override.call(this,options);if(failAuditAxis&&options.paneId==='candle_pane'&&options.name==='logarithm'){failAuditAxis=false;failedAfterAxis=true;throw Error('隔离布局轴恢复失败')}return result}
+ try{await restoreLayout(pro,auditLayout);auditRestoreResult={status:'completed',failedAfterAxis}}catch(error){auditRestoreResult={status:'rejected',message:error.message,failedAfterAxis}}finally{chart.overrideYAxis=override}
+}
 const events=[],replayEvents=[],commits=[],rounds=[]
 // Observe the actual component-to-runtime source callback without replacing its result.
 const consume=DrawingAlertRuntime.prototype.consume,refresh=DrawingAlertRuntime.prototype.refreshSources
@@ -17,6 +23,7 @@ function mount(){
  window.pro=new KLineChartPro({container:document.querySelector('#chart'),symbol,period,drawingAlertScope:'level-browser',mainIndicators:[],subIndicators:[],onDataReady:()=>window.ready=true,onDataState:state=>dataState=state,onDrawingAlertTrigger:event=>events.push(event),onReplayDrawingAlertTrigger:event=>replayEvents.push(event),commitDrawing:async change=>{commits.push(structuredClone(change));if(initializationMode==='held')await new Promise(resolve=>releaseInitialization=resolve);return initializationMode==='rejected'?{status:'rejected',message:'隔离提交拒绝'}:initializationMode==='uncertain'?{status:'uncertain',message:'隔离提交待确认'}:{status:'confirmed',snapshot:change.after?{...change.after,backendId:change.before?.backendId??'backend-'+change.logicalId}:null}},datafeed:{searchSymbols:async()=>[symbol,otherSymbol],getHistoryKLineData:async(s,p)=>{const snapshot={bars:bars.map(bar=>({...bar})),basis:'isolated-raw',hasMoreBefore:false};if(holdHistory)await new Promise(resolve=>pendingHistory.push({ticker:s.ticker,period:p.multiplier,resolve}));return snapshot},subscribe:(_s,_p,callback)=>{push=callback;subscriptions++},unsubscribe:()=>{push=undefined;subscriptions--}}})
 }
 window.levelBench={events,replayEvents,commits,rounds,frame,captureLayout,restoreLayout,
+ stageAuditLayout(layout,failAxis=false){auditLayout=structuredClone(layout);auditRestoreResult=undefined;failAuditAxis=failAxis;document.querySelector('#audit-restore').hidden=false},get auditRestoreResult(){return auditRestoreResult},
  get dataState(){return dataState},get bars(){return bars.map(bar=>({...bar}))},get instance(){return instance},get subscriptions(){return subscriptions},get sourceReads(){return sourceReads},
  mode(value){initializationMode=value},release(){releaseInitialization?.();releaseInitialization=undefined},resetReads(){sourceReads=0;rounds.length=0},
  holdHistory(){holdHistory=true},get pendingHistory(){return pendingHistory.map(({ticker,period})=>({ticker,period}))},releaseHistory(){holdHistory=false;for(const request of pendingHistory.splice(0))request.resolve()},

@@ -92,6 +92,7 @@ export interface ChartComponentApi extends ChartPro {
   cancelDrawing: () => void
   deleteSelectedDrawing: () => void
   createDrawing: (overlay: OverlayCreate) => void
+  refreshDrawingAlertAxis: () => void
 }
 
 export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'analysisLayerListVisible'|'onAnalysisLayerChange'|'onAnalysisEventClick'|'onAnalysisPointSelect'|'indicatorCatalog' | 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'|'comparisonSymbols'|'createComparisonDatafeed'|'onComparisonChange'|'onDrawingSelect'|'drawingOwner'|'isDrawingEditable'|'commitDrawing'|'onDrawingHistoryChange'|'drawingCatalog'|'onDrawingStateChange'|'drawingPreferences'|'drawingPreferencesStore'|'drawingPreferencesScope'|'resolveDrawingShareKey'|'drawingWorkspaceSessions'|'drawingHostSessions'|'createDrawingDocumentId'|'drawingAlertScope'|'onDrawingAlertStateChange'|'onDrawingAlertTrigger'|'onReplayDrawingAlertTrigger'|'drawingAlertLevelResolvers'>> {
@@ -455,9 +456,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   let drawingAlertTriggerElement:HTMLElement|undefined
   const openDrawingAlerts=(id?:string,levelId?:string)=>{if(workbenchDirty())return;setDrawingAlertLevel(levelId);drawingAlertTriggerElement=document.activeElement as HTMLElement;setDrawingAlertStates(drawingAlerts?.getState()??[]);setDrawingAlertSource(id);setDrawingAlertOpen(true)}
   const closeDrawingAlerts=()=>{setDrawingAlertOpen(false);setDrawingAlertSource(undefined);setDrawingAlertLevel(undefined);queueMicrotask(()=>drawingAlertTriggerElement?.isConnected?drawingAlertTriggerElement.focus():(widgetRef as HTMLDivElement|undefined)?.focus())}
-  const refreshAlertContext=()=>untrack(()=>{
+  const refreshAlertContext=(axisOnly=false)=>untrack(()=>{
     const state=dataState(),series=confirmedAlertSeries,axis=widget?.getYAxes({paneId:'candle_pane'})[0]
+    if(axisOnly)return drawingAlerts?.axisChanged(/log/i.test(axis?.name??'')?'log':/percentage/i.test(axis?.name??'')?'percentage':'linear',axis?.id)??false
     if(state&&series)drawingAlerts?.consume(series,state,loader?.getConfirmedBars()??[],/log/i.test(axis?.name??'')?'log':/percentage/i.test(axis?.name??'')?'percentage':'linear',axis?.id)
+    return false
   })
   const executeDrawingAlert=(command:DrawingAlertCommand)=>{refreshAlertContext();return drawingAlerts!.execute(command)}
   const [workbenchState,setWorkbenchState]=createSignal<import('./drawing/types').DrawingState>()
@@ -780,7 +783,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     locale,
     validate:validateDrawingTarget,validateTransfer:values=>validateProjectionRestore(values),
     context:()=>({symbol:symbol(),period:period()}),apply:applyDrawing,commit:change=>props.commitDrawing?props.commitDrawing(change):Promise.resolve({status:'rejected',message:i18n('drawing_message_3',locale())}),
-    onChange:(state,sources)=>{if(disposed)return;drawingAlerts?.refreshSources(sources);setDrawingState(state);if(drawingPresentationFrame===undefined){
+    onChange:(state,sources)=>{if(disposed)return;if(!refreshAlertContext(true))drawingAlerts?.refreshSources(sources);setDrawingState(state);if(drawingPresentationFrame===undefined){
       const present=()=>{
         if(disposed){drawingPresentationFrame=undefined;return}
         if(drawingHistory.isYieldingLocalWork()){drawingPresentationFrame=requestAnimationFrame(present);return}
@@ -1149,6 +1152,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     updateIndicator,removeIndicator,
     locateTimestamp: () => { throw new Error('[TradingChest] locateTimestamp must be called on KLineChartPro instance') },
     cancelDrawing, deleteSelectedDrawing, createDrawing,
+    refreshDrawingAlertAxis:()=>{refreshAlertContext(true)},
     commitDrawing,
     getDrawingTools:()=>copyDrawingCatalog(drawingCatalog),
     getDrawingState:()=>drawingController.getState(),
@@ -1612,7 +1616,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onClose={() => { setSettingModalVisible(false) }}
           onChange={style => {
             const {axis,...engineStyles} = style as any
-            if(axis) widget?.overrideYAxis({paneId:'candle_pane',id:widget?.getYAxes({paneId:'candle_pane'})[0]?.id,...axis})
+            if(axis){widget?.overrideYAxis({paneId:'candle_pane',id:widget?.getYAxes({paneId:'candle_pane'})[0]?.id,...axis});refreshAlertContext(true)}
             widget?.setStyles(engineStyles)
           }}
           onRestoreDefault={(options: SelectDataSourceItem[]) => {
@@ -1623,7 +1627,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
               else deepSet(style, key, utils.formatValue(widgetDefaultStyles(), key))
             })
             const {axis,...engineStyles} = style as any
-            if(axis) widget?.overrideYAxis({paneId:'candle_pane',id:widget?.getYAxes({paneId:'candle_pane'})[0]?.id,...axis})
+            if(axis){widget?.overrideYAxis({paneId:'candle_pane',id:widget?.getYAxes({paneId:'candle_pane'})[0]?.id,...axis});refreshAlertContext(true)}
             widget?.setStyles(engineStyles)
           }}
         />
@@ -1726,7 +1730,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         <Show when={loadingVisible()}>
           <Loading/>
         </Show>
-        <Show when={drawingAlertOpen()}><DrawingAlertManager locale={locale()} states={drawingAlertStates()} sourceId={drawingAlertSource()} levelId={drawingAlertLevel()} catalog={drawingCatalog} contextKey={JSON.stringify([drawingContextEpoch(),symbol(),period(),dataState()?.basis,workbenchState()?.sharing?.workspace?.key,workbenchState()?.sharing?.host?.key])} initialize={async(id,parameterKey)=>{const result=await drawingController.execute({type:'initialize-levels',id,parameterKey});if(!disposed)presentWorkbench();return result}} initializeReason={id=>{const source=drawingCoordinator.getDrawing(id);return !source||!editable(source.overlay)?'来源不可编辑':source.overlay.lock?'请先解锁绘图':drawingHistory.isUncertain(id)?'来源结果待确认，请刷新原来源':drawingState().pending?'绘图正在确认，请稍候':undefined}} objects={workbenchState()?.objects??[]} replay={replayState().active} execute={executeDrawingAlert} sourceReason={(id,levelId)=>drawingAlerts?.sourceReason(id,levelId)} locate={id=>{const value=drawingCoordinator.getDrawing(id);if(!value||!drawingIsVisible(value)||!scrollToDrawing(value))return false;void drawingController.execute({type:'select',ids:[id]});return true}} close={closeDrawingAlerts}/></Show>
+        <Show when={drawingAlertOpen()}><DrawingAlertManager blockedReason={workbenchDirty()?(locale()==='en-US'?'Confirm or cancel the settings draft first':'请先确认或取消设置草稿'):undefined} locale={locale()} states={drawingAlertStates()} sourceId={drawingAlertSource()} levelId={drawingAlertLevel()} catalog={drawingCatalog} contextKey={JSON.stringify([drawingContextEpoch(),symbol(),period(),dataState()?.basis,workbenchState()?.sharing?.workspace?.key,workbenchState()?.sharing?.host?.key])} initialize={async(id,parameterKey)=>{const result=await drawingController.execute({type:'initialize-levels',id,parameterKey});if(!disposed)presentWorkbench();return result}} initializeReason={id=>{const source=drawingCoordinator.getDrawing(id);return !source||!editable(source.overlay)?'来源不可编辑':source.overlay.lock?'请先解锁绘图':drawingHistory.isUncertain(id)?'来源结果待确认，请刷新原来源':drawingState().pending?'绘图正在确认，请稍候':undefined}} objects={workbenchState()?.objects??[]} replay={replayState().active} execute={executeDrawingAlert} sourceReason={(id,levelId)=>drawingAlerts?.sourceReason(id,levelId)} locate={id=>{const value=drawingCoordinator.getDrawing(id);if(!value||!drawingIsVisible(value)||!scrollToDrawing(value))return false;void drawingController.execute({type:'select',ids:[id]});return true}} close={closeDrawingAlerts}/></Show>
         <Show when={drawingBarVisible()}>
           <DrawingBar
             locale={locale()}

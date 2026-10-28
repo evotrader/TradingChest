@@ -44,6 +44,18 @@ for(const api of [await import('trading-chest/alerts'),createRequire(import.meta
  assert.equal(evaluated.event.referencePrice,105);assert.equal(evaluated.event.level.levelId,'stable-id');assert.equal(evaluated.event.level.text,'Snapshot');
 }
 console.log('Packed level mathematics, v1 migration and v2 evaluation ESM/CJS without DOM or peers PASS');`)
+  writeFileSync(path.join(dir,'alerts.mjs'),readFileSync(path.join(dir,'alerts.mjs'),'utf8')+`
+for(const api of [await import('trading-chest/alerts'),createRequire(import.meta.url)('trading-chest/alerts')])for(const kind of ['fibonacciLine','fibonacciExtension']){
+ const target={kind:'level',resolverId:'tradingchest/'+kind,parameterKey:'levels',levelId:'packed-stable'},anchors=[10,100,...(kind==='fibonacciExtension'?[100]:[])].map((value,index)=>({kind:'market',timestamp:index*1000,value})),level={id:target.levelId,value:0,visible:true};
+ const resolver=api.builtinDrawingAlertLevelResolvers.find(resolver=>resolver.id===target.resolverId),resolved=resolver.resolve({toolId:kind,anchors,level,parameters:{calculationMode:'log',reverse:false,extendLeft:true,extendRight:true}});
+ assert.equal(resolved.referencePrice,100);const rule={id:'exact',drawingLogicalId:'fib',sourceOwner:'local',toolId:kind,target,identity:{ticker:'PACKED'},period:{multiplier:1,timespan:'minute'},condition:'crossing-up',frequency:'once-per-bar'},geometry={kind:'level',toolId:kind,target,anchors,...resolved,levelValue:0},base={rule,geometry,bars:[0,1000,2000,3000].map(timestamp=>({timestamp})),state:{hasTriggered:false}};
+ const data=new DataView(new ArrayBuffer(8));data.setFloat64(0,100);data.setBigUint64(0,data.getBigUint64(0)-1n);const lower=data.getFloat64(0);data.setFloat64(0,100);data.setBigUint64(0,data.getBigUint64(0)+1n);const upper=data.getFloat64(0);
+ assert.equal(api.evaluateDrawingAlert({...base,previous:{timestamp:3000,close:lower},current:{timestamp:3000,close:100}}).event.referencePrice,100);
+ assert.equal(api.evaluateDrawingAlert({...base,previous:{timestamp:3000,close:100},current:{timestamp:3000,close:upper}}).event,undefined);
+ const incomplete=api.evaluateDrawingAlert({...base,geometry:{...geometry,anchors:anchors.slice(0,1)},previous:{timestamp:3000,close:99},current:{timestamp:3000,close:101}});assert.equal(incomplete.status,'waiting');assert.equal(incomplete.event,undefined);
+ const defaults=resolver.resolve({toolId:kind,anchors,level,parameters:{}});assert.equal(defaults.status,'ready');assert.equal(defaults.referencePrice,100);
+}
+console.log('Packed exact Fib endpoints, adjacent prices, complete sources and omitted parameter defaults ESM/CJS PASS');`)
   const {renameSync}=await import('node:fs'),held=path.join(dir,'held-peers');mkdirSync(held)
   for(const name of ['klinecharts','solid-js'])renameSync(path.join(dir,'node_modules',name),path.join(held,name))
   try{console.log(run(process.execPath,['alerts.mjs']))}finally{for(const name of ['klinecharts','solid-js'])renameSync(path.join(held,name),path.join(dir,'node_modules',name))}

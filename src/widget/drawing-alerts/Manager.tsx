@@ -7,6 +7,7 @@ import './style.less'
 
 const Manager:Component<{
   locale:string;states:DrawingAlertState[];objects:DrawingSnapshot[];sourceId?:string;levelId?:string;contextKey:string;catalog:DrawingToolDescriptor[];replay:boolean
+  blockedReason?:string
   execute:(command:DrawingAlertCommand)=>DrawingAlertCommandResult
   sourceReason:(id:string,levelId?:string)=>string|undefined
   initialize:(id:string,parameterKey:string)=>Promise<DrawingCommandResult>
@@ -41,6 +42,7 @@ const Manager:Component<{
   const sourceError=createMemo(()=>{objects();props.states;return source()?props.sourceReason(source(),capability()&&levelId()?levelId():undefined):undefined})
   const reset=()=>{setEditing(undefined);setLevelId('');setMessage('');setCondition('crossing');setFrequency('once')}
   const initialize=async()=>{
+    if(props.blockedReason){setNotice(props.blockedReason);return}
     const id=source(),key=capability()?.parameterKey,context=props.contextKey,token=++initialization
     if(!key||initializing())return
     setInitializing(true);setNotice('')
@@ -53,6 +55,7 @@ const Manager:Component<{
   }
   const send=(command:DrawingAlertCommand)=>{const result=props.execute(command);setNotice(result.status==='completed'?'':result.message??t('操作被拒绝','Operation rejected'));return result}
   const save=()=>{
+    if(props.blockedReason){setNotice(props.blockedReason);return}
     if(!source()||sourceError()||initializing()||!editing()&&capability()&&(!levelId()||initializeRequired())){setNotice(sourceError()??t('请选择已确认的绘图和级别','Select a confirmed drawing and level'));return}
     const command:DrawingAlertCommand=editing()?{type:'update',id:editing()!,patch:{condition:condition(),frequency:frequency(),message:message()}}:{type:'create',drawingLogicalId:source(),...(capability()?{target:{kind:'level',levelId:levelId()}}:{}),condition:condition(),frequency:frequency(),message:message()}
     if(send(command).status==='completed'){reset();setNotice(t('提醒已保存','Alert saved'))}
@@ -71,7 +74,7 @@ const Manager:Component<{
         <Show when={capability()}>
           <Show when={initializeRequired()} fallback={<label>{t('级别','Level')}<select aria-label={t('提醒级别','Alert level')} disabled={!!editing()||initializing()} value={levelId()} onChange={event=>setLevelId(event.currentTarget.value)}><option value="">{t('请选择级别','Select a level')}</option><For each={levels()}>{(level,index)=><option value={level.id} disabled={!level.visible}>{targetLabel(level,index())}</option>}</For></select></label>}>
             <p>{t('旧级别需要显式初始化。此操作确认后可撤销；关闭面板不会回滚已确认修改。','Legacy levels need explicit initialization. Confirmed changes can be undone; closing this panel does not roll them back.')}</p>
-            <button type="button" disabled={!!editing()||initializing()||!!sourceError()||!!props.initializeReason(source())} title={props.initializeReason(source())} onClick={()=>void initialize()}>{initializing()?t('正在确认级别','Confirming levels'):t('初始化级别','Initialize levels')}</button>
+            <button type="button" disabled={!!props.blockedReason||!!editing()||initializing()||!!sourceError()||!!props.initializeReason(source())} title={props.blockedReason??props.initializeReason(source())} onClick={()=>void initialize()}>{initializing()?t('正在确认级别','Confirming levels'):t('初始化级别','Initialize levels')}</button>
             <Show when={props.initializeReason(source())}>{reason=><p role="status">{reason()}</p>}</Show>
           </Show>
         </Show>
@@ -79,7 +82,8 @@ const Manager:Component<{
         <label>{t('条件','Condition')}<select aria-label={t('提醒条件','Alert condition')} value={condition()} onChange={event=>setCondition(event.currentTarget.value as DrawingAlertCondition)}><For each={['crossing','crossing-up','crossing-down'] as const}>{value=><option value={value}>{conditionLabel(value)}</option>}</For></select></label>
         <label>{t('频率','Frequency')}<select aria-label={t('提醒频率','Alert frequency')} value={frequency()} onChange={event=>setFrequency(event.currentTarget.value as DrawingAlertFrequency)}><option value="once">{t('仅一次','Once')}</option><option value="once-per-bar">{t('每根 K 线最多一次','Once per bar')}</option></select></label>
         <label>{t('消息','Message')}<textarea aria-label={t('提醒消息','Alert message')} value={message()} onInput={event=>setMessage(event.currentTarget.value)}/></label>
-        <button type="submit" disabled={!source()||!!sourceError()||initializing()||!editing()&&!!capability()&&(!levelId()||initializeRequired())}>{editing()?t('保存修改','Save changes'):t('创建提醒','Create alert')}</button><Show when={editing()}><button type="button" onClick={reset}>{t('取消编辑','Cancel editing')}</button></Show>
+        <Show when={props.blockedReason}>{reason=><p role="status">{reason()}</p>}</Show>
+        <button type="submit" disabled={!!props.blockedReason||!source()||!!sourceError()||initializing()||!editing()&&!!capability()&&(!levelId()||initializeRequired())}>{editing()?t('保存修改','Save changes'):t('创建提醒','Create alert')}</button><Show when={editing()}><button type="button" onClick={reset}>{t('取消编辑','Cancel editing')}</button></Show>
       </fieldset>
     </form>
     <Show when={notice()}><p role="status">{notice()}</p></Show>

@@ -74,6 +74,7 @@ export class DrawingAlertRuntime {
     if((source.overlay.paneId??'candle_pane')!=='candle_pane'||source.yAxisId&&source.yAxisId!==this.context?.axisId)throw Error('画线提醒只支持主价格窗格的默认价格轴')
     const anchors=source.anchors
     if(!anchors||anchors.some(anchor=>anchor.kind!=='market'))throw Error('画线提醒需要完整的市场时间锚点；后续根数／视口锚点暂不支持')
+    if(this.context?.axis==='log'&&anchors.some(anchor=>anchor.kind==='market'&&anchor.value<=0))throw Error('当前对数价格轴不能投影此来源')
     return clone(anchors) as DrawingAlertAnchor[]
   }
   private capability(source:DrawingSnapshot){
@@ -104,7 +105,7 @@ export class DrawingAlertRuntime {
     const result=resolver.resolve(clone({toolId,anchors,level,parameters}))
     validateDrawingAlertLevelResolution(result)
     if(result.status!=='ready')throw Error(result.reason)
-    if(this.context?.axis==='log'&&(result.referencePrice<=0||anchors.some(anchor=>anchor.value<=0)))throw Error('当前对数价格轴不能投影此级别')
+    if(this.context?.axis==='log'&&result.referencePrice<=0)throw Error('当前对数价格轴不能投影此级别')
     return {kind:'level',toolId,target:clone(target),anchors,referencePrice:result.referencePrice,from:result.from,to:result.to,comparisonKey:result.comparisonKey,levelValue:level.value,...(level.text!==undefined?{levelText:level.text}:{})}
   }
   private geometryKey(geometry:DrawingAlertGeometry):string {
@@ -217,6 +218,25 @@ export class DrawingAlertRuntime {
       }
     }
     return changed
+  }
+  axisChanged(axis:Context['axis'],axisId?:string):boolean {
+    const context=this.context
+    if(this.disposed||!context||context.axis===axis&&context.axisId===axisId)return false
+    this.context={...context,axis,axisId}
+    for(const entry of this.entries.values())this.clear(entry)
+    const cache=round()
+    let changed=this.refresh('all',cache)
+    for(const entry of this.entries.values()){
+      if(!entry.enabled||!sameDrawingAlertIdentity(entry.rule.identity,identity(context.series.symbol,context.series.basis))||!sameDrawingAlertPeriod(entry.rule.period,context.series.period))continue
+      for(const mode of ['live','replay'] as const){
+        const current=entry[mode]
+        if(current.status==='data-unavailable'||entry.rule.frequency==='once'&&current.hasTriggered)continue
+        current.status='waiting';current.reason='价格轴已改变，等待下一个有效样本建立比较点';changed=true
+      }
+    }
+    cache.sources.clear();cache.geometries.clear()
+    if(changed)this.emit()
+    return true
   }
   contextChanging():void {
     this.context=undefined;this.consumed=undefined

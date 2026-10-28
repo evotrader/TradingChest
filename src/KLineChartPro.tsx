@@ -244,7 +244,7 @@ export default class KLineChartPro implements ChartPro {
         const chart = this.getChart()
         if (!chart) return
         const axis = chart.getYAxes({paneId:'candle_pane'})[0]
-        if (axis) chart.overrideYAxis({id:axis.id,paneId:'candle_pane',name:axis.name === 'logarithm' ? 'normal' : 'logarithm'})
+        if (axis){chart.overrideYAxis({id:axis.id,paneId:'candle_pane',name:axis.name === 'logarithm' ? 'normal' : 'logarithm'});this._api().refreshDrawingAlertAxis()}
       },
     })
     this._drawingCatalog=drawingCatalog;this._applyDrawingShortcuts()
@@ -283,7 +283,7 @@ export default class KLineChartPro implements ChartPro {
   private _clickTarget: Element | null = null
 
   /** Throws if called before Solid.js render completes or after dispose. */
-  private _api(): ChartPro {
+  private _api(): ChartComponentApi {
     if (this._disposed) {
       throw new Error('[TradingChest] Instance has been disposed. Create a new instance to continue.')
     }

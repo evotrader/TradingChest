@@ -107,11 +107,11 @@ describe('drawing alert confirmed runtime',()=>{
   const s=setup();s.create();s.consume(9);await s.history.submit('delete','d',null,'manual');s.runtime.refreshSources();expect(s.runtime.getState()[0]).toMatchObject({enabled:false,status:'source-missing'})
   await s.history.undo();s.runtime.refreshSources();s.consume(11);expect(s.trigger).not.toHaveBeenCalled();expect(s.runtime.execute({type:'resume',id:'r'}).status).toBe('completed');s.consume(9);s.consume(11);expect(s.trigger).toHaveBeenCalledTimes(1)
  })
- it('restores paused rules with markers and atomically rejects invalid bindings or scopes',()=>{
+ it('restores paused rules with markers and atomically rejects malformed documents or scopes',()=>{
   const s=setup();s.create();s.consume(9);s.consume(11);const doc=s.runtime.capture();s.runtime.restore(doc)
   expect(s.runtime.getState()[0]).toMatchObject({enabled:false,hasTriggered:true,lastBarTimestamp:100})
   s.runtime.execute({type:'resume',id:'r'});s.consume(9);s.consume(11);expect(s.trigger).toHaveBeenCalledTimes(1)
-  const before=s.runtime.getState();for(const change of [(d:any)=>d.scope='wrong',(d:any)=>d.rules[0].rule.drawingLogicalId='missing',(d:any)=>d.rules.push(d.rules[0])]){const invalid=structuredClone(doc);change(invalid);expect(()=>s.runtime.restore(invalid)).toThrow();expect(s.runtime.getState()).toEqual(before)}
+  const before=s.runtime.getState();for(const change of [(d:any)=>d.scope='wrong',(d:any)=>d.rules.push(d.rules[0])]){const invalid=structuredClone(doc);change(invalid);expect(()=>s.runtime.restore(invalid)).toThrow();expect(s.runtime.getState()).toEqual(before)}
   s.runtime.restore(doc);s.runtime.execute({type:'rearm',id:'r'});s.consume(9);s.consume(11);expect(s.trigger).toHaveBeenCalledTimes(2)
  })
  it('commits an event before a callback throws and keeps returned values isolated',()=>{

@@ -18,7 +18,7 @@ function setup(values=[object()]){
 }
 
 it('supports an arbitrary host parameter key without inferring capability from the tool name',()=>{
- const custom:DrawingToolDescriptor={...structuredClone(tool),toolId:'HostBands',overlayName:'HostBands',parameters:[{key:'zones',label:'区域',kind:'level-set',defaultValue:[-1,.5,.5,2]}]}
+ const custom:DrawingToolDescriptor={...structuredClone(tool),alertLevels:undefined,toolId:'HostBands',overlayName:'HostBands',parameters:[{key:'zones',label:'区域',kind:'level-set',defaultValue:[-1,.5,.5,2]}]}
  const source=object();source.overlay.name='HostBands';source.parameters={zones:resolveDrawingLevels([-1,.5,.5,2])};(source.parameters.zones as DrawingLevelSet).items[1].text='文档正文'
  const preset=extractDrawingStylePreset(source,custom),a=instantiateDrawingPresetParameters(preset.parameters,custom)!,b=instantiateDrawingPresetParameters(preset.parameters,custom)!
  expect(preset.parameters).not.toHaveProperty('levels');expect(preset.parameters!.zones).toEqual({version:1,items:[-1,.5,.5,2].map(value=>({value,visible:true}))})
@@ -83,7 +83,7 @@ it('derives detached snap options from the same preference authority without con
 
 it('uses closed appearance-only catalog defaults for arbitrary level-set keys and fresh runtime IDs',()=>{
  const defaults={version:1 as const,items:[{value:-.25,visible:true,color:'#123456'},{value:.5,visible:true},{value:.5,visible:false},{value:1.25,visible:true}]}
- const custom:DrawingToolDescriptor={...structuredClone(tool),toolId:'HostReserved',overlayName:'EXAMPLE/Reserved',parameters:['segments','algorithm'].map(key=>({key,label:key,kind:'level-set' as const,defaultValue:defaults}))}
+ const custom:DrawingToolDescriptor={...structuredClone(tool),alertLevels:undefined,toolId:'HostReserved',overlayName:'EXAMPLE/Reserved',parameters:['segments','algorithm'].map(key=>({key,label:key,kind:'level-set' as const,defaultValue:defaults}))}
  expect(()=>copyDrawingCatalog([custom])).not.toThrow()
  const a=instantiateDrawingPresetParameters(undefined,custom)!,b=instantiateDrawingPresetParameters(undefined,custom)!
  for(const key of ['segments','algorithm']){expect(()=>validateDrawingParameters(custom,{[key]:a[key]})).not.toThrow();expect((a[key] as DrawingLevelSet).items.map(item=>item.id)).not.toEqual((b[key] as DrawingLevelSet).items.map(item=>item.id));expect((a[key] as DrawingLevelSet).items.every(item=>!Object.hasOwn(item,'text'))).toBe(true)}

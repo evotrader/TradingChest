@@ -3,9 +3,9 @@ import {evaluateDrawingAlert} from '../drawingEvaluator'
 import {validateDrawingAlertDocument} from '../drawingDocument'
 import type {DrawingAlertEvaluation,DrawingAlertRule,DrawingAlertTool} from '../drawingTypes'
 const bars=[0,10,1000,1001,9000].map(timestamp=>({timestamp}))
-const rule:DrawingAlertRule={id:'r',drawingLogicalId:'d',sourceOwner:'local',toolId:'horizontalStraightLine',identity:{ticker:'A'},period:{multiplier:1,timespan:'minute'},condition:'crossing',frequency:'once-per-bar'}
+const rule:DrawingAlertRule={id:'r',drawingLogicalId:'d',sourceOwner:'local',target:{kind:'line'},toolId:'horizontalStraightLine',identity:{ticker:'A'},period:{multiplier:1,timespan:'minute'},condition:'crossing',frequency:'once-per-bar'}
 const anchor=(index:number,value:number)=>({kind:'market' as const,timestamp:bars[index].timestamp,value})
-function input(patch:Partial<DrawingAlertEvaluation>={}):DrawingAlertEvaluation{return {rule,geometry:{toolId:rule.toolId,anchors:[anchor(0,10)]},bars,previous:{timestamp:1001,close:9},current:{timestamp:1001,close:10},state:{hasTriggered:false},...patch}}
+function input(patch:Partial<DrawingAlertEvaluation>={}):DrawingAlertEvaluation{return {rule,geometry:{kind:'line',toolId:rule.toolId,anchors:[anchor(0,10)]},bars,previous:{timestamp:1001,close:9},current:{timestamp:1001,close:10},state:{hasTriggered:false},...patch}}
 const neighbour=(price:number,up:boolean)=>{const data=new DataView(new ArrayBuffer(8));data.setFloat64(0,price);data.setBigUint64(0,data.getBigUint64(0)+(up?1n:-1n));return data.getFloat64(0)}
 describe('portable observed-close drawing evaluation',()=>{
  it('crosses from below to equality, with immutable inputs and real event identity',()=>{
@@ -25,22 +25,22 @@ describe('portable observed-close drawing evaluation',()=>{
   expect(evaluateDrawingAlert(input({rule:{...rule,frequency:'once'},state:{hasTriggered:true,lastBarTimestamp:10}})).status).toBe('triggered')
  })
  it('uses real bar intervals across a long market closure, never a wall-clock slope',()=>{
-  const result=evaluateDrawingAlert(input({rule:{...rule,toolId:'straightLine'},geometry:{toolId:'straightLine',anchors:[anchor(0,10),anchor(2,30)]},previous:{timestamp:1001,close:39},current:{timestamp:1001,close:41}}))
+  const result=evaluateDrawingAlert(input({rule:{...rule,toolId:'straightLine'},geometry:{kind:'line',toolId:'straightLine',anchors:[anchor(0,10),anchor(2,30)]},previous:{timestamp:1001,close:39},current:{timestamp:1001,close:41}}))
   expect(result.event?.referencePrice).toBe(40)
  })
  it('projects market interpolation through the same real-time lookup as drawing anchors',()=>{
-  const result=evaluateDrawingAlert(input({rule:{...rule,toolId:'straightLine'},geometry:{toolId:'straightLine',anchors:[{...anchor(0,10),interpolation:{nextTimestamp:10,fraction:.5}},anchor(2,40)]},previous:{timestamp:1001,close:59},current:{timestamp:1001,close:61}}))
+  const result=evaluateDrawingAlert(input({rule:{...rule,toolId:'straightLine'},geometry:{kind:'line',toolId:'straightLine',anchors:[{...anchor(0,10),interpolation:{nextTimestamp:10,fraction:.5}},anchor(2,40)]},previous:{timestamp:1001,close:59},current:{timestamp:1001,close:61}}))
   expect(result.event?.referencePrice).toBe(60)
  })
  it('evaluates log space with an independently calculated geometric mean',()=>{
-  const result=evaluateDrawingAlert(input({axis:'log',rule:{...rule,toolId:'straightLine'},geometry:{toolId:'straightLine',anchors:[anchor(0,1),anchor(2,100)]},previous:{timestamp:10,close:9},current:{timestamp:10,close:11}}))
+  const result=evaluateDrawingAlert(input({axis:'log',rule:{...rule,toolId:'straightLine'},geometry:{kind:'line',toolId:'straightLine',anchors:[anchor(0,1),anchor(2,100)]},previous:{timestamp:10,close:9},current:{timestamp:10,close:11}}))
   expect(result.event?.referencePrice).toBeCloseTo(10,12)
  })
  it.each([
   ['crossing-up',9,10,true],['crossing-down',11,10,true],['crossing',10,11,false],['crossing',10,9,false]
  ] as const)('preserves exact log equality for %s: %s → %s', (condition,previous,current,expected)=>{
   for(const toolId of ['horizontalStraightLine','straightLine','segment','rayLine'] as const){
-   const value=input({axis:'log',rule:{...rule,toolId,condition},geometry:{toolId,anchors:toolId==='horizontalStraightLine'?[anchor(0,10)]:[anchor(1,5),anchor(3,10)]},previous:{timestamp:1001,close:previous},current:{timestamp:1001,close:current}})
+   const value=input({axis:'log',rule:{...rule,toolId,condition},geometry:{kind:'line',toolId,anchors:toolId==='horizontalStraightLine'?[anchor(0,10)]:[anchor(1,5),anchor(3,10)]},previous:{timestamp:1001,close:previous},current:{timestamp:1001,close:current}})
    const result=evaluateDrawingAlert(value)
    expect(!!result.event,toolId).toBe(expected)
    if(result.event)expect(result.event.referencePrice).toBe(10)
@@ -53,7 +53,7 @@ describe('portable observed-close drawing evaluation',()=>{
   expect([...triggeredBarTimestamps]).toEqual([1001,9000])
  })
  it.each(['straightLine','rayLine'] as const)('preserves exact log equality beyond a horizontal two-anchor %s',toolId=>{
-  const bars=Array.from({length:6},(_,timestamp)=>({timestamp})),geometry={toolId,anchors:[{kind:'market' as const,timestamp:0,value:10},{kind:'market' as const,timestamp:1,value:10}]}
+  const bars=Array.from({length:6},(_,timestamp)=>({timestamp})),geometry={kind:'line' as const,toolId,anchors:[{kind:'market' as const,timestamp:0,value:10},{kind:'market' as const,timestamp:1,value:10}]}
   for(const [before,now,crosses] of [[9,10,true],[11,10,true],[10,11,false],[10,9,false]] as const){
    const result=evaluateDrawingAlert(input({axis:'log',bars,rule:{...rule,toolId},geometry,previous:{timestamp:5,close:before},current:{timestamp:5,close:now}}))
    expect(!!result.event).toBe(crosses);if(result.event)expect(result.event.referencePrice).toBe(10)
@@ -78,7 +78,7 @@ describe('portable observed-close drawing evaluation',()=>{
   for(const toolId of ['straightLine','segment','rayLine'] as const){
    const u=(x-a)/(b-a)
    if(toolId==='segment'&&(u<0||u>1)||toolId==='rayLine'&&u<0)continue
-   const geometry={toolId,anchors:[{kind:'market' as const,timestamp:a,value:first},{kind:'market' as const,timestamp:b,value:last}]}
+   const geometry={kind:'line' as const,toolId,anchors:[{kind:'market' as const,timestamp:a,value:first},{kind:'market' as const,timestamp:b,value:last}]}
    for(const [before,now,condition,crosses] of [[low,expected,'crossing-up',true],[high,expected,'crossing-down',true],[expected,high,'crossing-up',false],[expected,low,'crossing-down',false],[low,high,'crossing',true],[high,low,'crossing',true]] as const){
     const result=evaluateDrawingAlert(input({axis:'log',bars,rule:{...rule,toolId,condition},geometry,previous:{timestamp:x,close:before},current:{timestamp:x,close:now}}))
     expect(result.reason,`${toolId} ${condition}`).toBeUndefined();expect(!!result.event,`${toolId} ${before} → ${now}`).toBe(crosses)
@@ -87,13 +87,13 @@ describe('portable observed-close drawing evaluation',()=>{
   }
  })
  it('preserves a leftward ray direction and rejects its opposite half-plane',()=>{
-  const base=input({rule:{...rule,toolId:'rayLine'},geometry:{toolId:'rayLine',anchors:[anchor(3,20),anchor(1,10)]},previous:{timestamp:0,close:4},current:{timestamp:0,close:6}})
+  const base=input({rule:{...rule,toolId:'rayLine'},geometry:{kind:'line',toolId:'rayLine',anchors:[anchor(3,20),anchor(1,10)]},previous:{timestamp:0,close:4},current:{timestamp:0,close:6}})
   expect(evaluateDrawingAlert(base).event?.referencePrice).toBe(5)
   const outside=evaluateDrawingAlert({...base,current:{timestamp:9000,close:30}})
   expect(outside.status).toBe('waiting');expect(outside.comparison).toBeUndefined()
  })
  it('keeps a segment bounded, including both endpoints but never inventing an entry crossing',()=>{
-  const base=input({rule:{...rule,toolId:'segment'},geometry:{toolId:'segment',anchors:[anchor(1,10),anchor(3,10)]}})
+  const base=input({rule:{...rule,toolId:'segment'},geometry:{kind:'line',toolId:'segment',anchors:[anchor(1,10),anchor(3,10)]}})
   expect(evaluateDrawingAlert(base).event?.referencePrice).toBe(10)
   for(const patch of [{current:{timestamp:9000,close:11}},{previous:{timestamp:0,close:9}}]){
    const result=evaluateDrawingAlert({...base,...patch});expect(result.event).toBeUndefined();expect(result.comparison).toBeUndefined()
@@ -103,7 +103,7 @@ describe('portable observed-close drawing evaluation',()=>{
   const result=evaluateDrawingAlert(input({current:{timestamp:1001,close}}));expect(result.status).toBe('waiting');expect(result.event).toBeUndefined()
  })
  it('rejects log nonpositive prices, vertical lines, missing history and backwards observations',()=>{
-  const cases=[input({axis:'log',current:{timestamp:1001,close:0}}),input({bars:[]}),input({current:{timestamp:0,close:11}}),input({rule:{...rule,toolId:'straightLine'},geometry:{toolId:'straightLine',anchors:[anchor(1,10),anchor(1,20)]}})]
+  const cases=[input({axis:'log',current:{timestamp:1001,close:0}}),input({bars:[]}),input({current:{timestamp:0,close:11}}),input({rule:{...rule,toolId:'straightLine'},geometry:{kind:'line',toolId:'straightLine',anchors:[anchor(1,10),anchor(1,20)]}})]
   for(const value of cases){expect(evaluateDrawingAlert(value).status).toBe('waiting');expect(evaluateDrawingAlert(value).event).toBeUndefined()}
  })
  it('does not mutate once markers when no event occurs and separates replay events',()=>{
@@ -112,9 +112,9 @@ describe('portable observed-close drawing evaluation',()=>{
  })
 })
 describe('portable rule document validation',()=>{
- const document=()=>({version:1 as const,scope:'opaque scope',rules:[{rule:structuredClone(rule),hasTriggered:true,lastBarTimestamp:1001}]})
+ const document=()=>({version:2 as const,scope:'opaque scope',rules:[{rule:structuredClone(rule),hasTriggered:true,lastBarTimestamp:1001}]})
  it('accepts undeclared optional identity fields and an opaque scope',()=>{expect(()=>validateDrawingAlertDocument(document(),'opaque scope')).not.toThrow()})
  it.each([
-  (d:any)=>d.version=2,(d:any)=>d.scope='other',(d:any)=>d.rules.push(d.rules[0]),(d:any)=>d.rules[0].lastBarTimestamp=NaN,(d:any)=>delete d.rules[0].lastBarTimestamp,(d:any)=>d.rules[0].rule.toolId='rect',(d:any)=>d.rules[0].rule.identity.ticker='',(d:any)=>d.rules[0].rule.identity.market=null,(d:any)=>d.rules[0].rule.sourceOwner='backend',(d:any)=>d.rules[0].rule.period.multiplier=0,(d:any)=>d.rules[0].rule.condition='above',(d:any)=>d.rules[0].rule.extra='unknown'
+  (d:any)=>d.version=3,(d:any)=>d.scope='other',(d:any)=>d.rules.push(d.rules[0]),(d:any)=>d.rules[0].lastBarTimestamp=NaN,(d:any)=>delete d.rules[0].lastBarTimestamp,(d:any)=>d.rules[0].rule.toolId='rect',(d:any)=>d.rules[0].rule.identity.ticker='',(d:any)=>d.rules[0].rule.identity.market=null,(d:any)=>d.rules[0].rule.sourceOwner='backend',(d:any)=>d.rules[0].rule.period.multiplier=0,(d:any)=>d.rules[0].rule.condition='above',(d:any)=>d.rules[0].rule.extra='unknown'
  ])('rejects a complete invalid document before use',change=>{const value=document();change(value);expect(()=>validateDrawingAlertDocument(value,'opaque scope')).toThrow()})
 })

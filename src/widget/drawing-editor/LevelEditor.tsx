@@ -20,7 +20,7 @@ export function drawingLevelDraftChanged(items:DrawingLevelDraft[],before:Drawin
  return JSON.stringify(content(actual))!==JSON.stringify(content(original))
 }
 
-const LevelEditor:Component<{locale:string;label:string;items:DrawingLevelDraft[];inheritedColor?:string;change:(items:DrawingLevelDraft[])=>void}>=props=>{
+const LevelEditor:Component<{locale:string;label:string;items:DrawingLevelDraft[];inheritedColor?:string;change:(items:DrawingLevelDraft[])=>void;onAlert?:(id:string)=>void;alertDisabledReason?:string}>=props=>{
  const t=(zh:string,en:string)=>props.locale==='en-US'?en:zh,rows=createMemo(()=>new Map(props.items.map(item=>[item.id,item]))),[palette,setPalette]=createSignal<string>()
  let colorTrigger:HTMLButtonElement|undefined,addButton:HTMLButtonElement|undefined
  const rowNodes=new Map<string,HTMLFieldSetElement>()
@@ -55,6 +55,7 @@ const LevelEditor:Component<{locale:string;label:string;items:DrawingLevelDraft[
     <label>{t('线宽','Width')}<select aria-label={label('线宽','width')} value={width()??''} onChange={event=>patch(id,{width:event.currentTarget.value?Number(event.currentTarget.value):undefined})}><option value="">{t('继承对象','Inherit object')}</option><For each={styleControlOptions('lineWidth',width()).filter(value=>typeof value==='number'&&value>=1&&value<=4)}>{value=><option value={value}>{value}</option>}</For></select></label>
     <label>{t('线型','Line style')}<select aria-label={label('线型','line style')} value={style()??''} onChange={event=>patch(id,{style:(event.currentTarget.value||undefined) as DrawingLevel['style']})}><option value="">{t('继承对象','Inherit object')}</option><option value="solid">{t('实线','Solid')}</option><option value="dashed">{t('虚线','Dashed')}</option><option value="dotted">{t('点线','Dotted')}</option></select></label>
     <label>{t('正文','Text')}<input type="text" maxlength={500} aria-label={label('正文','text')} value={text()} onInput={event=>patch(id,{text:event.currentTarget.value})}/></label>
+    <Show when={props.onAlert}><button type="button" aria-label={label('添加提醒','add alert')} disabled={!!props.alertDisabledReason||!visible()} title={props.alertDisabledReason??(!visible()?t('请先开启此级别','Enable this level first'):undefined)} onClick={()=>props.onAlert?.(id)}>{t('添加此级别提醒','Add alert for this level')}</button></Show>
     <div class="tc-drawing-level-actions"><button type="button" aria-label={label('上移','move up')} disabled={index()===0} onClick={()=>move(id,-1)}>↑</button><button type="button" aria-label={label('下移','move down')} disabled={index()===props.items.length-1} onClick={()=>move(id,1)}>↓</button><button type="button" aria-label={label('删除','delete')} disabled={props.items.length<=1} title={props.items.length<=1?t('至少保留一级','Keep at least one level'):undefined} onClick={()=>remove(id)}>{t('删除级别','Delete level')}</button></div>
    </fieldset>
   }}</For>

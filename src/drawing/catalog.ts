@@ -19,6 +19,7 @@ export interface DrawingToolDescriptor {
   textMode?:'body'|'attached'
   labelGeometry?:'line'|'box'
   numericMove?:{bars:boolean;price:boolean}
+  alertLevels?:{resolverId:string;parameterKey:string}
   parameters:DrawingParameter[]
 }
 const groups:Array<[DrawingCategory,Array<[string,string,string,number,string?]>]>=[
@@ -111,6 +112,7 @@ const baseDrawingCatalog:DrawingToolDescriptor[]=groups.flatMap(([category,items
     ]:toolId==='fibonacciSpiral'?[{key:'segments',label:'弧段数',kind:'number' as const,min:2,max:32,defaultValue:9}]:toolId.startsWith('regression')?[{key:'source',label:'回归价格',kind:'text' as const,choices:['open','high','low','close'],defaultValue:'close'},{key:'extend',label:'向右延伸',kind:'boolean' as const,defaultValue:true},...(toolId==='regressionChannel'?[{key:'deviations',label:'残差标准差倍数',kind:'number' as const,min:0,max:10,defaultValue:2}]:[])]:category==='fibonacci'?[{key:'levels',label:'级别',kind:'levels' as const,defaultValue:toolId==='gannBox'?[0,.25,.5,.75,1]:[0,.236,.382,.5,.618,.786,1]}]:text?[{key:'textAlign',label:'文字对齐',kind:'text' as const,defaultValue:'left',choices:['left','center','right']}]:[]}
 }))
 export const builtinDrawingCatalog:DrawingToolDescriptor[]=baseDrawingCatalog.map(tool=>withTextCapabilities({...tool,
+  ...(['fibonacciLine','fibonacciExtension'].includes(tool.toolId)?{alertLevels:{resolverId:`tradingchest/${tool.toolId}`,parameterKey:'levels'}}:{}),
   ...(bodyTools.has(tool.toolId)?{textMode:'body' as const}:attachedTools.has(tool.toolId)?{textMode:'attached' as const,labelGeometry:tool.toolId==='rect'?'box' as const:'line' as const}:{}),
   numericMove:{bars:tool.toolId!=='anchoredText',price:!['anchoredText','anchoredVwap','fixedRangeVolumeProfile','regressionTrend','regressionChannel'].includes(tool.toolId)}
 }))
@@ -122,6 +124,7 @@ export function copyDrawingCatalog(input:DrawingToolDescriptor[]=builtinDrawingC
     if(item.textMode!==undefined&&!['body','attached'].includes(item.textMode)||item.textMode==='attached'&&!['line','box'].includes(item.labelGeometry??'')||item.textMode!=='attached'&&item.labelGeometry!==undefined)throw Error('绘图文字能力组合无效')
     if(item.numericMove!==undefined&&(!item.numericMove||typeof item.numericMove!=='object'||Array.isArray(item.numericMove)||Object.keys(item.numericMove).some(key=>!['bars','price'].includes(key))||typeof item.numericMove.bars!=='boolean'||typeof item.numericMove.price!=='boolean'))throw Error('绘图数值平移能力定义无效')
     if(!Array.isArray(item.parameters)||new Set(item.parameters.map(parameter=>parameter.key)).size!==item.parameters.length||item.parameters.some(parameter=>typeof parameter.key!=='string'||!parameter.key||!['number','text','boolean','levels','level-set','color'].includes(parameter.kind)))throw Error('绘图参数能力定义无效或重复')
+    if(item.alertLevels!==undefined){const capability=item.alertLevels;if(!capability||typeof capability!=='object'||Array.isArray(capability)||Object.keys(capability).some(key=>!['resolverId','parameterKey'].includes(key))||typeof capability.resolverId!=='string'||!capability.resolverId.trim()||typeof capability.parameterKey!=='string'||!item.parameters.some(parameter=>parameter.key===capability.parameterKey&&parameter.kind==='level-set'))throw Error('级别提醒能力必须引用已声明的级别集参数和解析器')}
     for(const parameter of item.parameters){if(parameter.kind==='level-set'){if(!isDrawingLevelValues(parameter.defaultValue))validateDrawingLevelPresetSet(parameter.defaultValue)}else validateDrawingParameters(item,{[parameter.key]:parameter.defaultValue})}
     ids.add(item.toolId);names.add(item.overlayName)
   }

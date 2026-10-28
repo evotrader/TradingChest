@@ -4,18 +4,8 @@ import {resolveDrawingLevels,type DrawingLevel,type DrawingLevelInput,type Drawi
 import {drawingStyleAuxiliary,drawingStyleInput,type DrawingStyleFigure} from '../drawing/styleControls'
 import {canProjectAxisValue,toolParameters} from './numerics'
 
-type Kind='fibonacciLine'|'fibonacciExtension'
-export function fibonacciLevelPrice(kind:Kind,values:readonly number[],ratio:number,mode:'linear'|'log',reverse:boolean):number {
- if(!Number.isFinite(ratio)||values.some(value=>!Number.isFinite(value)))throw Error('级别比例或锚点不是有限数值')
- const [a,b,c]=values
- if(mode==='log'&&values.some(value=>value<=0))throw Error('对数计算需要所有价格锚点大于零')
- const start=reverse?b:a,end=reverse?a:b
- const result=kind==='fibonacciLine'
-  ?mode==='log'?Math.exp(Math.log(end)+(Math.log(start)-Math.log(end))*ratio):end+(start-end)*ratio
-  :mode==='log'?Math.exp(Math.log(c)+(Math.log(b)-Math.log(a))*ratio*(reverse?-1:1)):c+(b-a)*ratio*(reverse?-1:1)
- if(!Number.isFinite(result)||mode==='log'&&result<=0)throw Error('级别结果超出有限数值范围')
- return result
-}
+import {fibonacciLevelPrice,type FibonacciKind as Kind} from '../drawing/fibonacciMath'
+export {fibonacciLevelPrice} from '../drawing/fibonacciMath'
 
 type Figure=OverlayFigure&DrawingStyleFigure
 /** Both tools share the value-domain formula, pane clipping and native figure/hit path. */

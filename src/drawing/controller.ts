@@ -5,6 +5,7 @@ import {withDrawingText} from './text'
 import {numericMoveIsZero} from './numericMove'
 import {copyDrawingCatalog,validateDrawingParameters,type DrawingToolDescriptor} from './catalog'
 import {extractDrawingStylePreset,applyDrawingPresetParameters,validateDrawingPresetParameters} from './presets'
+import {isDrawingLevelSet,resolveDrawingLevels,type DrawingLevelInput,type DrawingLevelPresetInput} from './levels'
 import type {DrawingHistory,DrawingWriteGuard} from './history'
 import type {DrawingCoordinator} from './coordinator'
 import type {DrawingPreferencesManager,DrawingStylePreset,DrawingTemplate} from './preferences'
@@ -169,7 +170,7 @@ export class DrawingController {
   private async run(command:DrawingIntent,before?:DrawingSnapshot[],assertContext?:()=>void):Promise<DrawingCommandResult>{
     if(this.disposed)return {status:'rejected',items:[],message:'绘图工作台已释放'}
     let result=complete()
-    this.executionIds='ids' in command?command.ids:undefined
+    this.executionIds='ids' in command?command.ids:command.type==='initialize-levels'?[command.id]:undefined
     this.previewBases=before
     if(!['undo','redo','view','copy','preferences','preferences-retry','template','tool'].includes(command.type))this.travelTarget=undefined
     try{
@@ -270,6 +271,17 @@ export class DrawingController {
         return values
         })
         this.selectedIds=result.items.filter(i=>i.status==='confirmed').map(i=>i.logicalId);this.options.selected?.([...this.selectedIds])
+      }else if(command.type==='initialize-levels'){
+        result=await this.batch(()=>{
+          const before=this.targets([command.id],true)[0],tool=this.catalog.find(tool=>tool.overlayName===before.overlay.name)
+          const parameter=tool?.parameters.find(parameter=>parameter.key===command.parameterKey&&parameter.kind==='level-set')
+          if(!parameter)throw Error('工具未声明该级别集参数')
+          const current=before.parameters?.[parameter.key]
+          if(isDrawingLevelSet(current))return []
+          const levels=resolveDrawingLevels(current as DrawingLevelInput,parameter.defaultValue as Exclude<DrawingLevelPresetInput,undefined>)
+          for(const level of levels.items)level.id=createOpaqueId()
+          return [{before,after:{...before,parameters:{...before.parameters,[parameter.key]:levels}}}]
+        },false,assertContext)
       }else if(command.type==='translate'){
         if(numericMoveIsZero(command)){this.targets(command.ids,true);result=complete()}
         else result=await this.batch(()=>{

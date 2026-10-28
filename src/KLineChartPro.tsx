@@ -22,6 +22,7 @@ import ChartProComponent, { type ChartComponentApi } from './ChartProComponent'
 import { SymbolInfo, Period, ChartPro, ChartProOptions } from './types'
 
 import KeyboardShortcutManager,{defaultBindings} from './shortcut'
+import {createDrawingAlertResolverMap} from './alert/drawingLevelResolvers'
 import {copyDrawingCatalog} from './drawing/catalog'
 import { exportToCSV, exportAllToCSV, exportScreenshot } from './export'
 import { AlertManager } from './alert'
@@ -33,6 +34,7 @@ import { getTradeVisHitTargets, cleanupTradeVisInstance } from './indicator/trad
 export default class KLineChartPro implements ChartPro {
   constructor (options: ChartProOptions) {
     const drawingCatalog=copyDrawingCatalog(options.drawingCatalog)
+    createDrawingAlertResolverMap(options.drawingAlertLevelResolvers)
     for(const tool of drawingCatalog)if(!getOverlayClass(tool.overlayName))throw new Error(`绘图模板 ${tool.overlayName} 尚未注册，请先调用 klinecharts.registerOverlay`)
 
     if (utils.isString(options.container)) {
@@ -64,6 +66,7 @@ export default class KLineChartPro implements ChartPro {
           drawingPreferencesScope={options.drawingPreferencesScope}
           drawingAlertScope={options.drawingAlertScope}
           onDrawingAlertStateChange={options.onDrawingAlertStateChange}
+          drawingAlertLevelResolvers={options.drawingAlertLevelResolvers}
           onDrawingAlertTrigger={options.onDrawingAlertTrigger}
           onReplayDrawingAlertTrigger={options.onReplayDrawingAlertTrigger}
           onDrawingStateChange={options.onDrawingStateChange}

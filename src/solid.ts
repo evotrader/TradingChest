@@ -7,7 +7,7 @@ export {migrateDrawingPreferences} from './drawing/preferences'
 export type {DrawingPreferences,DrawingPreferencesV1,DrawingPreferencesInput,DrawingPreferencesPatch,DrawingPreferencesState,DrawingPreferencesStore,DrawingTemplate,DrawingStylePreset,DrawingPresetParameters,DrawingSnappingOptions} from './drawing/preferences'
 export type {DrawingSnapshot,DrawingParameters,DrawingParameterPrimitive} from './drawing/types'
 // Analytical widgets (state-first; no domain recomputation)
-export type * from './alert/drawingTypes'
+export * from './alerts'
 export { WidgetState } from './widget/shared/WidgetState'
 export {
   DEFAULT_STATE_COPY,

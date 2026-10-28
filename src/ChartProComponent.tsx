@@ -779,7 +779,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     locale,
     validate:validateDrawingTarget,validateTransfer:values=>validateProjectionRestore(values),
     context:()=>({symbol:symbol(),period:period()}),apply:applyDrawing,commit:change=>props.commitDrawing?props.commitDrawing(change):Promise.resolve({status:'rejected',message:i18n('drawing_message_3',locale())}),
-    onChange:state=>{if(disposed)return;drawingAlerts?.refreshSources();setDrawingState(state);if(drawingPresentationFrame===undefined){
+    onChange:(state,sources)=>{if(disposed)return;drawingAlerts?.refreshSources(sources);setDrawingState(state);if(drawingPresentationFrame===undefined){
       const present=()=>{
         if(disposed){drawingPresentationFrame=undefined;return}
         if(drawingHistory.isYieldingLocalWork()){drawingPresentationFrame=requestAnimationFrame(present);return}
@@ -1136,7 +1136,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     return values
   })
 
-  drawingAlerts=new DrawingAlertRuntime({scope:props.drawingAlertScope,source:id=>drawingCoordinator.getDrawing(id),uncertain:id=>drawingHistory.getState().uncertainLogicalIds.includes(id),restoring:()=>drawingHistory.isLayoutRestoring(),invalidated:read=>untrack(()=>{if(drawingAlertOpen())setDrawingAlertStates(read());if(props.onDrawingAlertStateChange)props.onDrawingAlertStateChange(read())}),trigger:props.onDrawingAlertTrigger?event=>props.onDrawingAlertTrigger?.(event):undefined,replayTrigger:props.onReplayDrawingAlertTrigger?event=>props.onReplayDrawingAlertTrigger?.(event):undefined,error:error=>props.onError?.({type:'drawing-alert-callback',message:error instanceof Error?error.message:String(error),raw:error})})
+  drawingAlerts=new DrawingAlertRuntime({scope:props.drawingAlertScope,source:id=>drawingCoordinator.getDrawing(id),uncertain:id=>drawingHistory.isUncertain(id),restoring:()=>drawingHistory.isLayoutRestoring(),invalidated:read=>untrack(()=>{if(drawingAlertOpen())setDrawingAlertStates(read());if(props.onDrawingAlertStateChange)props.onDrawingAlertStateChange(read())}),trigger:props.onDrawingAlertTrigger?event=>props.onDrawingAlertTrigger?.(event):undefined,replayTrigger:props.onReplayDrawingAlertTrigger?event=>props.onReplayDrawingAlertTrigger?.(event):undefined,error:error=>props.onError?.({type:'drawing-alert-callback',message:error instanceof Error?error.message:String(error),raw:error})})
   drawingController.refresh()
   props.ref({
     getAnalysisContext:()=>analysis.getContext(),

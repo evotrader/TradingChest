@@ -42,10 +42,18 @@ try{
       const ready=()=>page.waitForFunction(()=>window.tcExample?.workspace.current?.getCells()[0]?.chart?.getChart()?.getDataList().length===300)
       await ready();assert.equal(await page.locator('[data-context="宿主 Context"]').count(),1)
       const created=await page.evaluate(()=>window.tcExample.metrics.created)
+      if(name==='react-vite'){await page.evaluate(async()=>{
+       const pro=tcExample.workspace.current.getCells()[0].chart;window.resolverChart=pro
+       const bars=pro.getChart().getDataList(),id='react-level',anchors=[{kind:'market',timestamp:bars[10].timestamp,value:90},{kind:'market',timestamp:bars[20].timestamp,value:110}]
+       const result=await pro.commitDrawing({kind:'create',logicalId:id,source:'programmatic',after:{logicalId:id,owner:'local',anchors,parameters:{levels:{version:1,items:[{id:'middle',value:.5,visible:true}]}},overlay:{id,name:'fibonacciLine',paneId:'candle_pane',groupId:'drawing_tools',points:anchors.map(a=>({timestamp:a.timestamp,value:a.value})),styles:null,extendData:null,visible:true,lock:false}}})
+       if(result.status!=='confirmed'||pro.executeDrawingAlertCommand({type:'create',drawingLogicalId:id,target:{kind:'level',levelId:'middle'}}).status!=='completed')throw Error('React initialOptions level capability was not wired')
+      })
+      assert.ok(await page.evaluate(()=>tcExample.metrics.levelResolutions>0))}
       await page.getByRole('button',{name:'切换主题',exact:true}).click()
       await page.getByRole('button',{name:'切换语言',exact:true}).click()
       await page.waitForFunction(()=>document.querySelector('.tc-workspace').dataset.locale==='en-US')
       assert.equal(await page.evaluate(()=>window.tcExample.metrics.created),created)
+      if(name==='react-vite')assert.equal(await page.evaluate(()=>resolverChart===tcExample.workspace.current.getCells()[0].chart&&resolverChart.getDrawingAlertState()[0].rule.target.resolverId==='example/react-level'),true)
       await page.getByRole('button',{name:'切换语言',exact:true}).click()
       await page.getByLabel('图表布局',{exact:true}).selectOption('2')
       await page.waitForFunction(()=>window.tcExample.workspace.current?.getCells().length===2&&window.tcExample.workspace.current.getCells().every(c=>c.chart?.getChart()?.getDataList().length===300))

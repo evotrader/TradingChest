@@ -15,9 +15,13 @@
   <img src="docs/public/image.png" alt="TradingChest Screenshot" width="800" />
 </p>
 
-## 0.15.0 local candidate
+## 0.16.0 local candidate
 
-The two Fib tools gain stable-ID level tables, per-level text, linear/log calculation and explicit rendering options. Favorites, recent tools, continuous drawing, pre-draw templates and configurable snap sources improve the drawing workflow. Generic third-party level-set capabilities use the same public helpers and editor. Preferences migrate from v1 to v2; layout/workspace/shared schemas and the 56-tool catalog remain unchanged. Local functional, package/framework, real-backend and performance checks passed, including all 172 performance obligations without budget changes and both 100-cycle cleanup workloads. This candidate has not been published to npm. See [0.15 migration](docs/en-US/upgrade/0.15.0.md).
+Both Fib tools can bind an alert to one confirmed stable level. Third-party tools declare the same capability through an instance catalog and pure resolver. Legacy arrays require explicit initialization; V2 alert documents migrate V1 purely and preserve unavailable sources as disabled rules. See [0.16 migration](docs/en-US/upgrade/0.16.0.md). This candidate is not published; use an actual local tarball to try it. Published installation remains 0.15.0.
+
+## 0.15.0 published
+
+The two Fib tools gain stable-ID level tables, per-level text, linear/log calculation and explicit rendering options. Favorites, recent tools, continuous drawing, pre-draw templates and configurable snap sources improve the drawing workflow. Generic third-party level-set capabilities use the same public helpers and editor. Preferences migrate from v1 to v2; layout/workspace/shared schemas and the 56-tool catalog remain unchanged. Local functional, package/framework, real-backend and performance checks passed, including all 172 performance obligations under the approved post-audit limits and both 100-cycle cleanup workloads. Version 0.15.0 is published on npm. See [0.15 migration](docs/en-US/upgrade/0.15.0.md).
 
 ## 0.14.0 local candidate
 
@@ -140,7 +144,7 @@ Candle Solid, Candle Hollow, Up Hollow, Down Hollow, OHLC, Area, **Heikin Ashi**
 ## Install
 
 ```bash
-npm install trading-chest@0.12.0 klinecharts@10.1.0
+npm install trading-chest@0.15.0 klinecharts@10.1.0
 ```
 
 ## React usage

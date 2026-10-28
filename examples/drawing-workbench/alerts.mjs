@@ -1,4 +1,5 @@
-import {KLineChartPro,captureLayout,restoreLayout,isChartLayoutV4} from 'trading-chest/chart'
+import {KLineChartPro,captureLayout,restoreLayout,isChartLayoutV4,instantiateDrawingLevelPreset,builtinDrawingCatalog} from 'trading-chest/chart'
+import {levelBandsDescriptor,levelBandsAlertResolver} from './level-bands.mjs'
 import {validateDrawingAlertDocument,evaluateDrawingAlert} from 'trading-chest/alerts'
 import 'trading-chest/dist/trading-chest.css'
 
@@ -18,7 +19,7 @@ async function mount(hidden=false,signal){
  host.append(container);const feed=makeFeed();let resolve,reject
  const ready=new Promise((done,fail)=>{resolve=done;reject=fail})
  let pro
- try{pro=new KLineChartPro({container,symbol,period,datafeed:feed,drawingAlertScope:scope,mainIndicators:[],subIndicators:[],onDataReady:()=>resolve(),onError:error=>reject(Error(error.message)),onDrawingAlertTrigger:event=>notice(`页面内提醒：${event.ruleId} · ${new Date(event.barTimestamp).toISOString()} · ${event.triggerPrice}`)})}
+ try{pro=new KLineChartPro({container,symbol,period,datafeed:feed,drawingCatalog:[...builtinDrawingCatalog,levelBandsDescriptor],drawingAlertLevelResolvers:[levelBandsAlertResolver],drawingAlertScope:scope,mainIndicators:[],subIndicators:[],onDataReady:()=>resolve(),onError:error=>reject(Error(error.message)),onDrawingAlertTrigger:event=>notice(`页面内提醒：${event.ruleId} · ${new Date(event.barTimestamp).toISOString()} · ${event.triggerPrice}${event.level?` · 级别 ${event.level.value} ${event.level.text??''}`:''}`)})}
  catch(error){container.remove();feed.dispose();throw error}
  const mounted={container,pro,feed,dispose:()=>{pro.dispose();container.remove()}}
  if(hidden)stage=mounted
@@ -54,7 +55,7 @@ function preflight(bundle){
   if(!drawing||drawing.owner!==rule.sourceOwner||drawing.backendId!==rule.backendId||drawing.overlay.name!==rule.toolId)throw Error('提醒来源与保存的布局不匹配；未采用新布局，原图与原件已保留')
  }
 }
-const busy=value=>{for(const id of ['save','restore','seed','lower','higher','append','import'])document.getElementById(id).disabled=value;document.querySelector('#cancel').disabled=!value}
+const busy=value=>{for(const id of ['save','restore','seed','seed-level','level-tool','lower','higher','append','import'])document.getElementById(id).disabled=value;document.querySelector('#cancel').disabled=!value}
 async function restore(){
  if(restoring)throw Error('已有恢复任务正在运行')
  const controller=new AbortController();restoring=controller;busy(true)
@@ -82,6 +83,16 @@ document.querySelector('#seed').onclick=run(async()=>{
  await pro.executeDrawingCommand({type:'select',ids:[id]});notice('已添加本图规则；从提醒管理查看、暂停或重置')
 })
 function update(delta,append=false){const previous=bars.at(-1),close=previous.close+delta,bar={...previous,timestamp:previous.timestamp+(append?60000:0),open:close,high:close+2,low:close-2,close};if(append)bars.push(bar);else bars[bars.length-1]=bar;for(const feed of feeds)feed.push(bar)}
+document.querySelector('#seed-level').onclick=run(async()=>{
+ const pro=active.pro,toolId=document.querySelector('#level-tool').value,custom=toolId==='EXAMPLE/LevelBands',key=custom?'zones':'levels',levels=instantiateDrawingLevelPreset([0,.5,1]),id='example-level-'+levels.items[0].id
+ levels.items[1].text='观察级别'
+ const anchors=[{kind:'market',timestamp:bars.at(-20).timestamp,value:90},{kind:'market',timestamp:bars.at(-1).timestamp,value:110},...(toolId==='fibonacciExtension'?[{kind:'market',timestamp:bars.at(-1).timestamp,value:90}]:[])]
+ const result=await pro.commitDrawing({kind:'create',logicalId:id,source:'programmatic',after:{logicalId:id,owner:'local',anchors,parameters:{[key]:levels,...(custom?{}:{extendRight:true})},presentation:{name:'示例单级提醒'},overlay:{id,name:toolId,paneId:'candle_pane',groupId:'drawing_tools',points:anchors.map(({timestamp,value})=>({timestamp,value})),styles:null,extendData:null,visible:true,lock:false}}})
+ if(result.status!=='confirmed')throw Error(result.message??'绘图尚未确认')
+ const alert=pro.executeDrawingAlertCommand({type:'create',drawingLogicalId:id,target:{kind:'level',levelId:levels.items[1].id},frequency:'once-per-bar'})
+ if(alert.status!=='completed')throw Error(alert.message)
+ await pro.executeDrawingCommand({type:'select',ids:[id]});notice('已添加比例 0.5 的级别提醒；自定义级别带仅在两锚点时间范围内运行')
+})
 document.querySelector('#lower').onclick=()=>update(-20);document.querySelector('#higher').onclick=()=>update(20);document.querySelector('#append').onclick=()=>update(0,true)
 document.querySelector('#export').onclick=run(async()=>{const value=active.pro.captureDrawingAlerts(),url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'})),link=document.createElement('a');link.href=url;link.download='drawing-alerts.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),0)})
 document.querySelector('#import').onchange=run(async()=>{const file=document.querySelector('#import').files[0];if(!file)return;const documentValue=JSON.parse(await file.text());if(closed)return;active.pro.restoreDrawingAlerts(documentValue);notice('规则已导入为暂停状态；原布局未改变')})

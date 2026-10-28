@@ -5,7 +5,7 @@
     "test": "node --test adapter.test.mjs"
   },
   "dependencies": {
-    "trading-chest": "file:../trading-chest-0.15.0.tgz",
+    "trading-chest": "file:../trading-chest-0.16.0.tgz",
     "klinecharts": "10.1.0"
   }
 }

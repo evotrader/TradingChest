@@ -32,7 +32,7 @@ window.sampleDrawingAlerts=async({count,rules,append})=>{
   const expected=rules*(append?99:1);if(events!==expected)throw Error(`穿越事件数量不符：${events}/${expected}`)
   output.events=events;output.actualRules=pro.getDrawingAlertState().length;output.sourceCount=pro.getDrawings().length;output.confirmedBars=pro.getChart().getDataList().length
   if(rules){
-   const definitions=pro.captureDrawingAlerts().rules.map(entry=>entry.rule),geometry={toolId:'horizontalStraightLine',anchors:[anchor]},timestamp=bars.at(-1).timestamp
+   const definitions=pro.captureDrawingAlerts().rules.map(entry=>entry.rule),geometry={kind:'line',toolId:'horizontalStraightLine',anchors:[anchor]},timestamp=bars.at(-1).timestamp
    for(let i=0;i<100;i++){
     let actual=0;const start=performance.now()
     for(const rule of definitions)if(evaluateDrawingAlert({rule,geometry,bars,previous:{timestamp,close:99},current:{timestamp,close:101},state:{hasTriggered:false}}).event)actual++

@@ -3,5 +3,6 @@
 <h1>画线提醒与布局存储</h1><p>隔离合成行情，不连接真实行情、交易或消息服务。仅本页运行，关闭后停止。恢复规则一律暂停；继续监控保留去重，重置并启用清除去重。</p>
 <p><a href="./index.html">返回共享绘图工作台</a></p>
 <button id="seed">添加水平线及提醒</button><button id="lower">当前 close 降低 20</button><button id="higher">当前 close 提高 20</button><button id="append">新增一根 K 线</button>
+<label>级别工具 <select id="level-tool"><option value="fibonacciLine">Fib 回撤</option><option value="fibonacciExtension">Fib 扩展</option><option value="EXAMPLE/LevelBands">自定义级别带</option></select></label><button id="seed-level">添加单级提醒</button>
 <button id="save">保存布局及提醒</button><button id="restore">恢复布局及提醒</button><button id="cancel" disabled>取消恢复</button><button id="export">导出提醒 JSON</button><label>导入提醒 JSON <input id="import" type="file" accept="application/json,.json"></label>
 <p role="status" id="status">正在初始化</p><div id="charts"></div><script type="module" src="./alerts.mjs"></script></html>

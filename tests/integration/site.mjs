@@ -6,6 +6,7 @@ import {packedWorkspace,example,command,root,evidence} from './support.mjs'
 import {launchBrowser} from '../browser/support.mjs'
 import {runDrawingComparison} from './drawing-comparison.mjs'
 import {runDrawingWorkbenchExample} from './drawing-workbench.mjs'
+import {runDrawingAlertsExample} from './drawing-alerts.mjs'
 const website=path.join(root,'website'),base='/TradingChest/'
 if(process.argv.includes('--build')){
  await command('npm',['run','docs:build'],root)
@@ -47,6 +48,8 @@ if(process.argv.includes('--test')){
   await page.getByRole('link',{name:'升级到 0.12.0',exact:true}).click();await page.getByRole('heading',{name:/^升级到 0\.12\.0\b/,level:1}).waitFor();await page.getByRole('link',{name:'公式与完整参数',exact:true}).click();await page.getByRole('heading',{name:/^0\.12 属性与量价精修/,level:2}).waitFor()
   await page.goto(origin+base+'en-US/frameworks.html');await page.getByRole('link',{name:'API',exact:true}).click();await page.getByRole('heading',{name:/^API/}).waitFor()
   await page.getByRole('link',{name:'Upgrade to 0.12.0',exact:true}).click();await page.getByRole('heading',{name:/^Upgrade to 0\.12\.0\b/,level:1}).waitFor();await page.getByRole('link',{name:'formulas and parameters',exact:true}).click();await page.getByRole('heading',{name:/^0\.12 styling and volume refinement/,level:2}).waitFor()
+  await page.getByRole('link',{name:'0.16 level alerts candidate',exact:true}).click();await page.getByRole('heading',{name:/^0\.16\.0 level alerts/,level:1}).waitFor()
+  await page.goto(origin+base);await page.getByRole('link',{name:'0.16 单级提醒候选',exact:true}).click();await page.getByRole('heading',{name:/^0\.16\.0 单级提醒升级/,level:1}).waitFor()
   await page.goto(origin+base+'demos/');const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('link',{name:'下载 Next.js 源码包',exact:true}).click()]);assert.equal(download.suggestedFilename(),'next-app-source.tar.gz');assert.equal(await download.failure(),null);await page.getByRole('link',{name:'JS 分析图层',exact:true}).click();await page.waitForFunction(()=>window.analysisDemo?.ready)
   await page.getByRole('button',{name:'添加两个指标实例',exact:true}).click();await page.getByRole('status').filter({hasText:'已添加两个独立实例'}).waitFor()
   await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'JS 数据与工作台',exact:true}).click();await page.waitForFunction(()=>window.dataWorkspaceDemo?.ready)
@@ -54,6 +57,7 @@ if(process.argv.includes('--test')){
   await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'React 单图与工作台',exact:true}).click();await page.waitForFunction(()=>window.tcExample?.workspace.current?.getCells()[0]?.chart?.getChart()?.getDataList().length===300)
   await page.getByRole('button',{name:'卸载',exact:true}).click();await page.waitForFunction(()=>window.tcExample.metrics.created===window.tcExample.metrics.disposed)
   await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'绘图工作台',exact:true}).click();await runDrawingWorkbenchExample(page,page.url());await runDrawingComparison(page,page.url(),evidence)
+  await runDrawingAlertsExample(page,origin+base+'demos/drawing-workbench')
   await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'Vue 图表',exact:true}).click();await page.waitForFunction(()=>window.tcVue?.chart?.getChart()?.getDataList().length===300)
   await page.getByRole('button',{name:'卸载',exact:true}).click();await page.waitForFunction(()=>window.tcVue.metrics.created===window.tcVue.metrics.disposed)
   assert.deepEqual(errors,[]);assert.deepEqual(bad,[]);assert.deepEqual(api,[])

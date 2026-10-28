@@ -4,10 +4,10 @@ import {execFileSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
 import path from 'node:path'
 
-export function prepareLegacyDrawingReader(){
+export function prepareLegacyDrawingReader(version='0.14.0'){
  const root=fileURLToPath(new URL('../../',import.meta.url)),parent=path.join(root,'test-results');mkdirSync(parent,{recursive:true})
- const directory=mkdtempSync(path.join(parent,'legacy-drawing-014-'))
- try{execFileSync('tar',['-xzf',path.join(root,'tests/fixtures/trading-chest-0.14.0.tgz'),'-C',directory]);assert.equal(JSON.parse(readFileSync(path.join(directory,'package/package.json'),'utf8')).version,'0.14.0')}
+ const directory=mkdtempSync(path.join(parent,'legacy-drawing-'+version+'-'))
+ try{execFileSync('tar',['-xzf',path.join(root,`tests/fixtures/trading-chest-${version}.tgz`),'-C',directory]);assert.equal(JSON.parse(readFileSync(path.join(directory,'package/package.json'),'utf8')).version,version)}
  catch(error){rmSync(directory,{recursive:true,force:true});throw error}
  return {entry:'/'+path.relative(root,path.join(directory,'package/dist/entries/chart.js')).split(path.sep).join('/'),dispose:()=>rmSync(directory,{recursive:true,force:true})}
 }

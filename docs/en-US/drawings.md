@@ -183,3 +183,7 @@ The picker supports direct favorites and 12 recent tools. The toolbar exposes co
 Fib previews and confirmed objects use the same instance catalog defaults and parameter declarations, including continuous drawing and Space restoration. Indicator snapping accepts only valid results actually published by the current calculator. A late success or failure from a replaced calculator invalidates eligibility when its shared result array may have changed; a subsequent valid publication by the current calculator restores snapping.
 
 Third-party descriptors can declare `kind:'level-set'` under any key and use the same editor and public resolver. Omission does not infer capability. Preferences migrate purely from v1 to v2; layout/workspace/shared versions stay unchanged. The old 0.14 reader rejects new level objects while retaining storage. See [0.15 migration](./upgrade/0.15.0.md).
+
+## 0.16 level alerts {#drawing-level-alerts}
+
+Use the existing level/editor/properties entry to choose a stable level. Legacy arrays require explicit confirmed initialization and reselection. Drafts are never monitored. Hidden/deleted levels disable rules; restored targets require resume. Geometry changes clear only the comparison point; style/text/order retain observation. Event text and ratio are trigger-time snapshots. V1 migrates purely to V2 and unavailable sources remain disabled. See [0.16 migration](./upgrade/0.16.0.md) for custom parameter keys, instance resolvers, time domains and separate persistence. This candidate is not published.

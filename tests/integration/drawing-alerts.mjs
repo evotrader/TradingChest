@@ -22,5 +22,12 @@ export async function runDrawingAlertsExample(page,url){
  const cancelled=await page.evaluate(async()=>{const pro=alertExample.pro,promise=alertExample.restore();document.querySelector('#cancel').click();try{await promise;return {cancelled:false}}catch(error){return {cancelled:error.name==='AbortError',same:pro===alertExample.pro,feeds:alertExample.feeds,subscriptions:alertExample.subscriptions}}})
  assert.deepEqual(cancelled,{cancelled:true,same:true,feeds:1,subscriptions:1})
  await page.getByRole('button',{name:'关闭提醒管理',exact:true}).click()
- return {nativeIndexedDB:true,atomicLayoutAndAlerts:true,restoredPaused:true,resumeDeduplicates:true,rearmExplicit:true,invalidBindingPreservesActiveAndStored:true,cancellation:true,singleOwnedFeed:true}
+ for(const tool of ['fibonacciLine','fibonacciExtension','EXAMPLE/LevelBands']){
+  await page.locator('#level-tool').selectOption(tool);await page.locator('#seed-level').click();await page.waitForFunction(tool=>alertExample.pro.getDrawingAlertState().some(s=>s.rule.toolId===tool),tool)
+  await page.locator('#lower').click();await page.locator('#higher').click();await page.waitForFunction(tool=>alertExample.pro.getDrawingAlertState().find(s=>s.rule.toolId===tool).records.length===1,tool)
+  const state=await page.evaluate(tool=>alertExample.pro.getDrawingAlertState().find(s=>s.rule.toolId===tool),tool);assert.equal(state.records[0].referencePrice,100);assert.equal(state.records[0].level.text,'观察级别');assert.equal(state.rule.target.parameterKey,tool==='EXAMPLE/LevelBands'?'zones':'levels')
+ }
+ await page.locator('#save').click();await page.locator('#status').filter({hasText:'同一 IndexedDB 事务中保存'}).waitFor();const levelSaved=await page.evaluate(()=>alertExample.read());assert.equal(levelSaved.alerts.version,2);assert.equal(levelSaved.alerts.rules.length,4)
+ await page.reload();await page.waitForFunction(()=>window.alertExample?.pro?.getAnalysisContext());await page.locator('#restore').click();await page.locator('#status').filter({hasText:'整体恢复'}).waitFor();assert.ok(await page.evaluate(()=>alertExample.pro.getDrawingAlertState().every(s=>!s.enabled&&s.hasTriggered)));assert.deepEqual(await page.evaluate(()=>alertExample.pro.captureDrawingAlerts()),levelSaved.alerts)
+ return {nativeIndexedDB:true,atomicLayoutAndAlerts:true,restoredPaused:true,resumeDeduplicates:true,rearmExplicit:true,invalidBindingPreservesActiveAndStored:true,cancellation:true,singleOwnedFeed:true,twoFibonacciAndGenericZones:true,v2Markers:true}
 }

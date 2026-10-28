@@ -8,7 +8,7 @@ export function installDrawingCleanup(){
  const add=EventTarget.prototype.addEventListener,remove=EventTarget.prototype.removeEventListener,timeout=window.setTimeout,clearTimeout=window.clearTimeout,interval=window.setInterval,clearInterval=window.clearInterval,raf=window.requestAnimationFrame,cancelRaf=window.cancelAnimationFrame,Observer=window.ResizeObserver,open=IDBFactory.prototype.open,close=IDBDatabase.prototype.close,subscribe=DrawingSession.prototype.subscribe
  const listeners:any[]=[],timers=new Set(),frames=new Set(),observers=new Set(),connections=new Set<IDBDatabase>();let subscribers=0,resources:any,cycle=0
  const disposeAlerts=DrawingAlertRuntime.prototype.dispose;let alertLeaks=0,alertDisposals=0
- DrawingAlertRuntime.prototype.dispose=function(){disposeAlerts.call(this);alertDisposals++;if(this.getState().length)alertLeaks++}
+ DrawingAlertRuntime.prototype.dispose=function(){disposeAlerts.call(this);alertDisposals++;if(this.getState().length||(this as any).rulesBySource.size||(this as any).resolvers.size||(this as any).catalog.length)alertLeaks++}
  const owned=()=>new Error().stack?.split('\n').slice(1).find(line=>!line.includes('/tests/browser/'))?.includes('/src/')??false
  const capture=(options:any)=>typeof options==='boolean'?options:!!options?.capture
  EventTarget.prototype.addEventListener=function(type:any,handler:any,options:any){if(handler&&owned()&&!listeners.some(x=>x.target.deref()===this&&x.type===type&&x.handler.deref()===handler&&x.capture===capture(options)))listeners.push({target:new WeakRef(this),type,handler:new WeakRef(handler),capture:capture(options),source:new Error().stack?.split('\n').find(line=>line.includes('/src/'))});return add.call(this,type,handler,options)}
@@ -30,7 +30,7 @@ export function installDrawingCleanup(){
    alertLeaks=0;alertDisposals=0
    const databaseName='tc-drawing-cleanup-'+crypto.randomUUID(),preferences=createIndexedDBDrawingPreferencesStore({databaseName}),documents=createIndexedDBDrawingDocumentStore({databaseName}),registry=new DrawingSessionRegistry({scope:'host',store:documents}),resolution={identity,documentId:'fixed'}
    resources={databaseName,preferences,documents,registry,resolution}
-   await bench.mount({count:10000,layout:2,n:10,volume,resources:{drawingHostSessions:registry,resolveDrawingShareKey:()=>resolution,drawingPreferencesStore:preferences,drawingPreferencesScope:'isolated-cleanup'}})
+   await bench.mount({count:10000,layout:2,n:10,volume,resources:{drawingHostSessions:registry,resolveDrawingShareKey:()=>resolution,drawingPreferencesStore:preferences,drawingPreferencesScope:'isolated-cleanup',drawingAlertLevelResolvers:[{id:'cleanup/instance',resolve:()=>({status:'unavailable',reason:'隔离清理解析器'})}]}})
    await registry.bind(resolution);const deadline=performance.now()+10000;while(!bench.charts.every((c:any)=>c.getDrawingState().sharing?.host)){if(performance.now()>deadline)throw Error('共享借用绑定未完成');await new Promise(r=>timeout(r,1))}
    await Promise.all(bench.charts.map((c:any)=>c.executeDrawingCommand({type:'preferences-retry'})))
    for(const pro of bench.charts){
@@ -49,6 +49,10 @@ export function installDrawingCleanup(){
     const original=pro.getDrawings().find((drawing:any)=>drawing.logicalId==='bench-0000'),point={timestamp:bars.at(-30).timestamp,value:axis.convertFromPixel(height*.5)},overlaps=[0,1].map(index=>{const id=`cleanup-overlap-${index}`;return {...original,logicalId:id,anchors:[{kind:'market',...point}],overlay:{...original.overlay,id,name:'horizontalStraightLine',points:[point]}}})
     pro.restoreDrawings('local',[...pro.getDrawings(),...overlaps])
     if(pro.executeDrawingAlertCommand({type:'create',drawingLogicalId:'bench-0000',frequency:'once-per-bar'}).status!=='completed'||pro.getDrawingAlertState().length!==1)throw Error('清理验收未建立真实画线提醒')
+    if(pro.executeDrawingAlertCommand({type:'create',drawingLogicalId:fib.logicalId,target:{kind:'level',levelId:fib.parameters.levels.items[1].id},frequency:'once-per-bar'}).status!=='completed'||pro.getDrawingAlertState().length!==2)throw Error('清理验收未建立级别提醒')
+    const savedAlerts=pro.captureDrawingAlerts();pro.restoreDrawingAlerts(savedAlerts)
+    if(pro.getDrawingAlertState().some((state:any)=>state.enabled))throw Error('清理验收恢复提醒意外启用')
+    for(const state of pro.getDrawingAlertState())if(pro.executeDrawingAlertCommand({type:'resume',id:state.rule.id}).status!=='completed')throw Error('清理验收未继续监控两类提醒')
     if(volume){const result=await pro.executeDrawingCommand({type:'update',ids:['volume-0'],patch:{parameters:{bandMode:'standard-deviation',bandMultipliers:[1,2,3]}}});if(result.status!=='completed')throw Error('清理验收未启用三组标准差带')}
    }
    await bench.frame();curveCharts=bench.charts.map((pro:any)=>pro.getChart());if(!curveCharts.every(hasCurveGeometry))throw Error('三种曲线未实际进入几何缓存')

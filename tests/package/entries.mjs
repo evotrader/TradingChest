@@ -23,16 +23,27 @@ try {
   assert.equal(existsSync(path.join(dir,'node_modules/react-dom')), false, 'chart-only install pulled ReactDOM')
   writeFileSync(path.join(dir,'testing.mjs'),`import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {validateHistoryResult,HistoryError} from 'trading-chest/testing';assert.equal(globalThis.window,undefined);assert.equal(typeof createRequire(import.meta.url)('trading-chest/testing').validateHistoryQuery,'function');const result={bars:[],hasMoreBefore:false};assert.equal(validateHistoryResult(result,{kind:'before',before:1,countBack:1}),result);assert.throws(()=>validateHistoryResult({bars:[],hasMoreBefore:true},{kind:'before',before:1,countBack:1}),HistoryError);console.log('DOM-free ESM/CJS production validators PASS');`)
   console.log(run(process.execPath,['testing.mjs']))
-  writeFileSync(path.join(dir,'alerts.mjs'),`import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {evaluateDrawingAlert,validateDrawingAlertDocument} from 'trading-chest/alerts';assert.equal(globalThis.window,undefined);assert.equal(globalThis.document,undefined);const rule={id:'rule',drawingLogicalId:'line',sourceOwner:'local',toolId:'straightLine',identity:{ticker:'PORTABLE',market:'test',priceCurrency:'USD'},period:{multiplier:1,timespan:'minute'},condition:'crossing-up',frequency:'once'};const input={rule,geometry:{toolId:'straightLine',anchors:[{kind:'market',timestamp:0,value:10},{kind:'market',timestamp:1000,value:30}]},bars:[{timestamp:0},{timestamp:10},{timestamp:1000},{timestamp:1001}],previous:{timestamp:1001,close:39},current:{timestamp:1001,close:41},state:{hasTriggered:false}};const esm=evaluateDrawingAlert(input),cjs=createRequire(import.meta.url)('trading-chest/alerts').evaluateDrawingAlert(input);assert.deepEqual(cjs,esm);assert.equal(esm.event.referencePrice,40);validateDrawingAlertDocument({version:1,scope:'opaque',rules:[{rule,hasTriggered:true,lastBarTimestamp:1001}]},'opaque');console.log('DOM-free alerts ESM/CJS without chart/framework runtimes PASS');`)
+  writeFileSync(path.join(dir,'alerts.mjs'),`import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {evaluateDrawingAlert,validateDrawingAlertDocument} from 'trading-chest/alerts';assert.equal(globalThis.window,undefined);assert.equal(globalThis.document,undefined);const rule={id:'rule',drawingLogicalId:'line',sourceOwner:'local',target:{kind:'line'},toolId:'straightLine',identity:{ticker:'PORTABLE',market:'test',priceCurrency:'USD'},period:{multiplier:1,timespan:'minute'},condition:'crossing-up',frequency:'once'};const input={rule,geometry:{kind:'line',toolId:'straightLine',anchors:[{kind:'market',timestamp:0,value:10},{kind:'market',timestamp:1000,value:30}]},bars:[{timestamp:0},{timestamp:10},{timestamp:1000},{timestamp:1001}],previous:{timestamp:1001,close:39},current:{timestamp:1001,close:41},state:{hasTriggered:false}};const esm=evaluateDrawingAlert(input),cjs=createRequire(import.meta.url)('trading-chest/alerts').evaluateDrawingAlert(input);assert.deepEqual(cjs,esm);assert.equal(esm.event.referencePrice,40);validateDrawingAlertDocument({version:2,scope:'opaque',rules:[{rule,hasTriggered:true,lastBarTimestamp:1001}]},'opaque');console.log('DOM-free alerts ESM/CJS without chart/framework runtimes PASS');`)
   // Make the runtime peers genuinely unavailable in this isolated installation.
   writeFileSync(path.join(dir,'alerts.mjs'),readFileSync(path.join(dir,'alerts.mjs'),'utf8')+`
 for(const evaluate of [evaluateDrawingAlert,createRequire(import.meta.url)('trading-chest/alerts').evaluateDrawingAlert]){
  for(const [last,x,expected] of [[9,1,3],[3,4,9]])for(const [condition,before,now,crosses] of [['crossing-up',expected-1,expected,true],['crossing-up',expected,expected+1,false],['crossing-down',expected+1,expected,true],['crossing-down',expected,expected-1,false]]){
-  const result=evaluate({...input,rule:{...rule,condition},axis:'log',geometry:{toolId:'straightLine',anchors:[{kind:'market',timestamp:0,value:1},{kind:'market',timestamp:2,value:last}]},bars:[0,1,2,3,4].map(timestamp=>({timestamp})),previous:{timestamp:x,close:before},current:{timestamp:x,close:now}});
+  const result=evaluate({...input,rule:{...rule,condition},axis:'log',geometry:{kind:'line',toolId:'straightLine',anchors:[{kind:'market',timestamp:0,value:1},{kind:'market',timestamp:2,value:last}]},bars:[0,1,2,3,4].map(timestamp=>({timestamp})),previous:{timestamp:x,close:before},current:{timestamp:x,close:now}});
   assert.equal(!!result.event,crosses);if(result.event)assert.equal(result.event.referencePrice,expected);
  }
 }
 console.log('Packed log interpolation/extrapolation equality ESM/CJS PASS');`)
+  writeFileSync(path.join(dir,'alerts.mjs'),readFileSync(path.join(dir,'alerts.mjs'),'utf8')+`
+for(const api of [await import('trading-chest/alerts'),createRequire(import.meta.url)('trading-chest/alerts')]){
+ assert.equal(api.fibonacciLevelPrice('fibonacciLine',[90,110],.25,'linear',false),105);
+ const oldRule={...rule};delete oldRule.target;const old={version:1,scope:'opaque',rules:[{rule:oldRule,hasTriggered:true,lastBarTimestamp:1001}]},before=JSON.stringify(old);
+ const migrated=api.migrateDrawingAlertDocument(old,'opaque');assert.equal(migrated.version,2);assert.deepEqual(migrated.rules[0].rule.target,{kind:'line'});assert.equal(JSON.stringify(old),before);assert.equal(migrated.rules[0].hasTriggered,true);
+ const target={kind:'level',resolverId:'tradingchest/fibonacciLine',parameterKey:'levels',levelId:'stable-id'},anchors=[{kind:'market',timestamp:0,value:90},{kind:'market',timestamp:1000,value:110}],level={id:'stable-id',value:.25,visible:true,text:'Snapshot'};
+ const resolved=api.builtinDrawingAlertLevelResolvers[0].resolve({toolId:'fibonacciLine',parameterKey:'levels',anchors,level,parameters:{calculationMode:'linear',reverse:false,extendLeft:true,extendRight:true}});
+ const evaluated=api.evaluateDrawingAlert({...input,rule:{...rule,target,toolId:'fibonacciLine'},geometry:{kind:'level',toolId:'fibonacciLine',target,anchors,...resolved,levelValue:level.value,levelText:level.text},previous:{timestamp:1001,close:104},current:{timestamp:1001,close:106},state:{hasTriggered:false}});
+ assert.equal(evaluated.event.referencePrice,105);assert.equal(evaluated.event.level.levelId,'stable-id');assert.equal(evaluated.event.level.text,'Snapshot');
+}
+console.log('Packed level mathematics, v1 migration and v2 evaluation ESM/CJS without DOM or peers PASS');`)
   const {renameSync}=await import('node:fs'),held=path.join(dir,'held-peers');mkdirSync(held)
   for(const name of ['klinecharts','solid-js'])renameSync(path.join(dir,'node_modules',name),path.join(held,name))
   try{console.log(run(process.execPath,['alerts.mjs']))}finally{for(const name of ['klinecharts','solid-js'])renameSync(path.join(held,name),path.join(dir,'node_modules',name))}
@@ -89,6 +100,12 @@ import type {DrawingAlertState as RootAlert} from 'trading-chest';
 import type {DrawingAlertState as ChartAlert} from 'trading-chest/chart';
 import type {DrawingAlertState as SolidAlert} from 'trading-chest/solid';
 import {evaluateDrawingAlert,type DrawingAlertEvaluation} from 'trading-chest/alerts';
+import type {DrawingAlertLevelResolver,DrawingAlertDocumentV2} from 'trading-chest/alerts';
+import type {DrawingAlertLevelResolver as RootLevelResolver,DrawingAlertDocumentV2 as RootAlertsV2} from 'trading-chest';
+import type {DrawingAlertLevelResolver as ChartLevelResolver,DrawingAlertDocumentV2 as ChartAlertsV2} from 'trading-chest/chart';
+import type {DrawingAlertLevelResolver as SolidLevelResolver,DrawingAlertDocumentV2 as SolidAlertsV2} from 'trading-chest/solid';
+declare const resolver:DrawingAlertLevelResolver;const exportedResolvers:[RootLevelResolver,ChartLevelResolver,SolidLevelResolver]=[resolver,resolver,resolver];void exportedResolvers;
+declare const v2:DrawingAlertDocumentV2;const exportedDocuments:[RootAlertsV2,ChartAlertsV2,SolidAlertsV2]=[v2,v2,v2];void exportedDocuments;
 declare const rootAlert:RootAlert;const chartAlert:ChartAlert=rootAlert;const solidAlert:SolidAlert=chartAlert;void solidAlert;
 declare const evaluation:DrawingAlertEvaluation;void evaluateDrawingAlert(evaluation);
 import type {DrawingStyleControl as RootStyle,DrawingToolDescriptor as RootTool,VwapBandMode as RootMode,VwapBandBoundary as RootBoundary,VwapBandsSummary as RootBands} from 'trading-chest';

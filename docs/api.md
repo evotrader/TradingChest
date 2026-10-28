@@ -415,8 +415,8 @@ import type {
 | --- | --- |
 | `executeDrawingAlertCommand(command)` | 同步 `{status:'completed'|'rejected',id?,message?}`；create/update/pause/resume/rearm/delete |
 | `getDrawingAlertState()` | 规则及 live/replay 状态副本；记录各最多100条 |
-| `captureDrawingAlerts()` | 独立 `DrawingAlertDocumentV1` 副本，不含价格缓存、比较点或临时记录 |
-| `restoreDrawingAlerts(document)` | 全批预检后替换为暂停；非法版本、规则、scope、重复ID或当前来源绑定失败抛错并保原 |
+| `captureDrawingAlerts()` | 独立 `DrawingAlertDocumentV2` 副本，不含价格缓存、比较点或临时记录 |
+| `restoreDrawingAlerts(document: DrawingAlertDocumentV1 | DrawingAlertDocumentV2)` | 全批预检后替换为暂停；非法版本、规则、scope、重复ID或当前来源绑定失败抛错并保原 |
 
 create 接受 drawingLogicalId、可选 id/condition/frequency/message；默认 crossing/once。update 仅接受 condition/frequency/message，来源身份固定。pause/resume 保留 hasTriggered/lastBarTimestamp；rearm 清这两个标记、保记录。once 已触发的 resume 拒绝。新规则及 resume/rearm 后首个有效样本只建比较点。
 
@@ -489,3 +489,7 @@ interface DrawingLevelPresetSet { version: 1; items: DrawingLevelAppearance[] }
 `DrawingCommand` 的 tool 分支新增可选 `templateId:string`，须与 toolId 匹配；预检失败保旧预览，成功后按捕获副本建立绘图会话。默认仍为最近样式→工具默认→宿主／引擎默认。`DrawingState.snapping` 派生自偏好，不能单独写入。
 
 `DrawingPreferencesInput=DrawingPreferencesV1|DrawingPreferences`，后者version为2，新增 `ui.snapping:DrawingSnappingOptions`：`ohlc:boolean`、`indicators:boolean`、`weakSensitivity:4|8|12|16`。`migrateDrawingPreferences` 不改输入，`DrawingPreferencesPatch.ui.snapping` 支持部分更新。自定义 store.read 可返回v1/v2，write只接收v2；读取、注入、初始值及迟到合并共用迁移／目录校验，未知版本或损坏原件不覆盖。
+
+## 0.16 单级提醒接口
+
+`DrawingToolDescriptor.alertLevels?:{resolverId:string;parameterKey:string}` 指向该工具的 level-set。`ChartProOptions.drawingAlertLevelResolvers` 接收纯同步实例解析器。`DrawingCommand` 新增 `initialize-levels`（id、parameterKey）；提醒 create 新增可选 `target:{kind:"level",levelId}`，规则完整 target 由目录捕获。`captureDrawingAlerts` 返回 V2，restore 接受 V1/V2；`migrateDrawingAlertDocument` 纯迁移并返回深副本。`DrawingAlertEvent.level` 是可选触发快照。公开类型、解析器输入／结果、比较键、数学、严格原子校验与不可用来源的恢复策略见 [0.16 契约](./upgrade/0.16.0.md)。上述类型和纯 helper 从 root/chart/solid/alerts 导出。

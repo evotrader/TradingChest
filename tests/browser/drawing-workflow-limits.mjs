@@ -1,4 +1,5 @@
-export const workflowBudgets=Object.freeze({histories:[10000,50000],tools:['fibonacciLine','fibonacciExtension'],mounts:10,moves:20,levels:64,dragP95:150})
+// Operator-approved on 2026-10-28: only 10k mixed uses an absolute ceiling; 50k retains the 10% target.
+export const workflowBudgets=Object.freeze({histories:[10000,50000],tools:['fibonacciLine','fibonacciExtension'],mounts:10,moves:20,levels:64,dragP95:150,mixed10kMaximum:1550})
 
 /** Retain the complete original mixed workload, even when its old limit failed. */
 function validateMixed(value,name){
@@ -22,7 +23,7 @@ function validateMixed(value,name){
 export function mixedTargets(baseline,candidate){
  validateMixed(baseline,'baseline');validateMixed(candidate,'candidate')
  return workflowBudgets.histories.map(history=>{
-  const values=data=>data.cases.find(entry=>entry.history===history).mixed.map(sample=>sample.latency),baselineMaximum=Math.max(...values(baseline)),maximum=Math.max(...values(candidate)),limit=Math.min(1700,.9*baselineMaximum)
+  const values=data=>data.cases.find(entry=>entry.history===history).mixed.map(sample=>sample.latency),baselineMaximum=Math.max(...values(baseline)),maximum=Math.max(...values(candidate)),limit=history===10000?workflowBudgets.mixed10kMaximum:Math.min(1700,.9*baselineMaximum)
   return {history,metric:'mixed1002-translate-improvement',n:20,baselineMaximum,maximum,limit,passed:maximum<=limit}
  })
 }

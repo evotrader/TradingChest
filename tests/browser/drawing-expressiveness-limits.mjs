@@ -1,5 +1,6 @@
 // The operator approved only mixed translation at 1700ms and restore longtask at 200ms after focused R6 on 2026-10-27.
-export const expressivenessBudgets=Object.freeze({histories:[10000,50000],mounts:10,updates:100,menuRounds:20,ordinaryRounds:20,mixedRounds:10,labelIncrement:15,menuP95:150,ordinaryMaximum:300,mixedMaximum:1700,restoreLongTask:200})
+// The 2026-10-28 audit-fix approval replaces only the restore ceilings with 900/250ms.
+export const expressivenessBudgets=Object.freeze({histories:[10000,50000],mounts:10,updates:100,menuRounds:20,ordinaryRounds:20,mixedRounds:10,labelIncrement:15,menuP95:150,ordinaryMaximum:300,mixedMaximum:1700,restoreLatency:900,restoreLongTask:250})
 
 /** Baseline failures remain evidence; only incomplete or invalid samples are rejected. */
 export function restoreTargets(baseline,candidate){
@@ -14,5 +15,5 @@ export function restoreTargets(baseline,candidate){
   }
  }
  const source=value=>value.samples.filter(sample=>sample.history===50000&&sample.action==='restore')
- return [['restore-latency','latency',1250],['restore-longtask','maximumLongTask',250]].map(([metric,field,cap])=>{const baselineMaximum=Math.max(...source(baseline).map(s=>s[field])),maximum=Math.max(...source(candidate).map(s=>s[field])),originalLimit=Math.min(cap,.9*baselineMaximum),limit=metric==='restore-longtask'?expressivenessBudgets.restoreLongTask:originalLimit;return {metric,n:10,baselineMaximum,maximum,originalLimit,limit,passed:maximum<=limit}})
+ return [['restore-latency','latency',1250],['restore-longtask','maximumLongTask',250]].map(([metric,field,cap])=>{const baselineMaximum=Math.max(...source(baseline).map(s=>s[field])),maximum=Math.max(...source(candidate).map(s=>s[field])),originalLimit=Math.min(cap,.9*baselineMaximum),limit=metric==='restore-longtask'?expressivenessBudgets.restoreLongTask:expressivenessBudgets.restoreLatency;return {metric,n:10,baselineMaximum,maximum,originalLimit,limit,passed:maximum<=limit}})
 }

@@ -5,11 +5,12 @@ function evidence(latency:number){
  const ids=Array.from({length:1002},(_,index)=>'object-'+index)
  return {mode:'formal',errors:[],passed:false,cases:[10000,50000].map(history=>({history,mixedCleanup:{subscriptions:0,dom:0},mixed:Array.from({length:20},(_,index)=>({round:Math.floor(index/2)+1,direction:index%2?1:-1,trusted:true,observerSupported:true,complete:true,status:'completed',objects:1002,native:1002,ids,items:ids.map(()=> 'confirmed'),expected:ids.map(id=>({id,anchors:[{kind:'market',timestamp:100,value:20}]})),history:{pending:0,uncertainLogicalIds:[],projectionErrors:{}},start:100,end:100+latency,latency,maximumLongTask:60,longTasks:[{startTime:100,duration:60}]}))}))}
 }
-it('recomputes both limits from complete original arrays, independent of prior pass flags',()=>{
+it('uses the approved 10k ceiling and original 50k target with complete arrays, independent of prior pass flags',()=>{
  const baseline=evidence(1000),candidate=evidence(899),before=structuredClone([baseline,candidate])
- expect(mixedTargets(baseline,candidate).map((gate:any)=>[gate.n,gate.limit,gate.passed])).toEqual([[20,900,true],[20,900,true]])
- expect(mixedTargets(baseline,evidence(901)).every((gate:any)=>!gate.passed)).toBe(true)
- expect(mixedTargets(evidence(2000),evidence(1600)).map((gate:any)=>gate.limit)).toEqual([1700,1700]);expect([baseline,candidate]).toEqual(before)
+ expect(mixedTargets(baseline,candidate).map((gate:any)=>[gate.n,gate.limit,gate.passed])).toEqual([[20,1550,true],[20,900,true]])
+ expect(mixedTargets(baseline,evidence(901)).map((gate:any)=>gate.passed)).toEqual([true,false])
+ expect(mixedTargets(baseline,evidence(1551)).every((gate:any)=>!gate.passed)).toBe(true)
+ expect(mixedTargets(evidence(2000),evidence(1600)).map((gate:any)=>[gate.limit,gate.passed])).toEqual([[1550,false],[1700,true]]);expect([baseline,candidate]).toEqual(before)
 })
 it('rejects incomplete, untrusted, unconfirmed or inconsistent geometry and full timing windows',()=>{
  const patches=[

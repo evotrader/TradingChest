@@ -21,7 +21,7 @@ const defineParameters=(extension:boolean):DrawingParameter[]=>[
 const definitions={fibonacciLine:defineParameters(false),fibonacciExtension:defineParameters(true)}
 
 export function fibonacciLevelParameters(extension:boolean):DrawingParameter[] {
- return structuredClone(definitions[extension?'fibonacciExtension':'fibonacciLine'])
+ return defineParameters(extension)
 }
 
 export function resolveFibonacciParameters(kind:FibonacciKind,parameters:Record<string,unknown>,declared:readonly DrawingParameter[]=[]):Record<string,unknown> {

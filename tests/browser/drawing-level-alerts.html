@@ -3,7 +3,9 @@ import {KLineChartPro,captureLayout,restoreLayout,instantiateDrawingLevelPreset}
 import {DrawingAlertRuntime} from '/src/alert/drawingRuntime.ts'
 import {makeBars} from './syntheticBars.ts'
 const symbol={ticker:'LEVEL.X',market:'test',exchange:'X',priceCurrency:'USD',pricePrecision:6},period={multiplier:1,timespan:'minute',text:'1m'}
-let bars=makeBars(260),push,subscriptions=0,instance=0,sourceReads=0,initializationMode='confirmed',releaseInitialization
+const otherSymbol={...symbol,ticker:'OTHER.X'}
+let bars=makeBars(260),push,subscriptions=0,instance=0,sourceReads=0,initializationMode='confirmed',releaseInitialization,holdHistory=false,dataState
+const pendingHistory=[]
 const events=[],replayEvents=[],commits=[],rounds=[]
 // Observe the actual component-to-runtime source callback without replacing its result.
 const consume=DrawingAlertRuntime.prototype.consume,refresh=DrawingAlertRuntime.prototype.refreshSources
@@ -12,15 +14,17 @@ DrawingAlertRuntime.prototype.consume=observed(consume);DrawingAlertRuntime.prot
 const frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
 function mount(){
  instance++;window.ready=false
- window.pro=new KLineChartPro({container:document.querySelector('#chart'),symbol,period,drawingAlertScope:'level-browser',mainIndicators:[],subIndicators:[],onDataReady:()=>window.ready=true,onDrawingAlertTrigger:event=>events.push(event),onReplayDrawingAlertTrigger:event=>replayEvents.push(event),commitDrawing:async change=>{commits.push(structuredClone(change));if(initializationMode==='held')await new Promise(resolve=>releaseInitialization=resolve);return initializationMode==='rejected'?{status:'rejected',message:'隔离提交拒绝'}:initializationMode==='uncertain'?{status:'uncertain',message:'隔离提交待确认'}:{status:'confirmed',snapshot:change.after?{...change.after,backendId:change.before?.backendId??'backend-'+change.logicalId}:null}},datafeed:{searchSymbols:async()=>[symbol],getHistoryKLineData:async()=>({bars:bars.map(bar=>({...bar})),basis:'isolated-raw',hasMoreBefore:false}),subscribe:(_s,_p,callback)=>{push=callback;subscriptions++},unsubscribe:()=>{push=undefined;subscriptions--}}})
+ window.pro=new KLineChartPro({container:document.querySelector('#chart'),symbol,period,drawingAlertScope:'level-browser',mainIndicators:[],subIndicators:[],onDataReady:()=>window.ready=true,onDataState:state=>dataState=state,onDrawingAlertTrigger:event=>events.push(event),onReplayDrawingAlertTrigger:event=>replayEvents.push(event),commitDrawing:async change=>{commits.push(structuredClone(change));if(initializationMode==='held')await new Promise(resolve=>releaseInitialization=resolve);return initializationMode==='rejected'?{status:'rejected',message:'隔离提交拒绝'}:initializationMode==='uncertain'?{status:'uncertain',message:'隔离提交待确认'}:{status:'confirmed',snapshot:change.after?{...change.after,backendId:change.before?.backendId??'backend-'+change.logicalId}:null}},datafeed:{searchSymbols:async()=>[symbol,otherSymbol],getHistoryKLineData:async(s,p)=>{const snapshot={bars:bars.map(bar=>({...bar})),basis:'isolated-raw',hasMoreBefore:false};if(holdHistory)await new Promise(resolve=>pendingHistory.push({ticker:s.ticker,period:p.multiplier,resolve}));return snapshot},subscribe:(_s,_p,callback)=>{push=callback;subscriptions++},unsubscribe:()=>{push=undefined;subscriptions--}}})
 }
 window.levelBench={events,replayEvents,commits,rounds,frame,captureLayout,restoreLayout,
- get bars(){return bars.map(bar=>({...bar}))},get instance(){return instance},get subscriptions(){return subscriptions},get sourceReads(){return sourceReads},
+ get dataState(){return dataState},get bars(){return bars.map(bar=>({...bar}))},get instance(){return instance},get subscriptions(){return subscriptions},get sourceReads(){return sourceReads},
  mode(value){initializationMode=value},release(){releaseInitialization?.();releaseInitialization=undefined},resetReads(){sourceReads=0;rounds.length=0},
+ holdHistory(){holdHistory=true},get pendingHistory(){return pendingHistory.map(({ticker,period})=>({ticker,period}))},releaseHistory(){holdHistory=false;for(const request of pendingHistory.splice(0))request.resolve()},
+ replaceHistory(next){bars=next.map(bar=>({...bar}));return pro.applySnapshot({symbol:pro.getSymbol(),period:pro.getPeriod(),bars:this.bars,basis:'isolated-raw'})},
  update(close,append=false){const previous=bars.at(-1),bar={...previous,timestamp:previous.timestamp+(append?60000:0),open:close,high:close+1,low:close-1,close};if(append)bars.push(bar);else bars[bars.length-1]=bar;push?.(bar)},
  async seed({kind='fibonacciLine',legacy=false,owner='local',count=7,id='seed-'+crypto.randomUUID()}={}){
-  const price=bars.at(-1).close,anchors=[{kind:'market',timestamp:bars.at(-20).timestamp,value:price-5},{kind:'market',timestamp:bars.at(-10).timestamp,value:price+5},...(kind==='fibonacciExtension'?[{kind:'market',timestamp:bars.at(-1).timestamp,value:price}]:[])]
-  const levels=Array.from({length:count},(_,index)=>index/(count-1)),parameters={levels:legacy?levels:instantiateDrawingLevelPreset(levels),extendLeft:true,extendRight:true}
+  const price=bars.at(-1).close,anchors=kind==='horizontalStraightLine'?[{kind:'market',timestamp:bars.at(-20).timestamp,value:price}]:[{kind:'market',timestamp:bars.at(-20).timestamp,value:price-5},{kind:'market',timestamp:bars.at(-10).timestamp,value:price+5},...(kind==='fibonacciExtension'?[{kind:'market',timestamp:bars.at(-1).timestamp,value:price}]:[])]
+  const levels=Array.from({length:count},(_,index)=>index/(count-1)),parameters=kind==='horizontalStraightLine'?{}:{levels:legacy?levels:instantiateDrawingLevelPreset(levels),extendLeft:true,extendRight:true}
   pro.restoreDrawings(owner,[...pro.getDrawings().filter(d=>d.owner===owner&&d.logicalId!==id),{logicalId:id,owner,...(owner==='backend'?{backendId:'backend-'+id}:{}),parameters,anchors,overlay:{id,name:kind,paneId:'candle_pane',groupId:'drawing_tools',points:anchors.map(a=>({timestamp:a.timestamp,value:a.value})),visible:true,lock:false,styles:null,extendData:null}}])
   await pro.executeDrawingCommand({type:'select',ids:[id]});await frame();return id
  },

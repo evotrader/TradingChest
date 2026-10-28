@@ -1449,7 +1449,18 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   createEffect((prev?: PrevSymbolPeriod) => {
     const s = symbol(), p = period()
     if(!engineReady())return undefined
-    if (prev) untrack(()=>{drawingAlerts?.contextChanging();settleWorkspaceBinding(new DOMException('图表身份已改变，共享绑定已取消','AbortError'));analysis.clear();++indicatorGeneration;++factoryGeneration;comparisons.clear();cancelSharedBinding();drawingCoordinator.detach();const retained=JSON.stringify(prev.symbol)===JSON.stringify(s)?drawingHistory.getDrawings().filter(d=>d.owner==='local'):[];drawingHistory.reset(true);if(retained.length)drawingHistory.reconcile('local',retained);setSelectedOverlay(null);props.onDataReset?.(s)})
+    if (prev) untrack(()=>{
+      // Binding callbacks must not consume the previous series during identity teardown.
+      confirmedAlertSeries=undefined
+      drawingAlerts?.contextChanging()
+      settleWorkspaceBinding(new DOMException('图表身份已改变，共享绑定已取消','AbortError'))
+      analysis.clear();++indicatorGeneration;++factoryGeneration;comparisons.clear();cancelSharedBinding()
+      drawingCoordinator.detach()
+      const retained=JSON.stringify(prev.symbol)===JSON.stringify(s)?drawingHistory.getDrawings().filter(d=>d.owner==='local'):[]
+      drawingHistory.reset(true)
+      if(retained.length)drawingHistory.reconcile('local',retained)
+      setSelectedOverlay(null);props.onDataReset?.(s)
+    })
     setLoadError('')
     loader?.activate(s,p)
     return {symbol:s,period:p}

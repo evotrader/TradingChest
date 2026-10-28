@@ -42,6 +42,12 @@
       "interaction": 55.7
     }
   },
+  "drawingAlertAppendUpdates": {
+    "10000:0": 70,
+    "10000:100": 70,
+    "50000:0": 250,
+    "50000:100": 250
+  },
   "analysisUpdateOverrides": {
     "50000": {
       "limit": 85,

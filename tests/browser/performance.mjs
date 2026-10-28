@@ -27,6 +27,7 @@ if(recheckIndex>=0) {
  assert.ok(source&&output,'Usage: performance.mjs --recheck-analysis SOURCE OUTPUT')
  assert.notEqual(resolve(source),resolve(output),'Recheck must preserve the original evidence')
  result=JSON.parse(readFileSync(source,'utf8'))
+ if(Object.hasOwn(result,'errors'))assert.deepEqual(result.errors,[])
  assert.deepEqual(Object.keys(result.cases).sort(),['10000','10000x2','50000','50000x2'])
  const previousGates=result.gates
  result.gates=[]
@@ -53,6 +54,7 @@ if(recheckIndex>=0) {
 const browser=await launchBrowser()
 try {
  const page=await browser.newPage({viewport:result.viewport}),errors=[]
+ const checkObserved=()=>{result.errors=errors;save();assert.deepEqual(errors,[]);check()}
  result.browser=browser.version()
  page.on('pageerror',e=>errors.push(e.message))
  await page.goto((process.env.TC_BROWSER_BASE || 'http://127.0.0.1:4173')+'/tests/browser/performance.html')
@@ -77,7 +79,7 @@ try {
   result.cleanup=await page.evaluate(()=>analysisCleanup())
   const {heap,...owned}=result.cleanup
   assert.deepEqual(owned,{cycles:100,subscriptions:0,listeners:0,timers:0,frames:0,observers:0,dom:0,indicators:0,panes:0,axes:0})
-  check()
+  checkObserved()
  } else {
   const compare=process.argv.includes('--compare')
   if(compare)await page.evaluate(()=>window.performanceComparison=true)
@@ -95,7 +97,7 @@ try {
    console.log(key,JSON.stringify({...result.cases[key],samples:undefined}));save()
   }
   for(const variable of ['TC_LONG_HISTORY_COLD_BUDGET_MS','TC_10K_COMPARISON_COLD_BUDGET_MS'])if(process.env[variable]!==undefined)assert.equal(Number(process.env[variable]),500,`${variable} must preserve the approved 500ms ceiling`)
-  check()
+  checkObserved()
  }
  assert.deepEqual(errors,[])
 } finally {await browser.close()}

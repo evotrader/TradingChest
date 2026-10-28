@@ -7,7 +7,7 @@ const p95=values=>{assert.ok(values.length&&values.every(value=>Number.isFinite(
 const gate=(name,actual,limit,extra={})=>result.gates.push({name,actual,limit,passed:actual<=limit,...extra})
 // Original limits: implementation R4; zero-rule 10k limit: separately approved audit-fix R2 proposal.
 // Same-bar and incremental gates remain unchanged.
-const approvedAppendUpdates={'10000:0':70,'10000:100':70,'50000:0':250,'50000:100':250}
+const approvedAppendUpdates=budgets.drawingAlertAppendUpdates
 try{
  const page=await browser.newPage({viewport:{width:1280,height:1000}});page.on('pageerror',error=>result.errors.push(error.message));result.browser=browser.version()
  await page.goto(`${process.env.TC_BROWSER_BASE}/tests/browser/drawing-alerts-performance.html`);await page.waitForFunction(()=>window.ready)

@@ -50,12 +50,14 @@ describe('exact Fib logarithmic alert prices',()=>{
 describe('portable level source completeness',()=>{
  for(const kind of ['fibonacciLine','fibonacciExtension'] as const)it(`${kind} requires the complete built-in resolver source, including aliases`,()=>{
   for(const name of [kind,'Host/Fib']){
-   const target={kind:'level' as const,resolverId:`tradingchest/${kind}`,parameterKey:'levels',levelId:'stable'},rule:DrawingAlertRule={id:'r',drawingLogicalId:'d',sourceOwner:'local',toolId:name,target,identity:symbol,period,condition:'crossing',frequency:'once-per-bar'}
+   const target={kind:'level' as const,resolverId:`tradingchest/${kind}`,parameterKey:'levels',levelId:'stable'},rule:DrawingAlertRule={id:'r',drawingLogicalId:'d',sourceOwner:'local',toolId:name,target,identity:symbol,period:{multiplier:period.multiplier,timespan:period.timespan},condition:'crossing',frequency:'once-per-bar'}
    const full=source(kind).anchors! as any
+   const complete:DrawingAlertGeometry={kind:'level',toolId:name,target,anchors:full,referencePrice:15,comparisonKey:'source',levelValue:.5}
+   const evaluate=(geometry:DrawingAlertGeometry)=>evaluateDrawingAlert({rule,geometry,bars,previous:{timestamp:3000,close:14},current:{timestamp:3000,close:16},state:{hasTriggered:false}})
+   expect(evaluate(complete)).toMatchObject({status:'monitoring',state:{hasTriggered:true,lastBarTimestamp:3000},event:{referencePrice:15,level:{resolverId:target.resolverId,levelId:'stable'}}})
    for(let length=1;length<full.length;length++){
-    const geometry:DrawingAlertGeometry={kind:'level',toolId:name,target,anchors:full.slice(0,length),referencePrice:15,comparisonKey:'source',levelValue:.5}
-    const result=evaluateDrawingAlert({rule,geometry,bars,previous:{timestamp:3000,close:14},current:{timestamp:3000,close:16},state:{hasTriggered:false}})
-    expect(result).toMatchObject({status:'waiting',state:{hasTriggered:false}});expect(result.event).toBeUndefined();expect(result.comparison).toBeUndefined()
+    const result=evaluate({...complete,anchors:full.slice(0,length)})
+    expect(result).toMatchObject({status:'waiting',reason:'提醒来源锚点数量无效',state:{hasTriggered:false}});expect(result.event).toBeUndefined();expect(result.comparison).toBeUndefined()
    }
   }
  })

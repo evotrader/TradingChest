@@ -21,6 +21,7 @@ try{
    for(const group of ['native','react'])result.gates.push({key,group,p95:result.cases[key][group].p95,limit:budgets[key].cold,passed:result.cases[key][group].p95<=budgets[key].cold})
    writeFileSync(output,JSON.stringify(result,null,2)+'\n');console.log(key,JSON.stringify({native:result.cases[key].native,react:result.cases[key].react,limit:budgets[key].cold}))
   }
+  result.errors=errors;writeFileSync(output,JSON.stringify(result,null,2)+'\n');assert.deepEqual(errors,[])
   assert.ok(result.gates.every(g=>g.passed),JSON.stringify(result.gates.filter(g=>!g.passed)))
  }else{
   await page.evaluate(()=>{window.ownedReactResources=trackReactResources()})

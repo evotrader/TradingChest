@@ -74,7 +74,6 @@ export class DrawingAlertRuntime {
     if((source.overlay.paneId??'candle_pane')!=='candle_pane'||source.yAxisId&&source.yAxisId!==this.context?.axisId)throw Error('画线提醒只支持主价格窗格的默认价格轴')
     const anchors=source.anchors
     if(!anchors||anchors.some(anchor=>anchor.kind!=='market'))throw Error('画线提醒需要完整的市场时间锚点；后续根数／视口锚点暂不支持')
-    validateDrawingAlertAnchors(anchors as DrawingAlertAnchor[],this.context?.bars??[])
     return clone(anchors) as DrawingAlertAnchor[]
   }
   private capability(source:DrawingSnapshot){
@@ -100,6 +99,7 @@ export class DrawingAlertRuntime {
     if(!level)throw new SourceError('提醒级别已删除，请恢复原级别或重新创建提醒','source-missing')
     if(!level.visible)throw Error('提醒级别已关闭，请开启后手动继续监控')
     validateDrawingParameters(tool,source.parameters??{})
+    validateDrawingAlertAnchors(anchors,this.context?.bars??[])
     const parameters:DrawingParameters=Object.fromEntries(tool.parameters.map(parameter=>[parameter.key,source.parameters?.[parameter.key]??(parameter.kind==='level-set'?resolveDrawingLevels(undefined,parameter.defaultValue as Exclude<DrawingLevelPresetInput,undefined>):parameter.defaultValue as DrawingParameterPrimitive)]))
     const result=resolver.resolve(clone({toolId,anchors,level,parameters}))
     validateDrawingAlertLevelResolution(result)

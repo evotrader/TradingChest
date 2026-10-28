@@ -77,6 +77,21 @@ describe('drawing alert confirmed runtime',()=>{
   s.consume(9);s.consume(11);expect(s.trigger).toHaveBeenCalledTimes(1)
   expect(s.runtime.getState()[0].records).toHaveLength(1);expect(s.runtime.getState()[0].replay.records).toHaveLength(1)
  })
+ it('keeps existing line monitoring enabled while replay has not reached its market anchor',()=>{
+  const s=setup(),drawing=s.history.getDrawing('d')!
+  drawing.anchors![0]={kind:'market',timestamp:100,value:10};s.history.reconcile('local',[drawing])
+  expect(s.create().status).toBe('completed');s.consume(9,200);s.consume(11,200)
+  const live=s.runtime.capture()
+  s.consume(9,10,{}, {replay:true,contentChange:'replace'})
+  expect(s.runtime.getState()[0]).toMatchObject({enabled:true,replay:{status:'waiting',records:[]}})
+  expect(s.runtime.capture()).toEqual(live);expect(s.replayTrigger).not.toHaveBeenCalled()
+  s.consume(9,100,{}, {replay:true});expect(s.replayTrigger).not.toHaveBeenCalled()
+  s.consume(11,200,{}, {replay:true});expect(s.replayTrigger).toHaveBeenCalledTimes(1)
+  s.consume(9,10,{}, {replay:true,contentChange:'replace'});s.consume(9,100,{}, {replay:true});s.consume(11,200,{}, {replay:true})
+  expect(s.replayTrigger).toHaveBeenCalledTimes(1);expect(s.runtime.capture()).toEqual(live)
+  s.consume(11,200);expect(s.trigger).toHaveBeenCalledTimes(1)
+  s.runtime.dispose();s.history.dispose()
+ })
  it('retains once-per-bar markers through confirmed geometry changes but not previews',()=>{
   const s=setup();s.create();s.consume(9);s.consume(11)
   const geometry=s.history.getDrawing('d')!;geometry.anchors![0]={kind:'market',timestamp:0,value:12};s.history.reconcile('local',[geometry]);s.runtime.refreshSources();s.consume(11);s.consume(13)

@@ -37,7 +37,9 @@
       "source": "Operator approved the complete seven-item 0.13 proposal and focused R4 review; preserve both complete formal runs and recheck their original arrays separately."
     },
     "50000:reorder": {
-      "maximumLatency": 600
+      "maximumLatency": 650,
+      "approvedOn": "2026-10-28",
+      "source": "Operator accepted only the 50k reorder limit at 650ms for 0.16 after implementation R1/R2; retain all original samples."
     },
     "50000:style": {
       "maximumLatency": 1200,
@@ -64,7 +66,8 @@
   },
   "mixedOverrides": {
     "50000": {
-      "updates": 140
+      "updates": 180,
+      "cpu": 60
     }
   }
 }

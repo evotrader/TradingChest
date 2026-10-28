@@ -1,6 +1,6 @@
 // The operator approved only mixed translation at 1700ms and restore longtask at 200ms after focused R6 on 2026-10-27.
-// The 2026-10-28 audit-fix approval replaces only the restore ceilings with 900/250ms.
-export const expressivenessBudgets=Object.freeze({histories:[10000,50000],mounts:10,updates:100,menuRounds:20,ordinaryRounds:20,mixedRounds:10,labelIncrement:15,menuP95:150,ordinaryMaximum:300,mixedMaximum:1700,restoreLatency:900,restoreLongTask:250})
+// The operator accepted only restore ceilings of 1250/500ms for 0.16 on 2026-10-28.
+export const expressivenessBudgets=Object.freeze({histories:[10000,50000],mounts:10,updates:100,menuRounds:20,ordinaryRounds:20,mixedRounds:10,labelIncrement:15,menuP95:150,ordinaryMaximum:300,mixedMaximum:1700,restoreLatency:1250,restoreLongTask:500})
 
 /** Baseline failures remain evidence; only incomplete or invalid samples are rejected. */
 export function restoreTargets(baseline,candidate){

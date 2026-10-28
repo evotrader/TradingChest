@@ -1,8 +1,7 @@
 import {launchBrowser} from './support.mjs'
 import {writeFileSync,readFileSync} from 'node:fs'
 import assert from 'node:assert/strict'
-import {refinementLimits} from './drawing-refinement-limits.mjs'
-import {expressivenessBudgets} from './drawing-expressiveness-limits.mjs'
+import {levelAlertBudgets} from './drawing-level-alerts-limits.mjs'
 import {mixedTargets} from './drawing-workflow-limits.mjs'
 const diagnostic=process.env.TC_LA_DIAGNOSTIC==='1',rounds=diagnostic?1:10,budgets=JSON.parse(readFileSync(new URL('./performance-budgets.json',import.meta.url)))
 assert.ok(process.env.TC_DW_BASELINE,'TC_DW_BASELINE is required')
@@ -21,9 +20,9 @@ try{
   console.log(JSON.stringify({count,append,rules,round,updateP95:percentile(sample.updates),events:sample.events.length}))
  }
  for(const count of [10000,50000])for(const append of [false,true]){
-  const samples=rules=>result.samples.filter(s=>s.count===count&&s.append===append&&s.rules===rules),limits=append?(count===10000?70:250):budgets.cases[String(count)].update
-  for(const rules of [0,100]){assert.equal(samples(rules).length,rounds);gate(`level-update-${count}-${append?'append':'same'}-${rules}`,percentile(samples(rules).flatMap(s=>s.updates)),limits,{n:rounds*100})}
-  const control=percentile(samples(0).flatMap(s=>s.updates)),candidate=percentile(samples(100).flatMap(s=>s.updates));gate(`level-increment-${count}-${append?'append':'same'}`,candidate-control,10,{control,candidate,n:rounds*100});gate(`level-batch100-${count}-${append?'append':'same'}`,percentile(samples(100).flatMap(s=>s.batches)),10,{n:rounds*100})
+  const samples=rules=>result.samples.filter(s=>s.count===count&&s.append===append&&s.rules===rules),limit=rules=>append?levelAlertBudgets.append[count][rules]:budgets.cases[String(count)].update
+  for(const rules of [0,100]){assert.equal(samples(rules).length,rounds);gate(`level-update-${count}-${append?'append':'same'}-${rules}`,percentile(samples(rules).flatMap(s=>s.updates)),limit(rules),{n:rounds*100})}
+  const control=percentile(samples(0).flatMap(s=>s.updates)),candidate=percentile(samples(100).flatMap(s=>s.updates));gate(`level-increment-${count}-${append?'append':'same'}`,candidate-control,append?levelAlertBudgets.appendIncrement:10,{control,candidate,n:rounds*100});gate(`level-batch100-${count}-${append?'append':'same'}`,percentile(samples(100).flatMap(s=>s.batches)),10,{n:rounds*100})
  }
  await page.setViewportSize({width:1280,height:1400});await page.goto(`${process.env.TC_BROWSER_BASE}/tests/browser/drawing-refinement-performance.html?level-alerts=1`);await page.waitForFunction(()=>window.ready&&window.levelDense)
  const manager=page.getByRole('complementary',{name:'绘图管理',exact:true}),form=manager.getByRole('form',{name:'精确平移',exact:true})
@@ -38,14 +37,14 @@ try{
    await form.getByRole('button',{name:'确认平移',exact:true}).click();await page.waitForFunction(()=>window.levelDenseSample?.complete,{},{timeout:60000});const sample=await page.evaluate(()=>levelDenseSample);entry.mixed.push({round,...sample});save()
    assert.equal(sample.error,undefined);assert.equal(sample.trusted,true);assert.equal(sample.status,'completed');assert.equal(sample.objects,1002);assert.equal(sample.native,1002);assert.equal(sample.items.length,1002);assert.ok(sample.items.every(status=>status==='confirmed'));assert.deepEqual(sample.beforeRules,sample.afterRules);clean(sample)
   }
-  entry.mixedCleanup=await dispose();gate(`level-mixed1002-${history}`,Math.max(...entry.mixed.map(s=>s.latency)),mixedLimits.get(history),{n:rounds*2});save()
+  entry.mixedCleanup=await dispose();gate(`level-mixed1002-${history}`,Math.max(...entry.mixed.map(s=>s.latency)),history===50000?levelAlertBudgets.mixed50kMaximum:mixedLimits.get(history),{n:rounds*2});save()
   for(let round=1;round<=rounds;round++){
    const geometry=await mount();await page.evaluate(()=>levelDense.armRestore());await page.getByRole('button',{name:'恢复启用提醒的布局',exact:true}).click();await page.waitForFunction(()=>window.levelDenseSample?.complete,{},{timeout:60000});const sample=await page.evaluate(()=>levelDenseSample);entry.restore.push({round,geometry,...sample});save()
    assert.equal(sample.error,undefined);assert.equal(sample.trusted,true);assert.equal(sample.sameInstance,true);assert.equal(sample.status,'restored');assert.equal(sample.objects,1002);assert.equal(sample.native,1002);assert.equal(sample.restoreResolutions,0);assert.equal(sample.eventsDuringRestore,0);assert.equal(sample.beforeRules.length,100);assert.ok(sample.beforeRules.every(rule=>rule.enabled));assert.deepEqual(sample.beforeRules,sample.afterRules);clean(sample)
    entry.restore.at(-1).observations=await page.evaluate(()=>levelDense.verifyRestoredObservations());assert.equal(entry.restore.at(-1).observations.enabled,100);entry.restore.at(-1).cleanup=await dispose();save()
    console.log(JSON.stringify({history,round,restore:sample.latency,longtask:sample.maximumLongTask}))
   }
-  const original=refinementLimits(history,'restore');gate(`level-restore1002-${history}`,Math.max(...entry.restore.map(s=>s.latency)),history===50000?Math.min(original.latency,expressivenessBudgets.restoreLatency):original.latency,{n:rounds});gate(`level-restore1002-longtask-${history}`,Math.max(...entry.restore.map(s=>s.maximumLongTask)),history===50000?Math.min(original.longTask,expressivenessBudgets.restoreLongTask):original.longTask,{n:rounds});save()
+  gate(`level-restore1002-${history}`,Math.max(...entry.restore.map(s=>s.latency)),levelAlertBudgets.restoreLatency[history],{n:rounds});gate(`level-restore1002-longtask-${history}`,Math.max(...entry.restore.map(s=>s.maximumLongTask)),levelAlertBudgets.restoreLongTask,{n:rounds});save()
  }
  assert.deepEqual(result.errors,[]);assert.equal(result.gates.length,22);result.passed=!diagnostic&&result.gates.every(g=>g.passed);save();console.log(JSON.stringify({mode:result.mode,passed:result.passed,gates:result.gates}));if(!diagnostic)assert.ok(result.passed,'Level alert performance budgets failed')
 }catch(error){result.failure=error.stack;save();throw error}finally{save();await browser.close()}

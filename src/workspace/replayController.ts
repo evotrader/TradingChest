@@ -21,6 +21,7 @@ export class WorkspaceReplayController {
   private playRequested=false
   private disposed=false
   private seekSequence=0
+  private locations:Array<{cellId:string}&ReturnType<ReplayParticipant['navigate']>>=[]
   private visibility=()=>{if(document.hidden)this.pause()}
   constructor(private options:Options){if(typeof document!=='undefined')document.addEventListener('visibilitychange',this.visibility)}
   getState():WorkspaceReplayState{return clone(this.state)}
@@ -149,10 +150,12 @@ export class WorkspaceReplayController {
     this.state={...this.state,phase:'error',error:{code:'RESTORE_FAILED',cellId,message},cells:this.summarize()};this.emit()
   }
   events(){this.valid();return this.members.flatMap(m=>m.participant.events().map(layer=>({cellId:m.cellId,...layer})))}
+  getLocations(){return clone(this.locations)}
+  locate(timestamp:number){this.valid();this.locations=this.members.map(m=>({cellId:m.cellId,...m.participant.navigate(timestamp)}))}
   async navigateEvent(ref:{cellId:string;layerId:string;eventId:string}){
     this.assertStable();const member=this.members.find(m=>m.cellId===ref.cellId),event=member?.participant.events().find(l=>l.layerId===ref.layerId)?.events.find(e=>e.id===ref.eventId)
     if(!event||event.availableAt===undefined)throw new WorkspaceReplayError('OUT_OF_RANGE','事件当前不可见或引用已失效')
-    await this.seek(Math.max(event.timestamp,event.availableAt));for(const item of this.members)item.participant.navigate(event.timestamp);member!.participant.selectEvent(ref.layerId,ref.eventId)
+    await this.seek(Math.max(event.timestamp,event.availableAt));this.locate(event.timestamp);member!.participant.selectEvent(ref.layerId,ref.eventId)
   }
   dispose(){if(this.disposed)return;this.disposed=true;this.clearTimer();this.running?.controller.abort();for(const member of this.members){member.prepared?.release();member.participant.release()}this.members=[];this.record=null;this.listeners.clear();if(typeof document!=='undefined')document.removeEventListener('visibilitychange',this.visibility)}
 }

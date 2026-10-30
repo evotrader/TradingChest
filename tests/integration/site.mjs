@@ -6,6 +6,7 @@ import {packedWorkspace,example,command,root,evidence} from './support.mjs'
 import {launchBrowser} from '../browser/support.mjs'
 import {runDrawingComparison} from './drawing-comparison.mjs'
 import {runDrawingWorkbenchExample} from './drawing-workbench.mjs'
+import {runReplayWorkspaceExample} from './replay-workspace.mjs'
 import {runDrawingAlertsExample} from './drawing-alerts.mjs'
 const website=path.join(root,'website'),base='/TradingChest/'
 if(process.argv.includes('--build')){
@@ -19,13 +20,13 @@ if(process.argv.includes('--build')){
  const directory=path.join(workspace.directory,'analysis-sdk');mkdirSync(directory,{recursive:true})
  cpSync(path.join(root,'examples/analysis-sdk'),directory,{recursive:true})
  writeFileSync(path.join(directory,'package.json'),JSON.stringify({private:true,type:'module',dependencies:{'trading-chest':'file:../'+path.basename(workspace.tarball),klinecharts:'10.1.0'},devDependencies:{vite:'5.4.21'}}))
- writeFileSync(path.join(directory,'vite.config.js'),`import path from 'node:path';export default {base:'${base}demos/analysis-sdk/',build:{target:'es2022',rollupOptions:{input:{index:path.resolve('index.html'),workspace:path.resolve('data-workspace.html')}}}}`)
+ writeFileSync(path.join(directory,'vite.config.js'),`import path from 'node:path';export default {base:'${base}demos/analysis-sdk/',build:{target:'es2022',rollupOptions:{input:{index:path.resolve('index.html'),workspace:path.resolve('data-workspace.html'),replay:path.resolve('replay-workspace.html')}}}}`)
  await command('npm',['install','--ignore-scripts','--no-audit','--no-fund'],directory)
  await command('npm',['exec','vite','--','build'],directory)
  cpSync(path.join(directory,'dist'),path.join(website,'demos/analysis-sdk'),{recursive:true})
  const nextDirectory=await example(workspace,'next-app')
  await command('tar',['-czf',path.join(website,'demos/next-app-source.tar.gz'),'--exclude=node_modules','--exclude=.next','-C',workspace.directory,path.basename(nextDirectory),path.basename(workspace.tarball)],workspace.directory)
- writeFileSync(path.join(website,'demos/index.html'),`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>TradingChest 演示</title><h1>TradingChest 独立演示</h1><p>全部使用隔离合成输入，不连接生产服务。</p><ul>${[['drawing-workbench/','绘图工作台'],['analysis-sdk/','JS 分析图层'],['analysis-sdk/data-workspace.html','JS 数据与工作台'],['react-vite/','React 单图与工作台'],['vue-vite/','Vue 图表']].map(([href,label])=>`<li><a href="${base}demos/${href}">${label}</a></li>`).join('')}</ul><p>Next App Router 需要 Node 服务：<a download="next-app-source.tar.gz" href="${base}demos/next-app-source.tar.gz">下载 Next.js 源码包</a>。解包后进入 next-app，npm ci、npm run build、npm start；旁边的同版 tarball 已配好，README 包含运行说明。</p><a href="${base}">中文文档</a> · <a href="${base}en-US/">English</a></html>`)
+ writeFileSync(path.join(website,'demos/index.html'),`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>TradingChest 演示</title><h1>TradingChest 独立演示</h1><p>全部使用隔离合成输入，不连接生产服务。</p><ul>${[['drawing-workbench/','绘图工作台'],['analysis-sdk/','JS 分析图层'],['analysis-sdk/data-workspace.html','JS 数据与工作台'],['analysis-sdk/replay-workspace.html','JS 多图联动复盘'],['react-vite/','React 单图与工作台'],['vue-vite/','Vue 图表']].map(([href,label])=>`<li><a href="${base}demos/${href}">${label}</a></li>`).join('')}</ul><p>Next App Router 需要 Node 服务：<a download="next-app-source.tar.gz" href="${base}demos/next-app-source.tar.gz">下载 Next.js 源码包</a>。解包后进入 next-app，npm ci、npm run build、npm start；旁边的同版 tarball 已配好，README 包含运行说明。</p><a href="${base}">中文文档</a> · <a href="${base}en-US/">English</a></html>`)
  console.log('Complete Pages artifact:',website)
 }
 if(process.argv.includes('--test')){
@@ -54,6 +55,7 @@ if(process.argv.includes('--test')){
   await page.getByRole('button',{name:'添加两个指标实例',exact:true}).click();await page.getByRole('status').filter({hasText:'已添加两个独立实例'}).waitFor()
   await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'JS 数据与工作台',exact:true}).click();await page.waitForFunction(()=>window.dataWorkspaceDemo?.ready)
   await page.getByRole('button',{name:'读取完整合成会话（range）',exact:true}).click();await page.getByRole('status').filter({hasText:'range 返回完整区间 240 根'}).waitFor()
+  await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'JS 多图联动复盘',exact:true}).click();await page.waitForFunction(()=>window.replayWorkspaceDemo?.ready);await runReplayWorkspaceExample(page,{native:true});await page.getByRole('button',{name:'销毁示例',exact:true}).click()
   await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'React 单图与工作台',exact:true}).click();await page.waitForFunction(()=>window.tcExample?.workspace.current?.getCells()[0]?.chart?.getChart()?.getDataList().length===300)
   await page.getByRole('button',{name:'卸载',exact:true}).click();await page.waitForFunction(()=>window.tcExample.metrics.created===window.tcExample.metrics.disposed)
   await page.goto(origin+base+'demos/');await page.getByRole('link',{name:'绘图工作台',exact:true}).click();await runDrawingWorkbenchExample(page,page.url());await runDrawingComparison(page,page.url(),evidence)

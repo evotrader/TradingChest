@@ -493,3 +493,7 @@ interface DrawingLevelPresetSet { version: 1; items: DrawingLevelAppearance[] }
 ## 0.16 单级提醒接口
 
 `DrawingToolDescriptor.alertLevels?:{resolverId:string;parameterKey:string}` 指向该工具的 level-set。`ChartProOptions.drawingAlertLevelResolvers` 接收纯同步实例解析器。`DrawingCommand` 新增 `initialize-levels`（id、parameterKey）；提醒 create 新增可选 `target:{kind:"level",levelId}`，规则完整 target 由目录捕获。`captureDrawingAlerts` 返回 V2，restore 接受 V1/V2；`migrateDrawingAlertDocument` 纯迁移并返回深副本。`DrawingAlertEvent.level` 是可选触发快照。公开类型、解析器输入／结果、比较键、数学、严格原子校验与不可用来源的恢复策略见 [0.16 契约](./upgrade/0.16.0.md)。上述类型和纯 helper 从 root/chart/solid/alerts 导出。
+
+## 0.17 多图统一复盘
+
+[完整公开契约与迁移](./upgrade/0.17.0.md)涵盖可选 getReplayHistory、工作台命令/状态、WorkspaceDocument v3、记录方法和 Promise 退出。React 将 replay 放在 initialOptions，通过 onReady 获取同一 ChartWorkspace；onReplayStateChange 始终读取最新 callback。旧 Datafeed 与未启用实例保留原路径。

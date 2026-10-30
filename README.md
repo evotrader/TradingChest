@@ -15,6 +15,10 @@
   <img src="docs/public/image.png" alt="TradingChest Screenshot" width="800" />
 </p>
 
+## 0.17.0 多图联动复盘本地候选
+
+可选来源时钟驱动 1/2/4 图同步复盘，支持事件定位、书签、备注和暂停恢复。接口保持通用，旧 Datafeed 无须实现新能力。单图退出改为 Promise；工作台文档升至 v3。见 [0.17 迁移说明](docs/upgrade/0.17.0.md)。本次不包含 npm 或站点发布。
+
 ## 0.16.0 local candidate
 
 Both Fib tools can bind an alert to one confirmed stable level. Third-party tools declare the same capability through an instance catalog and pure resolver. Legacy arrays require explicit initialization; V2 alert documents migrate V1 purely and preserve unavailable sources as disabled rules. See [0.16 migration](docs/en-US/upgrade/0.16.0.md). This candidate is not published; use an actual local tarball to try it. Published installation remains 0.15.0.

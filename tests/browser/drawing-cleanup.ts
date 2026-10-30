@@ -1,11 +1,14 @@
 import {DrawingSession,DrawingSessionRegistry,resolveDrawingLevels,createIndexedDBDrawingPreferencesStore,createIndexedDBDrawingDocumentStore} from '/src/chart.ts'
 import {drawingAnalyticsRuntimes} from '/src/drawing/analyticsRuntime.ts'
 import {hasCurveGeometry} from '/src/extension/curves.ts'
+import {replayCleanupCycle} from './replay-cleanup'
 import {DrawingAlertRuntime} from '/src/alert/drawingRuntime.ts'
 
 /** Weak instrumentation must not keep detached Solid nodes alive by itself. */
 export function installDrawingCleanup(){
  const add=EventTarget.prototype.addEventListener,remove=EventTarget.prototype.removeEventListener,timeout=window.setTimeout,clearTimeout=window.clearTimeout,interval=window.setInterval,clearInterval=window.clearInterval,raf=window.requestAnimationFrame,cancelRaf=window.cancelAnimationFrame,Observer=window.ResizeObserver,open=IDBFactory.prototype.open,close=IDBDatabase.prototype.close,subscribe=DrawingSession.prototype.subscribe
+ const transaction=IDBDatabase.prototype.transaction,transactions=new Set<IDBTransaction>()
+ IDBDatabase.prototype.transaction=function(...args:any[]){const value=(transaction as any).apply(this,args);if(this.name.startsWith('tc-drawing-cleanup-')){transactions.add(value);value.addEventListener('complete',()=>transactions.delete(value),{once:true});value.addEventListener('abort',()=>transactions.delete(value),{once:true})}return value}
  const listeners:any[]=[],timers=new Set(),frames=new Set(),observers=new Set(),connections=new Set<IDBDatabase>();let subscribers=0,resources:any,cycle=0
  const disposeAlerts=DrawingAlertRuntime.prototype.dispose;let alertLeaks=0,alertDisposals=0
  DrawingAlertRuntime.prototype.dispose=function(){disposeAlerts.call(this);alertDisposals++;if(this.getState().length||(this as any).rulesBySource.size||(this as any).resolvers.size||(this as any).catalog.length)alertLeaks++}
@@ -24,10 +27,11 @@ export function installDrawingCleanup(){
  IDBDatabase.prototype.close=function(){connections.delete(this);return close.call(this)}
  DrawingSession.prototype.subscribe=function(listener:any){subscribers++;const off=subscribe.call(this,listener);let active=true;return ()=>{if(active){active=false;subscribers--}off()}}
  const bench=(window as any).drawingBench,identity={namespace:'isolated-cleanup',symbol:{ticker:'SYNTHETIC.X',market:'test',exchange:'X',priceCurrency:'USD'},priceBasisKey:'isolated-unadjusted'}
- let analytics:any[]=[],curveCharts:any[]=[],cacheLeaks=0
+ let analytics:any[]=[],curveCharts:any[]=[],cacheLeaks=0,replayLeaks=0,replayResult:any
  return {
   async start(volume=false){
    alertLeaks=0;alertDisposals=0
+   replayResult=await replayCleanupCycle(cycle);replayLeaks=alertLeaks+(alertDisposals===replayResult.charts?0:1);alertLeaks=0;alertDisposals=0
    const databaseName='tc-drawing-cleanup-'+crypto.randomUUID(),preferences=createIndexedDBDrawingPreferencesStore({databaseName}),documents=createIndexedDBDrawingDocumentStore({databaseName}),registry=new DrawingSessionRegistry({scope:'host',store:documents}),resolution={identity,documentId:'fixed'}
    resources={databaseName,preferences,documents,registry,resolution}
    await bench.mount({count:10000,layout:2,n:10,volume,resources:{drawingHostSessions:registry,resolveDrawingShareKey:()=>resolution,drawingPreferencesStore:preferences,drawingPreferencesScope:'isolated-cleanup',drawingAlertLevelResolvers:[{id:'cleanup/instance',resolve:()=>({status:'unavailable',reason:'隔离清理解析器'})}]}})
@@ -65,15 +69,15 @@ export function installDrawingCleanup(){
     await bench.charts[1].stopReplay();await bench.frame()
     await bench.charts[0].executeDrawingCommand({type:'select',ids:['bench-0000']})
    }
-   return {cycle:++cycle,subscribers,connections:connections.size}
+   return {cycle:++cycle,subscribers,connections:connections.size,replay:replayResult}
   },
   async releaseFirst(){
    bench.charts[0].dispose();bench.charts.shift();await resources.preferences.read('borrowed-remains',new AbortController().signal);await resources.registry.bind(resources.resolution)
    if(connections.size!==2||subscribers!==1)throw Error('第一个借用者释放影响了所有者资源 '+JSON.stringify({connections:connections.size,subscribers}))
    return {connections:connections.size,subscribers}
   },
-  async finish(){const cleanup=await bench.dispose();cacheLeaks=analytics.filter(x=>drawingAnalyticsRuntimes.has(x.chart)||x.runtime?.size!==0).length+curveCharts.filter(hasCurveGeometry).length+alertLeaks+(alertDisposals===2?0:1);analytics=[];curveCharts=[];resources.registry.dispose();resources.preferences.dispose();resources.documents.dispose();await new Promise<void>((resolve,reject)=>{const request=indexedDB.deleteDatabase(resources.databaseName);request.onsuccess=()=>resolve();request.onerror=()=>reject(request.error);request.onblocked=()=>reject(Error('清理存储仍有连接'))});resources=undefined;return cleanup},
-  report(hasGC:boolean){for(let i=listeners.length-1;i>=0;i--)if(!listeners[i].target.deref())listeners.splice(i,1);const active=listeners.filter(x=>{const target=x.target.deref();return target&&(hasGC||target===window||target===document||target.isConnected)});return {caches:cacheLeaks,listeners:active.length,timers:timers.size,frames:frames.size,observers:observers.size,subscribers,connections:connections.size,editors:document.querySelectorAll('.tc-drawing-context,.tc-drawing-workbench,.tc-drawing-handle,.tc-drawing-color-palette,.tc-drawing-tool-picker,.tc-drawing-snap-settings,[role=dialog]').length,details:active.map(x=>({type:x.type,target:x.target.deref()?.constructor.name,source:x.source}))}},
-  restore(){DrawingAlertRuntime.prototype.dispose=disposeAlerts;EventTarget.prototype.addEventListener=add;EventTarget.prototype.removeEventListener=remove;window.setTimeout=timeout;window.clearTimeout=clearTimeout;window.setInterval=interval;window.clearInterval=clearInterval;window.requestAnimationFrame=raf;window.cancelAnimationFrame=cancelRaf;window.ResizeObserver=Observer;IDBFactory.prototype.open=open;IDBDatabase.prototype.close=close;DrawingSession.prototype.subscribe=subscribe}
+  async finish(){const cleanup=await bench.dispose();cacheLeaks=replayLeaks+analytics.filter(x=>drawingAnalyticsRuntimes.has(x.chart)||x.runtime?.size!==0).length+curveCharts.filter(hasCurveGeometry).length+alertLeaks+(alertDisposals===2?0:1);analytics=[];curveCharts=[];resources.registry.dispose();resources.preferences.dispose();resources.documents.dispose();await new Promise<void>((resolve,reject)=>{const request=indexedDB.deleteDatabase(resources.databaseName);request.onsuccess=()=>resolve();request.onerror=()=>reject(request.error);request.onblocked=()=>reject(Error('清理存储仍有连接'))});resources=undefined;return cleanup},
+  report(hasGC:boolean){for(let i=listeners.length-1;i>=0;i--)if(!listeners[i].target.deref())listeners.splice(i,1);const active=listeners.filter(x=>{const target=x.target.deref();return target&&(hasGC||target===window||target===document||target.isConnected)});return {caches:cacheLeaks,listeners:active.length,timers:timers.size,frames:frames.size,observers:observers.size,subscribers,connections:connections.size,transactions:transactions.size,editors:document.querySelectorAll('.tc-drawing-context,.tc-drawing-workbench,.tc-drawing-handle,.tc-drawing-color-palette,.tc-drawing-tool-picker,.tc-drawing-snap-settings,[role=dialog]').length,details:active.map(x=>({type:x.type,target:x.target.deref()?.constructor.name,source:x.source}))}},
+  restore(){IDBDatabase.prototype.transaction=transaction;DrawingAlertRuntime.prototype.dispose=disposeAlerts;EventTarget.prototype.addEventListener=add;EventTarget.prototype.removeEventListener=remove;window.setTimeout=timeout;window.clearTimeout=clearTimeout;window.setInterval=interval;window.clearInterval=clearInterval;window.requestAnimationFrame=raf;window.cancelAnimationFrame=cancelRaf;window.ResizeObserver=Observer;IDBFactory.prototype.open=open;IDBDatabase.prototype.close=close;DrawingSession.prototype.subscribe=subscribe}
  }
 }

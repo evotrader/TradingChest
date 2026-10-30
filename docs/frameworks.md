@@ -181,3 +181,7 @@ onUnmounted(() => { controller.abort(); chart?.dispose() })
 drawing-workbench 示例实际安装同版公开 tarball。两个工作台借用同一宿主绘图 registry，第三个实例显式刷新；首方 IndexedDB 保存偏好和绘图。可运行的 loopback HTTP CAS 示例仅在开发服务可用，静态站禁用该选项。所有权与格式迁移见绘图页及 0.10.0 升级页。
 
 0.15 的 `EXAMPLE/LevelBands` 通过公开 `kind:'level-set'`、`resolveDrawingLevels` 和 peer `registerOverlay` 声明并绘制级别。示例覆盖旧数字数组／v1偏好读取、级别与正文编辑、正文不进模板、一次撤销和原生存储重开；不依赖 EvoTrader DTO 或服务。
+
+## 0.17 多图统一复盘
+
+[完整公开契约与迁移](./upgrade/0.17.0.md)涵盖可选 getReplayHistory、工作台命令/状态、WorkspaceDocument v3、记录方法和 Promise 退出。React 将 replay 放在 initialOptions，通过 onReady 获取同一 ChartWorkspace；onReplayStateChange 始终读取最新 callback。旧 Datafeed 与未启用实例保留原路径。

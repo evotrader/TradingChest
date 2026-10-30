@@ -9,6 +9,7 @@ import { buildSync } from 'esbuild'
 import { JSDOM } from 'jsdom'
 import {createServer} from 'vite'
 import {launchBrowser} from '../browser/support.mjs'
+import {runReplayWorkspaceExample} from '../integration/replay-workspace.mjs'
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const dir = mkdtempSync(path.join(tmpdir(), 'trading-chest-pack-'))
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
@@ -139,7 +140,15 @@ const drawingStore=createIndexedDBDrawingDocumentStore();
 const rootDrawingSessions:DrawingSessionRegistry=new RootDrawingSessions({scope:'host',store:drawingStore});
 const drawingSessions=new DrawingSessionRegistry({scope:'workspace'});
 void rootDrawingSessions;
-declare const workspace:ChartWorkspace;void workspace.listSaved();void workspace.saveAs('name');void workspace.load('id');void workspace.renameSaved('id','name');void workspace.deleteSaved('id');void workspace.importLegacy('old');
+declare const workspace:ChartWorkspace;
+import {WorkspaceReplayError,type WorkspaceReplayState,type WorkspaceReplayRecord,type ReplayHistoryResult} from 'trading-chest/chart';
+import type {WorkspaceReplayState as ReactReplay} from 'trading-chest/react';
+import type {WorkspaceReplayState as SolidReplay} from 'trading-chest/solid';
+const replay:WorkspaceReplayState=workspace.getReplayState();const replayExports:[ReactReplay,SolidReplay]=[replay,replay];void replayExports;
+const record:WorkspaceReplayRecord|null=workspace.getReplayRecord();void record;void WorkspaceReplayError;
+const entered:Promise<void>=workspace.startReplay({from:1,to:2});const stopped:Promise<void>=workspace.stopReplay();void entered;void stopped;
+const optionalHistory:Promise<ReplayHistoryResult>|undefined=feed.getReplayHistory?.({ticker:'A'},{multiplier:1,timespan:'minute',text:'1m'},{from:1,to:2,warmupBars:0},{signal,reason:'enter'});void optionalHistory;
+void workspace.listSaved();void workspace.saveAs('name');void workspace.load('id');void workspace.renameSaved('id','name');void workspace.deleteSaved('id');void workspace.importLegacy('old');
 declare const chart:ChartPro;void chart.bindDrawingWorkspace(drawingSessions);
 void chart.executeDrawingAlertCommand({type:'create',drawingLogicalId:'line',frequency:'once-per-bar'});void chart.getDrawingAlertState();const alerts=chart.captureDrawingAlerts();chart.restoreDrawingAlerts(alerts);
 declare const scope:AnalysisContext;
@@ -185,7 +194,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {LiveSharpeChart,TradingChart,TradingWorkspace} from 'trading-chest/react';
 const props={height:400,initialOptions:{symbol:{ticker:'SSR'},period:{multiplier:1,timespan:'day',text:'1d'}},createDatafeed:()=>{throw Error('SSR invoked datafeed factory')}};
 assert.ok(renderToStaticMarkup(React.createElement(TradingChart,props)).includes('trading-chart'));
-assert.ok(renderToStaticMarkup(React.createElement(TradingWorkspace,{height:400,initialOptions:{context:'SSR',symbols:[],initialSymbol:{ticker:'SSR'},getPeriods:()=>{throw Error('SSR read periods')}},renderCell:()=>{throw Error('SSR rendered cell')},createStore:()=>{throw Error('SSR opened store')}})).includes('trading-workspace'));
+assert.ok(renderToStaticMarkup(React.createElement(TradingWorkspace,{height:400,initialOptions:{context:'SSR',symbols:[],initialSymbol:{ticker:'SSR'},replay:{enabled:true},getPeriods:()=>{throw Error('SSR read periods')}},renderCell:()=>{throw Error('SSR rendered cell')},createStore:()=>{throw Error('SSR opened store')}})).includes('trading-workspace'));
 const cjs=createRequire(import.meta.url)('trading-chest/react');assert.ok(renderToStaticMarkup(React.createElement(cjs.TradingChart,props)).includes('trading-chart'));
 assert.match((await import('node:fs')).readFileSync(createRequire(import.meta.url).resolve('trading-chest/react'),'utf8'),/^['"]use client['"]/);
 const html = renderToStaticMarkup(React.createElement(LiveSharpeChart,{series:[{timestamp:'2026-01-01',ratio:0}]}));
@@ -226,7 +235,7 @@ console.log('Legacy browser UMD and CSS paths PASS');
     assert.ok(existsSync(path.join(dir,'node_modules/trading-chest/dist',asset)), 'missing legacy '+asset)
   }
   console.log('Packed subentries, declarations and legacy assets PASS')
-  for(const name of ['index.html','main.mjs','data-workspace.html','data-workspace.mjs'])copyFileSync(path.join(root,'examples/analysis-sdk',name),path.join(dir,name))
+  for(const name of ['index.html','main.mjs','data-workspace.html','data-workspace.mjs','replay-workspace.html','replay-workspace.mjs'])copyFileSync(path.join(root,'examples/analysis-sdk',name),path.join(dir,name))
   writeFileSync(path.join(dir,'mixed.mjs'),`import * as root from 'trading-chest'; import * as sub from 'trading-chest/chart'; window.mixedEntries={root,sub}; export {root,sub};`)
   const htmlPath=path.join(dir,'index.html');writeFileSync(htmlPath,readFileSync(htmlPath,'utf8').replace('</html>', '<script type="module" src="/mixed.mjs"></script></html>'))
   const evidence=path.resolve(process.env.TC_PACKAGE_EVIDENCE || path.join(root,'test-results/package'));mkdirSync(evidence,{recursive:true})
@@ -334,6 +343,11 @@ console.log('Legacy browser UMD and CSS paths PASS');
     await page.evaluate(()=>{dataWorkspaceDemo.workspace.dispose();dataWorkspaceDemo.store.dispose()});assert.deepEqual(errors,[])
     writeFileSync(path.join(evidence,'data-workspace.json'),JSON.stringify({passed:true,source:'installed tarball',before:12,range:240,namedRecords:2,persistent:true,errors},null,2)+'\n')
     console.log('Installed tarball generic history and persistent async workspace example PASS')
+    await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/replay-workspace.html`);await page.waitForFunction(()=>window.replayWorkspaceDemo?.ready)
+    const replayResult=await runReplayWorkspaceExample(page,{native:true});await page.getByRole('button',{name:'销毁示例',exact:true}).click()
+    assert.equal(await page.evaluate(()=>replayWorkspaceDemo.metrics.subscriptions===0&&replayWorkspaceDemo.metrics.created===replayWorkspaceDemo.metrics.disposed),true);assert.deepEqual(errors,[])
+    writeFileSync(path.join(evidence,'replay-workspace.json'),JSON.stringify({...replayResult,passed:true,errors},null,2)+'\n')
+    console.log('Installed tarball native replay, differing sessions, notes, paused restore and cleanup PASS')
   } catch(error) {
     await packagePage?.screenshot({path:path.join(evidence,'failure.png'),fullPage:true}).catch(()=>{})
     writeFileSync(path.join(evidence,'failure.json'),JSON.stringify({message:String(error),errors:packageErrors},null,2)+'\n')

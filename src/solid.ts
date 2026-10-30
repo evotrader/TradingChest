@@ -54,3 +54,8 @@ export {
 
 export { mountAnalyticalWidget } from './widget/mountWidget'
 export type { AnalyticalWidgetProps, MountedWidget } from './widget/mountWidget'
+
+export {ChartWorkspace} from './workspace/ChartWorkspace'
+export {WorkspaceReplayError} from './replay/types'
+export type {ReplayHistoryQuery,ReplayHistoryResult,ReplayBarClock,ReplayRequestContext,ReplaySpeed,WorkspaceReplayState,WorkspaceReplayRecord,ReplayBookmark} from './replay/types'
+export type {WorkspaceDocument,ChartWorkspaceOptions} from './workspace/types'

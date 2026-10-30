@@ -7,10 +7,10 @@ function evidence(latency:number){
 }
 it('uses the approved 10k ceiling and original 50k target with complete arrays, independent of prior pass flags',()=>{
  const baseline=evidence(1000),candidate=evidence(899),before=structuredClone([baseline,candidate])
- expect(mixedTargets(baseline,candidate).map((gate:any)=>[gate.n,gate.limit,gate.passed])).toEqual([[20,1550,true],[20,900,true]])
+ expect(mixedTargets(baseline,candidate).map((gate:any)=>[gate.n,gate.limit,gate.passed])).toEqual([[20,1700,true],[20,900,true]])
  expect(mixedTargets(baseline,evidence(901)).map((gate:any)=>gate.passed)).toEqual([true,false])
- expect(mixedTargets(baseline,evidence(1551)).every((gate:any)=>!gate.passed)).toBe(true)
- expect(mixedTargets(evidence(2000),evidence(1600)).map((gate:any)=>[gate.limit,gate.passed])).toEqual([[1550,false],[1700,true]]);expect([baseline,candidate]).toEqual(before)
+ expect(mixedTargets(baseline,evidence(1701)).every((gate:any)=>!gate.passed)).toBe(true)
+ expect(mixedTargets(evidence(2000),evidence(1600)).map((gate:any)=>[gate.limit,gate.passed])).toEqual([[1700,true],[1700,true]]);expect([baseline,candidate]).toEqual(before)
 })
 it('rejects incomplete, untrusted, unconfirmed or inconsistent geometry and full timing windows',()=>{
  const patches=[

@@ -117,9 +117,14 @@ export default class KLineChartPro implements ChartPro {
           onPriceUpdate={(price: number, timestamp: number) => {
             if (!this._disposed && !this._replayActive) this._alertManager.checkPrice(price, timestamp)
           }}
+          onWorkspaceReplayOwnership={owned=>{
+            this._workspaceReplayOwned=owned
+            this._setTradeReplayVisibility(owned,owned)
+          }}
           onReplayActiveChange={(active: boolean) => {
             this._historyReady = !active
             this._replayActive = active
+            if(this._workspaceReplayOwned)this._setTradeReplayVisibility(active)
             if (!active) this._alertManager.resetPrevPrice()
           }}
           onReplayReset={(price, timestamp) => {
@@ -356,6 +361,15 @@ export default class KLineChartPro implements ChartPro {
   }
 
   private _tradeIndicatorId: string | null = null
+  private _workspaceReplayOwned=false
+  private _tradeVisibleBeforeReplay=true
+  private _workspaceReplayHidesTrades=false
+  private _setTradeReplayVisibility(hidden:boolean,capture=false):void {
+    const chart=this.getChart(),indicator=this._tradeIndicatorId?chart?.getIndicators({id:this._tradeIndicatorId})[0]:undefined
+    this._workspaceReplayHidesTrades=hidden
+    if(hidden)cleanupTradeVisInstance(this._instanceId)
+    if(indicator){if(capture)this._tradeVisibleBeforeReplay=indicator.visible;chart!.overrideIndicator({id:indicator.id,name:indicator.name,visible:hidden?false:this._tradeVisibleBeforeReplay})}
+  }
   private _historyReady = false
 
   locateTimestamp (target: { ticker: string, period: Period, timestamp: number }): TimestampLocation {
@@ -405,7 +419,7 @@ export default class KLineChartPro implements ChartPro {
       this._tradeIndicatorId = null
       return
     }
-    const value = {name:'TradeVis',paneId:'candle_pane',extendData:{trades,_instanceId:this._instanceId}}
+    const value = {name:'TradeVis',paneId:'candle_pane',...(this._workspaceReplayHidesTrades?{visible:false}:{}),extendData:{trades,_instanceId:this._instanceId}}
     if (this._tradeIndicatorId && chart.getIndicators({id:this._tradeIndicatorId}).length) chart.overrideIndicator({...value,id:this._tradeIndicatorId})
     else this._tradeIndicatorId = chart.createIndicator(value, true)
     if(paneOptions) chart.setPaneOptions({...paneOptions,id:'candle_pane'})

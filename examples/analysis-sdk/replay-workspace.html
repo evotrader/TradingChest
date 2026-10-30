@@ -1,0 +1,7 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TradingChest 多图联动复盘</title>
+<style>body{font:14px system-ui;margin:16px;background:#111827;color:#e5e7eb}button{font:inherit;padding:6px;margin:4px}a{color:#93c5fd}#workspace{width:100%;height:1000px}pre{white-space:pre-wrap;max-height:180px;overflow:auto}</style>
+<h1>多图联动复盘工作台</h1><p>全部为隔离合成输入，不连接市场、账户或 EvoTrader。A 的交易日期为 10 月 12／13 日，B 为 12／14 日；这是假设的两个会话，不是真实交易日历。可以在第二图选择 B 和 5m，观察不同休市窗口。</p>
+<p>选择 UTC 范围 2026-10-12 08:00 至 2026-10-15 00:00，开始后使用同一时钟步进、定位事件并记录笔记。事件可用时刻晚于原始时刻。保存只写本浏览器 IndexedDB；笔记可能包含事后认识。</p>
+<button id="fail">下一次时钟读取失败</button><button id="dispose">销毁示例</button><p id="message" role="status">正在加载合成行情…</p><div id="workspace"></div><details><summary>工作台状态</summary><pre id="state"></pre></details>
+<script type="module" src="./replay-workspace.mjs"></script></html>

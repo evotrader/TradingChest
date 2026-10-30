@@ -76,7 +76,9 @@ export const TradingWorkspace=React.forwardRef<ChartWorkspace,TradingWorkspacePr
               disposed=true;observer.disconnect();listeners.clear();signal.removeEventListener('abort',binding.dispose)
               reject(new DOMException('Workspace cell cancelled','AbortError'))
               ownedBindings.delete(binding)
-              setBindings(values=>values.filter(value=>value!==binding))
+              // Unmount must not enqueue an update on a retired React root: its
+              // concurrent queue can retain the cell, chart and abort reason.
+              if(!controller.signal.aborted)setBindings(values=>values.filter(value=>value!==binding))
             }}
           const observer=new ResizeObserver(()=>{if(!disposed){binding.props={...binding.props,height:Math.max(1,container.clientHeight)};setBindings(values=>[...values])}})
           observer.observe(container)
@@ -89,7 +91,7 @@ export const TradingWorkspace=React.forwardRef<ChartWorkspace,TradingWorkspacePr
       latest.current.onReady?.(workspace)
     })().catch(reason=>{
       const failedWorkspace=workspace;workspace=undefined;failedWorkspace?.dispose();for(const binding of ownedBindings)binding.dispose()
-      if(ownedStore){const store=ownedStore;ownedStore=undefined;retired.current.push(()=>store.dispose());setBindings(values=>[...values])}
+      if(ownedStore){const store=ownedStore;ownedStore=undefined;if(controller.signal.aborted)store.dispose();else{retired.current.push(()=>store.dispose());setBindings(values=>[...values])}}
       if(controller.signal.aborted)return
       instance.current=null;publish(null)
       const error=errorOf(reason);setState({loading:false,error});latest.current.onError?.(error)

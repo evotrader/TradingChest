@@ -1,4 +1,4 @@
-import {KLineChartPro,ChartWorkspace} from '/src/chart.ts'
+import {KLineChartPro,ChartWorkspace,createIndexedDBWorkspaceStore} from '/src/chart.ts'
 import {makeBars} from './syntheticBars.ts'
 
 const frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))
@@ -6,13 +6,13 @@ const wait=async(check,label)=>{const deadline=performance.now()+30000;while(!ch
 const assert=(condition,message)=>{if(!condition)throw Error(message)}
 const period={multiplier:1,timespan:'minute',text:'1m'},symbol={ticker:'REPLAY.TEST',market:'test',exchange:'X',priceCurrency:'USD'},basis='synthetic-unadjusted'
 const identity=(s,p)=>({source:'synthetic',ticker:s.ticker,market:s.market,exchange:s.exchange,currency:s.priceCurrency,multiplier:p.multiplier,timespan:p.timespan,adjustment:'none',sessionFilter:'all',timezone:'UTC'})
-let workspace,bars=[],subscriptions=0,historyReads=0,replayReads=0,baseline=false,alertDocument,analysis=[],events=[]
+let workspace,ownedStore,bars=[],subscriptions=0,historyReads=0,replayReads=0,baseline=false,alertDocument,analysis=[],events=[]
 const states=new WeakMap(),triggers=[],failures=new Set()
 const data=(ticker)=>ticker===symbol.ticker?bars:bars.map(bar=>{const factor=Number(ticker.at(-1))+2;return {...bar,open:bar.open*factor,high:bar.high*factor,low:bar.low*factor,close:bar.close*factor}})
 function feed(ticker,owner=ticker){
  const values=data(ticker);let subscribed=false
- return {searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,q)=>{historyReads++;if(failures.has(`history:${owner}`))throw Error(`历史读取失败 ${owner}`);return {bars:q.kind==='before'?values.filter(b=>b.timestamp<q.before):values.filter(b=>b.timestamp>=q.from&&b.timestamp<q.to),basis,metadata:{state:'ready'},hasMoreBefore:false}},
-  getReplayHistory:async(s,p,q,context)=>{replayReads++;context.signal.throwIfAborted();if(failures.has(`replay:${owner}`))throw Error(`复盘时钟失败 ${owner}`);const before=values.filter(b=>b.timestamp<q.from).slice(-q.warmupBars),selected=[...before,...values.filter(b=>b.timestamp>=q.from&&b.timestamp<q.to)];return {bars:selected,clocks:selected.map(b=>({timestamp:b.timestamp,completedAt:b.timestamp,availableAt:b.timestamp})),identity:identity(s,p),basis,metadata:{state:selected.length?'ready':'empty'},historyKind:'current-history',coverage:{from:q.from,to:q.to,warmupBars:before.length}}},
+ return {searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,q)=>{historyReads++;if(failures.has(`history:${owner}`))throw Error(`历史读取失败 ${owner}`);const ordinary=failures.has(`live-gap:${owner}`)?values.map(b=>({...b,timestamp:b.timestamp+values.length*120000})):values;return {bars:q.kind==='before'?ordinary.filter(b=>b.timestamp<q.before):ordinary.filter(b=>b.timestamp>=q.from&&b.timestamp<q.to),basis,metadata:{state:'ready'},hasMoreBefore:false}},
+  getReplayHistory:async(s,p,q,context)=>{replayReads++;context.signal.throwIfAborted();if(failures.has(`hang:${owner}`))await new Promise(()=>{});if(failures.has(`replay:${owner}`))throw Error(`复盘时钟失败 ${owner}`);const before=values.filter(b=>b.timestamp<q.from).slice(-q.warmupBars),selected=[...before,...values.filter(b=>b.timestamp>=q.from&&b.timestamp<q.to)];return {bars:selected,clocks:selected.map(b=>({timestamp:b.timestamp,completedAt:b.timestamp,availableAt:b.timestamp})),identity:identity(s,p),basis,metadata:{state:selected.length?'ready':'empty'},historyKind:'current-history',coverage:{from:q.from,to:q.to,warmupBars:before.length}}},
   subscribe:()=>{assert(!subscribed,'重复订阅');subscribed=true;subscriptions++;if(failures.has(`subscribe:${owner}`))throw Error(`订阅失败 ${owner}`)},unsubscribe:()=>{if(subscribed){subscribed=false;subscriptions--}}}
 }
 const cells=()=>workspace.getCells(),primary=()=>cells()[0].chart
@@ -91,18 +91,21 @@ const enter=async(position)=>{
 const seek=async(position)=>{if(baseline)for(const {chart:pro} of cells())pro.getReplayEngine().goToPosition(position);else await workspace.seekReplay(bars[position-1].timestamp)}
 const exit=async()=>{if(baseline)for(const {chart:pro} of cells())await pro.stopReplay();else await workspace.stopReplay()}
 window.replayBench={
- async mount({count,layout,legacy}){
+ async mount({count,layout,legacy,ui=false}){
   assert(!workspace,'前一工作台未释放');baseline=legacy;bars=makeBars(count);historyReads=0;replayReads=0;triggers.length=0;failures.clear()
   events=Array.from({length:1000},(_,i)=>{const timestamp=bars[Math.floor(i*(count-1)/999)].timestamp;return {id:`event-${i}`,timestamp,availableAt:timestamp,label:`事件 ${i}`}})
   analysis=events.map((e,i)=>({timestamp:e.timestamp,availableAt:e.timestamp,value:Math.sin(i/7)}))
-  workspace=new ChartWorkspace({container:document.querySelector('#charts'),height:layout===4?1400:800,context:'replay-bench',symbols:[symbol],initialSymbol:symbol,initialPeriod:period,getPeriods:async()=>[period],replay:{enabled:true},mountCell})
+  if(ui){document.querySelector('#charts').style.width='100%';ownedStore=createIndexedDBWorkspaceStore({databaseName:`tc-replay-ui-${crypto.randomUUID()}`})}
+  workspace=new ChartWorkspace({container:document.querySelector('#charts'),store:ownedStore,height:layout===4?1400:800,context:'replay-bench',symbols:[symbol],initialSymbol:symbol,initialPeriod:period,getPeriods:async()=>[period],replay:{enabled:true},toolbar:{replay:ui,notes:ui},mountCell})
   await workspace.setLayout(layout);await loaded();primary().restoreDrawings('local',objects());await installHostLayers();await settle(count,false,true)
   return {count,layout,subscriptions,historyReads,replayReads}
  },
  async core(){
   const half=Math.floor(bars.length/2),result=[]
   const check=async(name,action,position,replay)=>{await action();const projection=await settle(position,replay,true);result.push({name,projection:projection.projection,state:workspace.getReplayState()})}
+  primary().createTradeVisualization([{entryTs:bars[10].timestamp,exitTs:bars.at(-1).timestamp,entryPrice:bars[10].close,exitPrice:bars.at(-1).close,pnl:1,direction:'long'}])
   await check('enter',()=>enter(half),half,true)
+  assert(primary().getChart().getIndicators({name:'TradeVis'})[0]?.visible===false,'没有可用时刻的成交覆盖物必须隐藏')
   const before={historyReads,replayReads}
   await check('step',()=>workspace.stepReplay('forward'),half+1,true)
   assert(before.historyReads===historyReads&&before.replayReads===replayReads,'步进不能重读历史')
@@ -111,6 +114,8 @@ window.replayBench={
   await check('seek-forward',()=>seek(Math.floor(bars.length*.75)),Math.floor(bars.length*.75),true)
   await check('seek-backward',()=>seek(Math.floor(bars.length*.25)),Math.floor(bars.length*.25),true)
   await check('exit',exit,bars.length,false)
+  assert(primary().getChart().getIndicators({name:'TradeVis'})[0]?.visible===true,'返回实时须恢复成交覆盖物')
+  primary().createTradeVisualization([])
   return result
  },
  async faults(){
@@ -149,6 +154,22 @@ window.replayBench={
   assert(primary().getReplayEngine()===null,'单图应已释放回放');await settle(bars.length,false,true);result.push('committed-legacy-exit-isolates-callback')
   return result
  },
+ async records(){
+  const half=Math.floor(bars.length/2),result=[]
+  await enter(half);workspace.updateReplayNotes('已知性与当前研究笔记')
+  const bookmark=workspace.addReplayBookmark({timestamp:bars[half-1].timestamp,title:'书签',note:'保留稳定 ID',cellId:'primary'})
+  workspace.playReplay();const saved=workspace.capture();workspace.pauseReplay();assert(saved.version===3&&saved.replaySession.mode==='paused','播放记录必须保存为暂停')
+  await exit();const live=workspace.capture(),old=primary(),beforeReads=replayReads
+  failures.add('replay:primary');let error;try{await workspace.restore(saved)}catch(e){error=e}failures.clear();assert(error&&primary()===old,'失败恢复必须保留原工作台');await settle(bars.length,false,true);result.push('failed-paused-restore-retains-original')
+  failures.add('hang:primary');const canceled=workspace.restore(saved).then(()=>null,e=>e);await wait(()=>workspace.getReplayState().phase==='loading','恢复未进入 loading');await workspace.stopReplay();assert((await canceled)?.name==='AbortError'&&primary()===old,'取消 staged 恢复须保留原工作台');failures.clear();result.push('cancel-staged-restore-keeps-original')
+  failures.add('live-gap:COMPARE0');const ordinary=await feed('COMPARE0').getHistoryKLineData(symbol,period,{kind:'before',before:Date.now(),countBack:bars.length});assert(!ordinary.bars.some(b=>bars.some(main=>main.timestamp===b.timestamp)),'隔离夹具必须确实没有 live 共同点');
+  await workspace.restore(saved);await loaded();await installHostLayers({comparisons:false,rules:'restore'});await settle(half,true,false);failures.clear();result.push('paused-restore-without-live-common-point')
+  assert(workspace.getReplayRecord().bookmarks[0].id===bookmark,'恢复丢失书签 ID');assert(primary()!==old,'成功恢复应整体替换');result.push('paused-document-restore')
+  failures.add('replay:primary');const reads=replayReads;await workspace.restore(live);await loaded();await installHostLayers({comparisons:false,rules:'restore'});await settle(bars.length,false,false);assert(replayReads===reads,'live 文档不读取旧时钟')
+  error=undefined;try{await workspace.resumeReplay()}catch(e){error=e}failures.clear();assert(error&&workspace.getReplayState().mode==='live','继续失败保留 live');assert(workspace.getReplayRecord().bookmarks[0].id===bookmark,'继续失败不得覆盖笔记');result.push('live-restore-independent-of-old-clocks')
+  await workspace.resumeReplay();await settle(half,true,false);assert(workspace.getReplayRecord().notes==='已知性与当前研究笔记','继续必须保留笔记');result.push('resume-preserves-record')
+  await exit();return {result,reads:replayReads-beforeReads,bookmark}
+ },
  async sample(){
   const samples={},half=Math.floor(bars.length/2),forward=Math.floor(bars.length*.75),backward=Math.floor(bars.length*.25)
   window.partialReplaySample=samples
@@ -172,7 +193,8 @@ window.replayBench={
    return samples
   }finally{observer.disconnect()}
  },
- async dispose(){workspace?.dispose();workspace=undefined;alertDocument=undefined;bars=[];analysis=[];events=[];await frame();return {subscriptions,dom:document.querySelector('#charts').childNodes.length}},
+ async dispose(){workspace?.dispose();workspace=undefined;ownedStore?.dispose();ownedStore=undefined;alertDocument=undefined;bars=[];analysis=[];events=[];await frame();return {subscriptions,dom:document.querySelector('#charts').childNodes.length}},
+ fail(key,enabled=true){if(enabled)failures.add(key);else failures.delete(key)},
  get workspace(){return workspace},get bars(){return bars},get states(){return states},frame
 }
 window.ready=true

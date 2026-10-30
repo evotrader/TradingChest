@@ -34,6 +34,7 @@ type PendingUpdate={bar:KLineData}|{snapshot:HistorySnapshot}|{error:string}
 type Member={revision:number;identity?:SeriesIdentity;handle:ComparisonHandle;feed:ComparisonDatafeed;bars:KLineData[];basis?:string;stream:number;subscribed:boolean;pending?:PendingUpdate[];prices:Map<number,number>;returns?:(timestamp:number)=>number|undefined;returnBase?:number;returnPrices?:Map<number,number>}
 interface Options {locale?:()=>string;chart:()=>Chart|null;symbol:()=>SymbolInfo;period:()=>Period;instanceId:string;onChange?:(state:ComparisonState)=>void}
 export class ComparisonManager {
+ private recordGuard?:{assert:()=>void;request:()=>Promise<void>}
  private workspaceLocked=false
  private workspaceAtomic=false
  private workspaceWindows=new Map<string,ReplayWindow>()
@@ -60,6 +61,8 @@ export class ComparisonManager {
  private resumes=new Set<AbortController>()
  private preparedResume:(()=>void)|null|undefined
  constructor(private options:Options){}
+ setRecordGuard(guard?:{assert:()=>void;request:()=>Promise<void>}){this.recordGuard=guard}
+ async requestRecordChange(){await this.recordGuard?.request();this.valid()}
  private checkBase(bars:KLineData[],timestamp:number){return baseClose(bars,timestamp,this.options.locale?.()??'zh-CN')}
  private commonBase(main:KLineData[],maps:Map<number,number>[],from?:number,to?:number){return commonBaseWithPrices(main,maps,from,to,this.options.locale?.()??'zh-CN')}
  private text(key:string){return i18n(key,this.options.locale?.()??'zh-CN')}
@@ -79,6 +82,7 @@ export class ComparisonManager {
  async add(symbol:SymbolInfo,feed:ComparisonDatafeed):Promise<ComparisonHandle>{
   this.valid();if(this.workspaceLocked){feed.dispose?.();throw new WorkspaceReplayError('REPLAY_OWNED','复盘期间不能更换比较成员')}const id=this.key(symbol)
   if(comparisonOwners.has(feed))throw Error(this.text('comparison_error_2'))
+  if(this.recordGuard)try{await this.requestRecordChange()}catch(error){feed.dispose?.();throw error}
   if(symbol.ticker===this.options.symbol().ticker||this.members.has(id)||this.pending.has(id)){feed.dispose?.();throw Error(this.text('comparison_error_3'))}
   if(this.restoring){feed.dispose?.();throw Error(this.text('comparison_error_4'))}
   if(this.replay){feed.dispose?.();throw Error(this.text('comparison_error_5'))}
@@ -104,6 +108,7 @@ export class ComparisonManager {
  cancel(id:string){const p=this.pending.get(id);if(!p)return;p.controller.abort();this.pending.delete(id);this.releasePending(p,this.options.period());this.emit()}
  remove(id:string){
   if(this.workspaceLocked)throw new WorkspaceReplayError('REPLAY_OWNED','复盘期间不能移除比较成员')
+  this.recordGuard?.assert()
   this.cancel(id);const m=this.members.get(id);if(!m)return
   if(this.preparedResume!==undefined)this.preparedResume=null
   this.stop(m);comparisonOwners.delete(m.feed);m.feed.dispose?.();this.chart().removeIndicator({id:m.handle.indicatorId});this.members.delete(id);this.errorsByOwner.delete(id)
@@ -197,7 +202,7 @@ export class ComparisonManager {
     check();windows.set(member.handle.id,window)
    }catch(error){if(failure===undefined){failure=error;reads.abort()}throw error}}))
    check();if(failure!==undefined)throw failure;const failed=results.find(result=>result.status==='rejected');if(failed?.status==='rejected')throw failed.reason
-   return {members,windows,assertCurrent:()=>{check();if(members.some(m=>!created.includes(m)&&(this.members.get(m.handle.id)!==m||!installed&&m.revision!==revisions.get(m))))throw new WorkspaceReplayError('BUSY','准备期间比较行情已改变，请重试')},release,installed:()=>{installed=true},records:members.map(member=>{const window=windows.get(member.handle.id)!;return {symbol:clone(member.handle.symbol),period:clone(member.handle.period),identity:{...window.identity},basis:window.basis}})}
+   return {members,windows,assertCurrent:()=>{check();if(members.some(m=>!created.includes(m)&&(this.members.get(m.handle.id)!==m||!installed&&m.revision!==revisions.get(m))))throw new WorkspaceReplayError('BUSY','准备期间比较行情已改变，请重试')},release,installed:()=>{installed=true},records:members.map(member=>{const window=windows.get(member.handle.id)!;return {symbol:clone(member.handle.symbol),period:clone(member.handle.period),identity:{...window.identity},...(window.basis===undefined?{}:{basis:window.basis})}})}
   }catch(error){release();throw error}
  }
  async prepareWorkspaceLive(main:KLineData[],signal:AbortSignal){

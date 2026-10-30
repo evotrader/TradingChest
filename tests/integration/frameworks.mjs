@@ -5,6 +5,7 @@ import {packedWorkspace,example,command,start,waitHTTP,freePort,evidence} from '
 import {launchBrowser} from '../browser/support.mjs'
 import {runDrawingComparison} from './drawing-comparison.mjs'
 import {runDrawingWorkbenchExample} from './drawing-workbench.mjs'
+import {runReplayWorkspaceExample} from './replay-workspace.mjs'
 import {runDrawingAlertsExample} from './drawing-alerts.mjs'
 const workspace=await packedWorkspace(),results=[],prepareOnly=process.argv.includes('--prepare-only')
 if(prepareOnly)copyFileSync(workspace.tarball,new URL('../../examples/'+path.basename(workspace.tarball),import.meta.url))
@@ -76,6 +77,7 @@ try{
         await page.getByRole('link',{name:'离开图表'}).click();await page.waitForFunction(()=>window.tcExample.metrics.created===window.tcExample.metrics.disposed)
         await page.getByRole('link',{name:'重新进入'}).click();await ready()
       }
+      if(name==='react-vite'){await page.getByRole('button',{name:'切换单图／工作台',exact:true}).click();await ready();console.log(JSON.stringify(await runReplayWorkspaceExample(page)))}
       await page.getByRole('button',{name:'卸载',exact:true}).click();await page.waitForFunction(()=>window.tcExample.metrics.created===window.tcExample.metrics.disposed)
     }
     assert.deepEqual(errors,[]);await page.screenshot({path:path.join(evidence,`${name}-${version||'default'}.png`)})

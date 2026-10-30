@@ -106,3 +106,7 @@ try {
 可控源的预期应独立于 adapter：before 严格上界、短页仍有历史、完整半开 range、basis 随响应、空与失败、无效 OHLCV／乱序／重复、同根更新／追加、双图独立退订、重试与取消。假穷尽由夹具预期发现，不能用 validator 成功冒充正确。模板用实际 loopback HTTP 检查 AbortSignal 传到请求；这不要求所有 provider 的 transport 同步停止，核心仍隔离忽略 signal 的迟到结果。
 
 React 的 `createDatafeed(signal)` 每次挂载创建独立实例，取消覆盖初始化；后续读取继续传 `context.signal`。工作台每 cell 同样独立。完整生命周期见[框架接入](./frameworks)。契约模板只证明所测适配行为，不替代真实来源核验、生产浏览器接线或真实后端 E2E。
+
+## 0.17 多图统一复盘
+
+[完整公开契约与迁移](./upgrade/0.17.0.md)涵盖可选 getReplayHistory、工作台命令/状态、WorkspaceDocument v3、记录方法和 Promise 退出。React 将 replay 放在 initialOptions，通过 onReady 获取同一 ChartWorkspace；onReplayStateChange 始终读取最新 callback。旧 Datafeed 与未启用实例保留原路径。

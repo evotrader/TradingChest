@@ -16,7 +16,7 @@ export function readLegacyWorkspace(scope:string,options:{symbols:SymbolInfo[];f
     const layout=result.value,symbol=layout.context?.ticker?options.symbols.find(s=>s.ticker===layout.context!.ticker):options.fallback.symbol
     if(!symbol)throw new WorkspaceStoreError('WORKSPACE_INVALID_DOCUMENT','旧布局标的不在当前目录，原件已保留')
     const saved=layout.context?.period,period=saved?{...saved,text:`${saved.multiplier} ${saved.timespan}`}:options.fallback.period
-    const doc:WorkspaceDocument={version:2,sharedDrawings:[],layout:1,activeCellId:'primary',sync:{symbol:false,period:false,crosshair:false,viewport:false},columnRatio:50,rowRatio:50,cells:[{cellId:'primary',context:scope,symbol:{...symbol},period:{...period},chart:{...layout,context:{...layout.context,ticker:symbol.ticker,period:{multiplier:period.multiplier,timespan:period.timespan}}}}]}
+    const doc:WorkspaceDocument={version:3,sharedDrawings:[],layout:1,activeCellId:'primary',sync:{symbol:false,period:false,crosshair:false,viewport:false},columnRatio:50,rowRatio:50,cells:[{cellId:'primary',context:scope,symbol:{...symbol},period:{...period},chart:{...layout,context:{...layout.context,ticker:symbol.ticker,period:{multiplier:period.multiplier,timespan:period.timespan}}}}]}
     if(!isWorkspaceDocument(doc))throw new WorkspaceStoreError('WORKSPACE_INVALID_DOCUMENT','旧布局无法导入，原件已保留')
     return doc
   }catch(error){if(error instanceof WorkspaceStoreError)throw error;throw new WorkspaceStoreError('WORKSPACE_STORE_UNAVAILABLE',error instanceof Error?error.message:'旧布局读取失败')}

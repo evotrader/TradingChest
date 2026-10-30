@@ -133,7 +133,7 @@ describe('workspace ownership',()=>{
     expect(mounted).toBe(2);expect(disposed).toBe(1);w.dispose();expect(disposed).toBe(2);
   })
   it.each(['load','restore'] as const)('detaches %s input before an asynchronous staged mount',async mode=>{
-    const doc:import('../types').WorkspaceDocument={version:2,sharedDrawings:[],layout:1,activeCellId:'primary',sync:{symbol:false,period:false,crosshair:false,viewport:false},columnRatio:50,rowRatio:50,cells:[{cellId:'primary',context:'original',symbol:{ticker:'A.X'},period,chart:{version:4,timestamp:1,theme:'dark',locale:'zh-CN',timezone:'UTC',styles:{line:{color:'before'}},indicators:[],panes:[],axes:[],drawings:[],drawingPresentation:{},context:{ticker:'A.X',period:{multiplier:1,timespan:'minute'}}}}]}
+    const doc:import('../types').WorkspaceDocument={version:3,sharedDrawings:[],layout:1,activeCellId:'primary',sync:{symbol:false,period:false,crosshair:false,viewport:false},columnRatio:50,rowRatio:50,cells:[{cellId:'primary',context:'original',symbol:{ticker:'A.X'},period,chart:{version:4,timestamp:1,theme:'dark',locale:'zh-CN',timezone:'UTC',styles:{line:{color:'before'}},indicators:[],panes:[],axes:[],drawings:[],drawingPresentation:{},context:{ticker:'A.X',period:{multiplier:1,timespan:'minute'}}}}]}
     const row={id:'saved',name:'私有副本',revision:'revision',updatedAt:1,document:doc},styles:unknown[]=[]
     let release!:(value:Period[])=>void
     const getPeriods=vi.fn().mockResolvedValueOnce([period]).mockImplementation(()=>new Promise(resolve=>{release=resolve}))

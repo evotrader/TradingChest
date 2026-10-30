@@ -11,7 +11,8 @@ export interface WorkspaceBinding {
   captureOptions?:()=>{localDrawingIds?:string[];annotationRefs?:string[]}
 }
 export interface WorkspaceDocument {
-  version:2
+  version:3
+  replaySession?:import('../replay/types').WorkspaceReplayRecord
   sharedDrawings:import('../drawing/document').SharedDrawingDocument[]
   layout:WorkspaceLayout
   activeCellId:string

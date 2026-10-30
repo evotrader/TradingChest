@@ -30,6 +30,7 @@ export interface ReplayParticipant {
   navigate(timestamp:number):TimestampLocation
   selectEvent(layerId:string,eventId:string):void
   restoreLiveComparisons(record:ReplayParticipantRecord,signal:AbortSignal):Promise<void>
+  setRecordGuard?(guard?:{assert:()=>void;request:()=>Promise<void>}):void
 }
 const participants=new WeakMap<ChartPro,ReplayParticipant>()
 export const registerReplayParticipant=(chart:ChartPro,participant:ReplayParticipant)=>{participants.set(chart,participant);return()=>{if(participants.get(chart)===participant)participants.delete(chart)}}

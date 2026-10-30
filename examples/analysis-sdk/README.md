@@ -26,3 +26,7 @@ npm pack --pack-destination /tmp
 `npm run build` 同时构建两个页面；`npm run dev` 后分别打开上述地址。浏览器自测可依次读取 before／range、注入失败并重载／重试、保存两份记录、选择加载、重命名、确认删除，再刷新页面检查持久化。该步骤说明不代表每个环境已经通过验证。
 
 纯 JavaScript 使用 `trading-chest/chart`；React／Solid 项目复用已有 `trading-chest/react`／`trading-chest/solid` 入口。图表在组件 mount 后创建，在 unmount 调用 dispose；不要在服务端渲染图表。`npm run test:package` 会安装实际 tarball，在独立目录编译本示例并通过 Chromium 操作，且验证无 React 安装、共享 Solid、React 18／19 以及 ESM／CJS／UMD。
+
+## 多图联动复盘
+
+打开 replay-workspace.html，选择不同标的/周期，在 UTC 2026-10-12 08:00 至 2026-10-15 00:00 内开始复盘。全部数据为隔离合成输入。可查看延迟事件、编辑书签/备注、保存后暂停恢复、注入下一次来源读取失败，以及销毁并核对订阅计数。只使用已安装 trading-chest/chart 公共接口。

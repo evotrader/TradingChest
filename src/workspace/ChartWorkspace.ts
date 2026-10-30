@@ -1,6 +1,10 @@
 import {WorkspaceReplayController} from './replayController'
-import {WorkspaceReplayError,type WorkspaceReplayState,type ReplaySpeed} from '../replay/types'
-import {replayFrame} from '../core/chartPaint'
+import {WorkspaceReplayError,type WorkspaceReplayState,type ReplaySpeed,type WorkspaceReplayRecord,type ReplayBookmark} from '../replay/types'
+import {assertReplayRecord} from './replayRecord'
+import {replayParticipant} from './replayParticipant'
+import {ReplayControls} from './ReplayControls'
+import {ReplayNotes} from './ReplayNotes'
+import {replayFrame,waitChartPaint} from '../core/chartPaint'
 import {createOpaqueId} from '../ids'
 import {yieldTask} from '../core/yieldTask'
 import {DrawingSessionRegistry} from '../drawing/session'
@@ -30,6 +34,15 @@ type Runtime={cell:WorkspaceCell; element:HTMLElement;body:HTMLElement;status:HT
 export class ChartWorkspace {
   private replay?:WorkspaceReplayController
   private replayOverlay?:HTMLElement
+  private replayRecordSaved=false
+  private replayUnsaved=false
+  private replayDialog?:{element:HTMLElement;cancel:()=>void}
+  private replayControls?:ReplayControls
+  private replayNotes?:ReplayNotes
+  private replayProjection=''
+  private replayListeners=new Set<(state:WorkspaceReplayState)=>void>()
+  private restoreTask?:Promise<void>
+  private restoreController?:AbortController
   private options:ChartWorkspaceOptions
   private root:HTMLElement
   private grid:HTMLElement
@@ -97,18 +110,26 @@ export class ChartWorkspace {
     }
     this.notice=document.createElement('div');this.notice.className='tc-workspace-notice';this.notice.setAttribute('role','status')
     this.grid=document.createElement('div');this.grid.className='tc-workspace-grid'
-    this.root.append(style,toolbar,this.notice,this.grid);options.container.append(this.root)
+    const main=document.createElement('div');main.className='tc-workspace-main';main.append(this.grid)
+    this.root.append(style,toolbar,this.notice,main);options.container.append(this.root)
+    if(options.replay?.enabled){
+      if(options.toolbar?.replay!==false){this.replayControls=new ReplayControls(this,e=>this.error(e));this.root.insertBefore(this.replayControls.element,this.notice)}
+      if(options.toolbar?.notes!==false){this.replayNotes=new ReplayNotes(this,()=>this.replay?.events()??[],()=>this.replay?.getLocations()??[],e=>this.error(e),()=>this.replayUnsaved);main.append(this.replayNotes.element)}
+    }
     if(typeof ResizeObserver!=='undefined'){this.observer=new ResizeObserver(()=>this.resize());this.observer.observe(this.grid)}
     this.renderSaved()
     if(options.store)void this.listSaved().catch(e=>this.error(e));else this.message(this.notice,'workspace_storage_disabled')
     this.initialization=this.createCell({cellId:'primary',symbol:options.initialSymbol,period:options.initialPeriod??{multiplier:1,timespan:'day',text:'1d'},context:options.context},this.grid).then(c=>{
-      if(this.disposed){this.disposeCell(c);return}this.cells=[c];this.geometry();this.setActive('primary');this.options.onLayoutChange?.(this.layout)
-    }).catch(e=>this.error(e)).finally(()=>{this.initialization=undefined;this.busy=false})
+      if(this.disposed){this.disposeCell(c);return}this.cells=[c];this.geometry();this.setActive('primary');this.notify(()=>this.options.onLayoutChange?.(this.layout))
+    }).catch(e=>this.error(e)).finally(()=>{this.initialization=undefined;this.busy=false;this.renderReplay()})
+  }
+  private newReplay(cells:()=>Runtime[],active:()=>string,changed:(state:WorkspaceReplayState)=>void):WorkspaceReplayController {
+    return new WorkspaceReplayController({cells:()=>cells().map(c=>{if(!c.pro)throw new WorkspaceReplayError('BUSY','请先等待全部窗格就绪',{cellId:c.cell.cellId});return {cellId:c.cell.cellId,chart:c.pro}}),active,presentBusy:async signal=>{await replayFrame(signal);await replayFrame(signal);await yieldTask()},changed})
   }
   private replayCore():WorkspaceReplayController {
     if(this.disposed)throw new WorkspaceReplayError('DISPOSED','工作台已经销毁')
     if(!this.options.replay?.enabled)throw new WorkspaceReplayError('UNSUPPORTED','宿主尚未启用工作台复盘')
-    return this.replay??=new WorkspaceReplayController({cells:()=>this.cells.map(c=>{if(!c.pro)throw new WorkspaceReplayError('BUSY','请先等待全部窗格就绪',{cellId:c.cell.cellId});return {cellId:c.cell.cellId,chart:c.pro}}),active:()=>this.active,presentBusy:async signal=>{await replayFrame(signal);await yieldTask()},changed:state=>this.replayChanged(state)})
+    return this.replay??=this.newReplay(()=>this.cells,()=>this.active,state=>this.replayChanged(state))
   }
   private replayChanged(state:WorkspaceReplayState){
     if(this.disposed)return
@@ -118,19 +139,48 @@ export class ChartWorkspace {
     for(const cell of this.cells){cell.body.inert=blocked;cell.symbolSelect.disabled=locked||!this.options.symbols.length;cell.periodSelect.disabled=locked||!cell.periodSelect.options.length;cell.pro?.getShortcutManager()?.setEnabled(!blocked&&cell.cell.cellId===this.active)}
     if(blocked&&!this.replayOverlay){this.replayOverlay=document.createElement('div');this.replayOverlay.className='tc-workspace-replay-busy';this.replayOverlay.setAttribute('role','status');this.grid.append(this.replayOverlay)}
     if(this.replayOverlay){this.replayOverlay.textContent=state.phase==='error'?`复盘恢复失败：${state.error?.message??'请重试返回实时'}`:'正在同步全部图表…';if(!blocked){this.replayOverlay.remove();this.replayOverlay=undefined}}
-    this.options.onReplayStateChange?.(state)
+    const projection=JSON.stringify([state.mode,state.from,state.to,state.cursor,state.driverCellId,state.speed]);if(projection!==this.replayProjection&&this.replayProjection&&this.getReplayRecord())this.replayUnsaved=true;this.replayProjection=projection
+    this.renderReplay(state);for(const notify of [this.options.onReplayStateChange,...this.replayListeners])try{notify?.(structuredClone(state))}catch(error){try{this.options.onError?.(error instanceof Error?error:new Error(String(error)))}catch{}}
   }
-  async startReplay(options:{from:number;to:number;cursor?:number;driverCellId?:string}):Promise<void>{if(this.initialization)await this.initialization;if(this.busy||this.cells.some(c=>c.transitioning))throw new WorkspaceReplayError('BUSY','工作台尚未就绪');return this.replayCore().start(options)}
+  private renderReplay(state=this.getReplayState()){this.replayControls?.render(state);this.replayNotes?.render(state)}
+  async startReplay(options:{from:number;to:number;cursor?:number;driverCellId?:string}):Promise<void>{if(this.initialization)await this.initialization;if(this.busy||this.restoreTask||this.cells.some(c=>c.transitioning))throw new WorkspaceReplayError('BUSY','工作台尚未就绪');const core=this.replayCore();core.assertIdle();await this.allowReplayReplacement('新复盘将替换上次记录');await core.start(options);this.replayRecordSaved=false;this.replayUnsaved=true}
   playReplay():void{this.replayCore().play()}
   pauseReplay():void{this.replayCore().pause()}
   stepReplay(direction:'forward'|'backward'):Promise<void>{return this.replayCore().step(direction)}
-  seekReplay(timestamp:number):Promise<void>{return this.replayCore().seek(timestamp)}
+  async seekReplay(timestamp:number):Promise<void>{const core=this.replayCore();await core.seek(timestamp);core.locate(timestamp)}
   setReplaySpeed(speed:ReplaySpeed):void{this.replayCore().speed(speed)}
   setReplayDriver(cellId:string):void{this.replayCore().driver(cellId)}
-  stopReplay():Promise<void>{return this.replayCore().stop()}
-  resumeReplay():Promise<void>{return this.replayCore().resume()}
-  getReplayState():WorkspaceReplayState{return this.replay?.getState()??{mode:'live',phase:'idle',speed:1,availabilityAssumed:false,cells:[]}}
-  subscribeReplay(listener:(state:WorkspaceReplayState)=>void):()=>void{return this.replayCore().subscribe(listener)}
+  async stopReplay():Promise<void>{if(this.restoreTask){this.restoreController?.abort();try{await this.restoreTask}catch(error){if(!(error instanceof DOMException&&error.name==='AbortError'))throw error}}return this.replayCore().stop()}
+  resumeReplay():Promise<void>{if(this.busy||this.restoreTask||this.cells.some(c=>c.transitioning))return Promise.reject(new WorkspaceReplayError('BUSY','工作台尚未就绪'));return this.replayCore().resume()}
+  getReplayState():WorkspaceReplayState{const state=this.replay?.getState()??{mode:'live' as const,phase:'idle' as const,speed:1 as const,availabilityAssumed:false,cells:[]};return this.restoreTask?{...state,phase:'loading'}:state}
+  subscribeReplay(listener:(state:WorkspaceReplayState)=>void):()=>void{if(this.disposed)throw new WorkspaceReplayError('DISPOSED','工作台已经销毁');this.replayListeners.add(listener);try{listener(this.getReplayState())}catch{}return()=>this.replayListeners.delete(listener)}
+  getReplayRecord():WorkspaceReplayRecord|null{return this.replay?.getRecord()??null}
+  private editReplayRecord(edit:(record:WorkspaceReplayRecord)=>void){this.replayCore().editRecord(record=>{edit(record);assertReplayRecord(record,this.cells.map(c=>c.cell))});this.replayUnsaved=true;this.renderReplay()}
+  updateReplayNotes(notes:string):void{this.editReplayRecord(record=>{record.notes=notes})}
+  addReplayBookmark(input:Omit<ReplayBookmark,'id'>):string{const id=createOpaqueId();this.editReplayRecord(record=>{record.bookmarks.push({...structuredClone(input),id})});return id}
+  updateReplayBookmark(id:string,patch:Partial<Omit<ReplayBookmark,'id'>>):void{this.editReplayRecord(record=>{const index=record.bookmarks.findIndex(b=>b.id===id);if(index<0)throw new WorkspaceReplayError('OUT_OF_RANGE','书签不存在');record.bookmarks[index]={...record.bookmarks[index],...structuredClone(patch),id}})}
+  removeReplayBookmark(id:string):void{this.editReplayRecord(record=>{const index=record.bookmarks.findIndex(b=>b.id===id);if(index<0)throw new WorkspaceReplayError('OUT_OF_RANGE','书签不存在');record.bookmarks.splice(index,1)})}
+  navigateReplayEvent(ref:{cellId:string;layerId:string;eventId:string}):Promise<void>{return this.replayCore().navigateEvent(ref)}
+  private async allowReplayReplacement(reason:string,signal?:AbortSignal,incoming?:WorkspaceReplayRecord):Promise<void>{
+    await this.replayNotes?.guardDraft(signal);signal?.throwIfAborted()
+    const record=this.getReplayRecord();if(!record)return
+    if(incoming&&this.jsonEqual({from:record.from,to:record.to,participants:record.participants,notes:record.notes,bookmarks:record.bookmarks},{from:incoming.from,to:incoming.to,participants:incoming.participants,notes:incoming.notes,bookmarks:incoming.bookmarks}))return
+    if(!record.notes&&!record.bookmarks.length&&!this.replayRecordSaved)return
+    if(this.replayDialog)throw new WorkspaceReplayError('BUSY','请先处理当前复盘记录')
+    await new Promise<void>((resolve,reject)=>{
+      const previous=document.activeElement as HTMLElement|null,element=document.createElement('div');element.setAttribute('role','alertdialog');element.setAttribute('aria-label','保留复盘记录');element.tabIndex=-1
+      const message=document.createElement('span');message.textContent=`${reason}。可保存旧工作台、放弃当前记录或取消；已有存储原件不会删除。`;element.append(message)
+      const abort=()=>finish(true)
+      const finish=(cancel=false)=>{signal?.removeEventListener('abort',abort);element.remove();this.replayDialog=undefined;previous?.focus();cancel?reject(new DOMException('已取消替换复盘记录','AbortError')):resolve()}
+      const save=document.createElement('button');save.type='button';save.textContent='保存旧工作台并继续';save.disabled=!this.options.store
+      save.onclick=()=>{save.disabled=true;void (this.selected?this.save():this.saveAs(this.nameInput.value)).then(()=>finish()).catch(error=>{this.error(error);save.disabled=false})}
+      const discard=document.createElement('button');discard.type='button';discard.textContent='放弃当前记录并继续';discard.onclick=()=>finish()
+      const cancel=document.createElement('button');cancel.type='button';cancel.textContent='取消';cancel.onclick=()=>finish(true)
+      element.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();finish(true)}}
+      element.append(save,discard,cancel);this.root.insertBefore(element,this.notice);this.replayDialog={element,cancel:()=>finish(true)};signal?.addEventListener('abort',abort,{once:true});cancel.focus()
+    })
+  }
+  private clearReplayRecord(){if(!this.replay?.getRecord())return;this.replay.setRecord(null);this.replayRecordSaved=false;this.replayUnsaved=false;this.notice.textContent='已清除当前复盘引用；已有存储记录保留。';this.renderReplay()}
   private t(key:string,values:MessageValues={}){return translate(key,this.options.locale!).replace(/\{(\w+)\}/g,(match,name)=>String(values[name]??match))}
   private caption(key:string,values:MessageValues={}){const span=document.createElement('span');this.message(span,key,values);return span}
   private message(element:HTMLElement,key:string|null,values:MessageValues={}){
@@ -153,12 +203,18 @@ export class ChartWorkspace {
     if(height!==undefined){this.validateHeight(height);this.options.height=height;this.root.style.height=typeof height==='number'?`${height}px`:height}
     for(const cell of this.cells)cell.pro?.getChart()?.resize()
   }
+  private notify(callback:()=>void){try{callback()}catch(error){try{this.error(error)}catch{}}}
   private error(reason:unknown){if(this.disposed||reason instanceof DOMException&&reason.name==='AbortError')return;const error=reason instanceof Error?reason:new Error(String(reason));this.reason(this.notice,error);if(this.unknownWrite)this.notice.textContent=this.t('workspace_result_unknown')+' · '+this.notice.textContent;this.options.onError?.(error)}
   private geometry(){
     this.grid.style.gridTemplateColumns=this.layout===1?'minmax(0,1fr)':`minmax(0,${this.columnRatio}fr) minmax(0,${100-this.columnRatio}fr)`
     this.grid.style.gridTemplateRows=this.layout===4?`minmax(240px,${this.rowRatio}fr) minmax(240px,${100-this.rowRatio}fr)`:'minmax(240px,1fr)'
-    for(const c of this.cells)c.pro?.getChart()?.resize()
+    for(const c of this.cells){c.pro?.getChart()?.resize();this.bindRecordGuard(c)}
     this.layoutSelect.value=String(this.layout)
+    this.renderReplay()
+  }
+  private bindRecordGuard(c:Runtime){
+    if(!this.options.replay?.enabled||!c.pro)return
+    replayParticipant(c.pro)?.setRecordGuard?.({assert:()=>{if(this.getReplayRecord())throw new WorkspaceReplayError('BUSY','请先在比较面板处理上次复盘记录，再移除成员')},request:async()=>{this.replay?.assertIdle();if(this.restoreTask)throw new WorkspaceReplayError('BUSY','工作台正在恢复');await this.allowReplayReplacement('比较成员变化会使上次复盘不再适用');if(this.disposed||!this.cells.includes(c))throw new DOMException('Workspace replaced','AbortError');this.clearReplayRecord()}})
   }
   private async createCell(cell:WorkspaceCell,parent:HTMLElement,strict=false,staged=false,signal?:AbortSignal,sharedSessions=this.sharedSessions):Promise<Runtime>{
     const element=document.createElement('section');element.dataset.cellId=cell.cellId;element.tabIndex=0;element.className='tc-workspace-cell'
@@ -204,7 +260,7 @@ export class ChartWorkspace {
         const current=()=>!runtime.controller.signal.aborted&&version===acceptVersion&&candidate===pro
         accepted=Promise.resolve().then(()=>pro.bindDrawingWorkspace?.(sharedSessions,this.options.resolveDrawingShareKey)).then(()=>{
           if(!current())return
-          runtime.pro=pro;this.message(runtime.status,null);pro.getChart()?.resize();this.bindActions(runtime);pro.getShortcutManager()?.setEnabled(runtime.cell.cellId===this.active);if(this.cells.includes(runtime)&&this.replay){this.replay.replaceCell(runtime.cell.cellId,pro);this.replayChanged(this.replay.getState())}
+          runtime.pro=pro;this.message(runtime.status,null);pro.getChart()?.resize();this.bindActions(runtime);pro.getShortcutManager()?.setEnabled(runtime.cell.cellId===this.active);if(this.cells.includes(runtime)&&this.replay){this.replay.replaceCell(runtime.cell.cellId,pro);this.replayChanged(this.replay.getState())}if(this.cells.includes(runtime))this.bindRecordGuard(runtime);this.renderReplay()
         }).catch(error=>{if(current())throw error})
         announce()
         return accepted
@@ -230,30 +286,33 @@ export class ChartWorkspace {
     const dom=chart.getDom();dom?.addEventListener('mouseleave',leave)
     c.unsubscribe=()=>{dom?.removeEventListener('mouseleave',leave);chart.unsubscribeAction('onCrosshairChange',crosshair);chart.unsubscribeAction('onVisibleRangeChange',viewport)}
   }
-  private disposeCell(c:Runtime){if(c.disposed)return;c.disposed=true;this.pending.delete(c);this.staged.delete(c);c.controller.abort();c.unsubscribeReady?.();c.unsubscribe?.();c.binding?.dispose();c.element.remove()}
-  setActive(id:string){const c=this.cells.find(c=>c.cell.cellId===id);if(!c)return;this.active=id;for(const item of this.cells){item.element.dataset.active=String(item===c);item.pro?.getShortcutManager()?.setEnabled(item===c&&!this.replayBusy())}this.options.onActiveCell?.({...c.cell})}
+  private disposeCell(c:Runtime){if(c.disposed)return;c.disposed=true;this.pending.delete(c);this.staged.delete(c);c.controller.abort();if(c.pro)replayParticipant(c.pro)?.setRecordGuard?.();c.unsubscribeReady?.();c.unsubscribe?.();c.binding?.dispose();c.element.remove()}
+  setActive(id:string){const c=this.cells.find(c=>c.cell.cellId===id);if(!c)return;this.active=id;for(const item of this.cells){item.element.dataset.active=String(item===c);item.pro?.getShortcutManager()?.setEnabled(item===c&&!this.replayBusy())}this.notify(()=>this.options.onActiveCell?.({...c.cell}))}
   async setLayout(layout:WorkspaceLayout){
     this.replay?.assertIdle()
+    if(this.restoreTask)throw this.failure('workspace_busy')
     if(this.initialization)await this.initialization
     if(this.disposed)throw this.failure('workspace_closed')
     if(![1,2,4].includes(layout))throw this.failure('workspace_invalid_layout')
     if(this.busy)throw this.failure('workspace_busy')
     this.assertDrawingIdle(this.cells.slice(layout))
+    if(layout!==this.layout){await this.allowReplayReplacement('布局变化会使上次复盘不再适用');this.clearReplayRecord()}
     const seq=++this.operation;this.busy=true
     ++this.alignment
     try{while(this.cells.length<layout){const source=this.cells.find(c=>c.cell.cellId===this.active)??this.cells[0];if(!source)throw this.failure('workspace_primary_not_ready');const id=ids[this.cells.length];const cell=await this.createCell({...source.cell,cellId:id,context:`${this.options.context}:${id}`},this.grid);if(this.disposed||seq!==this.operation){this.disposeCell(cell);return}this.cells.push(cell)}
       for(const c of this.cells.splice(layout))this.disposeCell(c)
-      this.layout=layout;this.geometry();this.setActive(this.cells.some(c=>c.cell.cellId===this.active)?this.active:'primary');this.options.onLayoutChange?.(layout)
+      this.layout=layout;this.geometry();this.setActive(this.cells.some(c=>c.cell.cellId===this.active)?this.active:'primary');this.notify(()=>this.options.onLayoutChange?.(layout))
     }finally{this.busy=false}
   }
   private async changeIdentity(c:Runtime,change:Partial<Pick<WorkspaceCell,'symbol'|'period'>>,propagate=true,isCurrent:()=>boolean=()=>true){
-    if(this.busy)throw this.failure('workspace_busy')
+    if(this.busy||this.restoreTask)throw this.failure('workspace_busy')
     this.replay?.assertIdle()
     const index=this.cells.indexOf(c);if(index<0)return
     if(change.symbol?.ticker===c.cell.symbol.ticker||change.period&&equalPeriod(change.period,c.cell.period))return
     if(c.transitioning)throw this.failure('workspace_cell_busy')
     if(!isCurrent())return
     this.assertDrawingIdle([c])
+    await this.allowReplayReplacement('标的或周期变化会使上次复盘不再适用');this.clearReplayRecord()
     if(propagate)++this.alignment
     const seq=++c.identitySeq
     c.transitioning=true;c.body.inert=true;c.pro?.getShortcutManager()?.setEnabled(false);c.symbolSelect.disabled=true;c.periodSelect.disabled=true
@@ -288,7 +347,8 @@ export class ChartWorkspace {
     this.replay?.assertStable()
     if(this.busy||this.cells.length!==this.layout||this.cells.some(c=>c.transitioning))throw this.failure('workspace_not_ready')
     const cells=this.cells.map(c=>{if(!c.pro)throw this.failure('workspace_cell_not_ready',{id:c.cell.cellId});if(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)throw this.failure('workspace_drawing_save');const options=c.binding?.captureOptions?.()??{};return {...c.cell,chart:captureLayout(c.pro,{...options,localDrawingIds:[...(options.localDrawingIds??[]),...c.restoredIds,...c.pro.getDrawings().filter(d=>d.owner==='local').map(d=>d.logicalId)],context:{ticker:c.cell.symbol.ticker,period:{multiplier:c.cell.period.multiplier,timespan:c.cell.period.timespan}}})}})
-    const doc:WorkspaceDocument={version:2,sharedDrawings:this.sharedSessions.capture(),layout:this.layout,activeCellId:this.active,sync:{...this.sync},columnRatio:this.columnRatio,rowRatio:this.rowRatio,cells}
+    const record=this.getReplayRecord()
+    const doc:WorkspaceDocument={version:3,...(record?{replaySession:record}:{}),sharedDrawings:this.sharedSessions.capture(),layout:this.layout,activeCellId:this.active,sync:{...this.sync},columnRatio:this.columnRatio,rowRatio:this.rowRatio,cells}
     if(!isWorkspaceDocument(doc))throw this.failure('workspace_invalid_save')
     return doc
   }
@@ -338,7 +398,8 @@ export class ChartWorkspace {
     return this.runStorage('read',async(store,signal)=>{const values=(await this.abortable(store.list(this.options.context,signal),signal)).map(value=>this.summary(value));if(new Set(values.map(v=>v.id)).size!==values.length)throw this.storageFailure('WORKSPACE_INVALID_DOCUMENT',this.t('workspace_corrupt'));signal.throwIfAborted();this.saved=values;if(this.selected&&!values.some(v=>v.id===this.selected!.id))this.selected=undefined;this.renderSaved();this.message(this.notice,values.length?'workspace_manual_save':'workspace_no_saved');return this.copy(values)})
   }
   private acceptStored(value:StoredWorkspace,select=true):WorkspaceSummary {
-    const summary=this.summary(value);if(select||this.selected?.id===summary.id)this.selected=summary;this.saved=[summary,...this.saved.filter(v=>v.id!==summary.id)];if(select)this.nameInput.value=summary.name;this.renderSaved();this.message(this.notice,'workspace_saved');return this.copy(summary)
+    if(select&&this.jsonEqual(value.document.replaySession??null,this.getReplayRecord())){this.replayRecordSaved=!!value.document.replaySession;this.replayUnsaved=false}
+    const summary=this.summary(value);if(select||this.selected?.id===summary.id)this.selected=summary;this.saved=[summary,...this.saved.filter(v=>v.id!==summary.id)];if(select)this.nameInput.value=summary.name;this.renderSaved();this.message(this.notice,'workspace_saved');this.renderReplay();return this.copy(summary)
   }
   private async writeInput(input:WorkspaceWrite,select=true):Promise<WorkspaceSummary> {
     this.lastStorageAction=()=>this.writeInput(input,select)
@@ -397,15 +458,22 @@ export class ChartWorkspace {
     const selected=this.selected;if(!selected)return
     this.deleteDialog?.remove();const dialog=document.createElement('div');dialog.setAttribute('role','alertdialog');this.aria(dialog,'workspace_delete_confirm');dialog.append(this.caption('workspace_delete_target',{name:selected.name}))
     for(const confirm of [true,false]){const button=document.createElement('button');button.type='button';this.message(button,confirm?'workspace_confirm':'workspace_cancel');button.onclick=()=>{dialog.remove();if(confirm)void this.deleteSaved(selected.id).catch(e=>this.error(e))};dialog.append(button)}
-    this.deleteDialog=dialog;this.root.insertBefore(dialog,this.grid)
+    this.deleteDialog=dialog;this.root.insertBefore(dialog,this.notice)
   }
   async restore(doc:WorkspaceDocument,isCurrent:()=>boolean=()=>true,signal?:AbortSignal){
     return this.restoreDocument(doc,isCurrent,signal)
   }
   private async restoreDocument(doc:WorkspaceDocument,isCurrent:()=>boolean,signal?:AbortSignal,ownsDocument=false){
+    if(this.restoreTask)throw this.failure('workspace_busy')
+    const controller=new AbortController();this.restoreController=controller
+    const task=this.performRestore(doc,isCurrent,signal?AbortSignal.any([signal,controller.signal]):controller.signal,ownsDocument).finally(()=>{if(this.restoreTask===task){this.restoreTask=undefined;this.restoreController=undefined;this.replayProjection='';if(this.options.replay?.enabled)this.replayChanged(this.getReplayState())}})
+    this.restoreTask=task;if(this.options.replay?.enabled)this.replayChanged(this.getReplayState());return task
+  }
+  private async performRestore(doc:WorkspaceDocument,isCurrent:()=>boolean,signal?:AbortSignal,ownsDocument=false){
     if(this.initialization)await this.initialization
     if(this.disposed)throw this.failure('workspace_closed')
     if(this.busy)throw this.failure('workspace_busy')
+    this.replay?.assertStable();this.replay?.pause()
     if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
     if(this.cells.some(c=>c.pro&&(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)))throw this.failure('workspace_drawing_load')
     // Only load() can transfer the private copy already migrated and checked by stored().
@@ -418,25 +486,49 @@ export class ChartWorkspace {
       this.assertDrawingIdle(this.cells)
     }
     for(const cell of doc.cells){if(!this.options.symbols.some(s=>s.ticker===cell.symbol.ticker))throw this.failure('workspace_symbol_missing',{ticker:cell.symbol.ticker});const context=cell.cellId==='primary'?this.options.context:`${this.options.context}:${cell.cellId}`;if(cell.context!==context)throw this.failure('workspace_context_mismatch')}
+    await this.allowReplayReplacement('打开工作台将替换当前复盘记录',signal,doc.replaySession)
+    signal?.throwIfAborted();if(this.disposed||!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
+    if(doc.replaySession?.mode==='paused'&&!this.options.replay?.enabled)throw new WorkspaceReplayError('UNSUPPORTED','当前宿主未启用工作台复盘，原工作台保留')
     const stagedSessions=new DrawingSessionRegistry({scope:'workspace',documents:doc.sharedDrawings})
     this.busy=true;for(const c of this.cells){c.body.inert=true;c.pro?.getShortcutManager()?.setEnabled(false)}++this.alignment;const staged:Runtime[]=[];const stage=document.createElement('div');stage.style.cssText='position:absolute;visibility:hidden;pointer-events:none;width:'+this.grid.clientWidth+'px';this.root.append(stage)
+    const retained=this.cells,gridColumns=this.grid.style.gridTemplateColumns,gridRows=this.grid.style.gridTemplateRows
+    let stagedReplay:WorkspaceReplayController|undefined,adopted=false,placed=false
+    const cancelReplay=()=>stagedReplay?.dispose();signal?.addEventListener('abort',cancelReplay,{once:true})
     try{
       for(const cell of doc.cells){if(!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');const c=await this.createCell(cell,stage,true,false,signal,stagedSessions);staged.push(c);if(cell.chart.drawings.length>=128)await yieldTask();if(this.disposed||!isCurrent())throw new DOMException('Workspace load cancelled','AbortError');if(!c.pro)throw this.failure('workspace_restored_not_ready');await this.abortable(restoreLayout(c.pro,cell.chart),signal??c.controller.signal);c.restoredIds=cell.chart.drawings.map(d=>d.logicalId)}
       if(this.disposed||!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
+      if(doc.replaySession){
+        const record=doc.replaySession
+        stagedReplay=this.newReplay(()=>adopted?this.cells:staged,()=>adopted?this.active:doc.activeCellId,state=>{if(adopted)this.replayChanged(state)})
+        stagedReplay.setRecord(record)
+        if(record.mode==='paused')await this.abortable(stagedReplay.resume(),signal??staged[0].controller.signal)
+        else for(const c of staged){const participant=replayParticipant(c.pro!);if(!participant)throw new WorkspaceReplayError('UNSUPPORTED','图表不能恢复已保存的比较成员',{cellId:c.cell.cellId});await participant.restoreLiveComparisons(record.participants.find(p=>p.cellId===c.cell.cellId)!,signal??c.controller.signal)}
+      }
+      if(this.disposed||!isCurrent()||signal?.aborted)throw new DOMException('Workspace load cancelled','AbortError')
       this.assertDrawingIdle(this.cells)
-      for(const c of this.cells)this.disposeCell(c)
-      this.cells=staged;for(const c of staged){this.staged.delete(c);this.grid.append(c.element);this.publishLabels(c)}
+      for(const c of retained)stage.append(c.element)
+      placed=true
+      for(const c of staged){this.grid.append(c.element);this.publishLabels(c)}
+      this.grid.style.gridTemplateColumns=doc.layout===1?'minmax(0,1fr)':`minmax(0,${doc.columnRatio}fr) minmax(0,${100-doc.columnRatio}fr)`
+      this.grid.style.gridTemplateRows=doc.layout===4?`minmax(240px,${doc.rowRatio}fr) minmax(240px,${100-doc.rowRatio}fr)`:'minmax(240px,1fr)'
+      for(const c of staged){c.pro?.getChart()?.resize();const viewport=doc.cells.find(saved=>saved.cellId===c.cell.cellId)?.chart.viewport;if(viewport&&c.pro?.getChart()&&!syncViewport(c.pro.getChart()!,{from:viewport.fromTimestamp,to:viewport.toTimestamp}))this.message(c.status,'workspace_restored_viewport_limited')}
+      if(doc.replaySession)await Promise.all(staged.map(c=>waitChartPaint(c.pro!.getChart()!,signal??c.controller.signal)))
+      signal?.throwIfAborted();if(this.disposed||!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
+      this.assertDrawingIdle(retained)
+      this.replay?.dispose();this.replay=stagedReplay;adopted=true
+      this.replayRecordSaved=!!doc.replaySession;this.replayUnsaved=false
+      for(const c of retained)this.disposeCell(c)
+      this.cells=staged;for(const c of staged){this.staged.delete(c);this.bindRecordGuard(c)}
       this.sharedSessions.dispose();this.sharedSessions=stagedSessions
       this.layout=doc.layout;this.sync={...doc.sync};this.columnRatio=doc.columnRatio;this.rowRatio=doc.rowRatio
       for(const control of this.controls)control.checked=this.sync[control.dataset.sync as keyof WorkspaceSync]
       for(const [key,value] of [['columnRatio',this.columnRatio],['rowRatio',this.rowRatio]] as const)(this.root.querySelector(`[data-ratio="${key}"]`) as HTMLInputElement).value=String(value)
-      this.geometry();this.setActive(doc.activeCellId);this.options.onLayoutChange?.(doc.layout);this.message(this.notice,'workspace_restored')
-      for(const c of staged){const viewport=doc.cells.find(saved=>saved.cellId===c.cell.cellId)?.chart.viewport;if(viewport&&c.pro?.getChart()&&!syncViewport(c.pro.getChart()!,{from:viewport.fromTimestamp,to:viewport.toTimestamp}))this.message(c.status,'workspace_restored_viewport_limited')}
-    }catch(e){for(const c of staged)this.disposeCell(c);stagedSessions.dispose();throw e}finally{stage.remove();this.busy=false;for(const c of this.cells){c.body.inert=false;c.pro?.getShortcutManager()?.setEnabled(c.cell.cellId===this.active)}}
+      this.layoutSelect.value=String(this.layout);this.setActive(doc.activeCellId);this.notify(()=>this.options.onLayoutChange?.(doc.layout));this.message(this.notice,'workspace_restored')
+    }catch(e){if(!adopted){stagedReplay?.dispose();for(const c of staged)this.disposeCell(c);stagedSessions.dispose();if(placed&&!this.disposed){this.grid.style.gridTemplateColumns=gridColumns;this.grid.style.gridTemplateRows=gridRows;for(const c of retained){this.grid.append(c.element);c.pro?.getChart()?.resize()}}}throw e}finally{signal?.removeEventListener('abort',cancelReplay);stage.remove();this.busy=false;for(const c of this.cells){c.body.inert=false;c.pro?.getShortcutManager()?.setEnabled(c.cell.cellId===this.active)}}
   }
   private assertDrawingIdle(cells:Runtime[]){if(cells.some(c=>c.pro&&(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)))throw this.failure('workspace_drawing_switch')}
   getCells(){return this.cells.map(c=>({...c.cell,chart:c.pro}))}
   private publishLabels(c:Runtime){c.element.style.display='flex';c.element.dataset.cellId=c.cell.cellId;this.aria(c.symbolSelect,'workspace_symbol',{id:c.cell.cellId});this.aria(c.periodSelect,'workspace_period',{id:c.cell.cellId})}
   private resetSelectors(c:Runtime){c.symbolSelect.value=c.cell.symbol.ticker;c.periodSelect.value=[...c.periodSelect.options].find(o=>equalPeriod(JSON.parse(o.value),c.cell.period))?.value??''}
-  dispose(){this.disposed=true;this.replay?.dispose();this.replay=undefined;this.io?.controller.abort();this.deleteDialog?.remove();++this.operation;this.observer?.disconnect();for(const c of [...this.cells,...this.pending,...this.staged])this.disposeCell(c);this.cells=[];this.sharedSessions.dispose();this.root.remove()}
+  dispose(){this.disposed=true;this.restoreController?.abort();this.replayNotes?.dispose();this.replayDialog?.cancel();this.replay?.dispose();this.replay=undefined;this.replayListeners.clear();this.io?.controller.abort();this.deleteDialog?.remove();++this.operation;this.observer?.disconnect();for(const c of [...this.cells,...this.pending,...this.staged])this.disposeCell(c);this.cells=[];this.sharedSessions.dispose();this.root.remove()}
 }

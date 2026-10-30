@@ -44,10 +44,13 @@
     },
     "10000x2": {
       "enter": {
-        "latency": 316.81499989032744,
+        "latency": 400,
         "longtask": 171.79999999999998,
         "baselineP95": 258.09999990463257,
-        "baselineMaximumLongTask": 132
+        "baselineMaximumLongTask": 132,
+        "absoluteLimits": [
+          "latency"
+        ]
       },
       "step": {
         "latency": 294.7349998354912,
@@ -62,10 +65,14 @@
         "baselineMaximumLongTask": 154
       },
       "seek-backward": {
-        "latency": 199.51500016450882,
-        "longtask": 138.45,
+        "latency": 250,
+        "longtask": 175,
         "baselineP95": 156.10000014305115,
-        "baselineMaximumLongTask": 103
+        "baselineMaximumLongTask": 103,
+        "absoluteLimits": [
+          "latency",
+          "longtask"
+        ]
       },
       "exit": {
         "latency": 394.9,
@@ -82,10 +89,13 @@
     },
     "10000x4": {
       "enter": {
-        "latency": 740.245000219345,
+        "latency": 800,
         "longtask": 388.0,
         "baselineP95": 626.3000001907349,
-        "baselineMaximumLongTask": 320
+        "baselineMaximumLongTask": 320,
+        "absoluteLimits": [
+          "latency"
+        ]
       },
       "step": {
         "latency": 609.0299997806549,
@@ -126,22 +136,33 @@
         "baselineMaximumLongTask": 424
       },
       "step": {
-        "latency": 310.1449999451637,
+        "latency": 450,
         "longtask": 246.54999999999998,
         "baselineP95": 252.29999995231628,
-        "baselineMaximumLongTask": 197
+        "baselineMaximumLongTask": 197,
+        "absoluteLimits": [
+          "latency"
+        ]
       },
       "seek-forward": {
-        "latency": 378.1100001096725,
-        "longtask": 320.15,
+        "latency": 500,
+        "longtask": 350,
         "baselineP95": 311.40000009536743,
-        "baselineMaximumLongTask": 261
+        "baselineMaximumLongTask": 261,
+        "absoluteLimits": [
+          "latency",
+          "longtask"
+        ]
       },
       "seek-backward": {
-        "latency": 247.46999994516372,
-        "longtask": 197.1,
+        "latency": 325,
+        "longtask": 225,
         "baselineP95": 197.79999995231628,
-        "baselineMaximumLongTask": 154
+        "baselineMaximumLongTask": 154,
+        "absoluteLimits": [
+          "latency",
+          "longtask"
+        ]
       },
       "exit": {
         "latency": 772.2149998903274,
@@ -176,10 +197,13 @@
         "baselineMaximumLongTask": 575
       },
       "seek-backward": {
-        "latency": 303.5899998903274,
+        "latency": 375,
         "longtask": 240.79999999999998,
         "baselineP95": 246.59999990463257,
-        "baselineMaximumLongTask": 192
+        "baselineMaximumLongTask": 192,
+        "absoluteLimits": [
+          "latency"
+        ]
       },
       "exit": {
         "latency": 1282.6999999999998,
@@ -196,10 +220,14 @@
     },
     "50000x4": {
       "enter": {
-        "latency": 1147.6900001645088,
-        "longtask": 844.55,
+        "latency": 1400,
+        "longtask": 1000,
         "baselineP95": 980.6000001430511,
-        "baselineMaximumLongTask": 717
+        "baselineMaximumLongTask": 717,
+        "absoluteLimits": [
+          "latency",
+          "longtask"
+        ]
       },
       "step": {
         "latency": 882.3850001096724,
@@ -214,10 +242,13 @@
         "baselineMaximumLongTask": 1200
       },
       "seek-backward": {
-        "latency": 498.4,
+        "latency": 550,
         "longtask": 401.79999999999995,
         "baselineP95": 416,
-        "baselineMaximumLongTask": 332
+        "baselineMaximumLongTask": 332,
+        "absoluteLimits": [
+          "latency"
+        ]
       },
       "exit": {
         "latency": 2381.8699999451637,
@@ -232,5 +263,7 @@
         "baselineMaximumLongTask": 1559
       }
     }
-  }
+  },
+  "approvedOn": "2026-10-30",
+  "approvalNote": "Operator accepted the 13 metrics listed in absoluteLimits after 0.17 R3. Those use absolute ceilings; every other metric retains the frozen formula and all original baseline values."
 }

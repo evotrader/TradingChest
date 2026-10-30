@@ -22,7 +22,7 @@ try{
  for(const count of [10000,50000])for(const append of [false,true]){
   const samples=rules=>result.samples.filter(s=>s.count===count&&s.append===append&&s.rules===rules),limit=rules=>append?levelAlertBudgets.append[count][rules]:budgets.cases[String(count)].update
   for(const rules of [0,100]){assert.equal(samples(rules).length,rounds);gate(`level-update-${count}-${append?'append':'same'}-${rules}`,percentile(samples(rules).flatMap(s=>s.updates)),limit(rules),{n:rounds*100})}
-  const control=percentile(samples(0).flatMap(s=>s.updates)),candidate=percentile(samples(100).flatMap(s=>s.updates));gate(`level-increment-${count}-${append?'append':'same'}`,candidate-control,append?levelAlertBudgets.appendIncrement:10,{control,candidate,n:rounds*100});gate(`level-batch100-${count}-${append?'append':'same'}`,percentile(samples(100).flatMap(s=>s.batches)),10,{n:rounds*100})
+  const control=percentile(samples(0).flatMap(s=>s.updates)),candidate=percentile(samples(100).flatMap(s=>s.updates));gate(`level-increment-${count}-${append?'append':'same'}`,candidate-control,append?levelAlertBudgets.appendIncrement[count]:10,{control,candidate,n:rounds*100});gate(`level-batch100-${count}-${append?'append':'same'}`,percentile(samples(100).flatMap(s=>s.batches)),10,{n:rounds*100})
  }
  await page.setViewportSize({width:1280,height:1400});await page.goto(`${process.env.TC_BROWSER_BASE}/tests/browser/drawing-refinement-performance.html?level-alerts=1`);await page.waitForFunction(()=>window.ready&&window.levelDense)
  const manager=page.getByRole('complementary',{name:'绘图管理',exact:true}),form=manager.getByRole('form',{name:'精确平移',exact:true})

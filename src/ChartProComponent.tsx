@@ -430,8 +430,9 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       replayEngine = null
       replayPrefix=[]
       setReplayState(defaultReplayState)
-      props.onReplayActiveChange?.(false)
-      props.onDataReady?.({symbol:symbol(),period:period()})
+      for(const notify of [()=>props.onReplayActiveChange?.(false),()=>props.onDataReady?.({symbol:symbol(),period:period()})]){
+        try{notify()}catch(error){try{props.onError?.({type:'replay-callback',message:error instanceof Error?error.message:String(error),raw:error})}catch{}}
+      }
     }).catch(error => {
       if(current())comparisons.rollbackResume()
       if(current()&&!mainRestored)transaction?.rollback()

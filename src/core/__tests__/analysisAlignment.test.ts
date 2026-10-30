@@ -22,7 +22,7 @@ async function setup(){
   initialize=()=>loader.getBars({type:'init',symbol,period:{type:'minute',span:1},timestamp:0,callback:(values:KLineData[])=>{bars=values.map(value=>({...value}));subscribe()}} as any)
   loader=new EngineDataLoader(chart,feed,{committed:state=>manager.sync(state),loading:vi.fn(),ready:vi.fn(),error:vi.fn(),price:vi.fn()})
   loader.activate(symbol,period);await initialize()
-  return {manager,loader,indicators,chart,setReentry:(callback:()=>void)=>{reenter=callback},snapshot:async(values:KLineData[],nextBasis=basis)=>{history=values;basis=nextBasis;await loader.applySnapshot({symbol,period,bars:values,basis})},dispose:()=>{manager.dispose();loader.dispose()}}
+  return {manager,loader,indicators,chart,setHistory:(values:KLineData[])=>{history=values},setReentry:(callback:()=>void)=>{reenter=callback},snapshot:async(values:KLineData[],nextBasis=basis)=>{history=values;basis=nextBasis;await loader.applySnapshot({symbol,period,bars:values,basis})},dispose:()=>{manager.dispose();loader.dispose()}}
 }
 describe('analysis indexes follow the actual confirmed loader',()=>{
   it.each([false,true])('uses confirmed time keys when adding a layer inside the engine callback, aborted=%s',async aborted=>{
@@ -87,4 +87,19 @@ describe('analysis indexes follow the actual confirmed loader',()=>{
     }finally{s.dispose()}
   })
 
+})
+
+it('retains snapshots received during live preparation and restores superseded snapshots on failed apply',async()=>{
+ const s=await setup();try{
+  s.loader.setReplay([bar(100)])
+  const old=[bar(100),{...bar(200),close:10}]
+  await s.snapshot(old);s.setHistory([bar(100),bar(200)])
+  const prepared=await s.loader.prepareWorkspaceLive(new AbortController().signal),failed=s.loader.beginWorkspaceUpdate()
+  await failed.applyLive(prepared);await failed.rollback()
+  expect((s.loader as any).pendingSnapshot.bars).toEqual(old);expect(s.loader.getDataState()?.replay).toBe(true)
+  const next=await s.loader.prepareWorkspaceLive(new AbortController().signal)
+  const newer=[bar(100),{...bar(200),close:12}];await s.snapshot(newer)
+  const tx=s.loader.beginWorkspaceUpdate();await tx.applyLive(next);tx.seal();await tx.publish()
+  expect(s.loader.getConfirmedBars().at(-1)?.close).toBe(12);expect(s.loader.getDataState()?.replay).toBe(false)
+ }finally{s.dispose()}
 })

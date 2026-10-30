@@ -8,5 +8,6 @@ try {
  result.mount=await page.evaluate(()=>replayBench.mount({count:2000,layout:2,legacy:false}))
  result.actions=await page.evaluate(()=>replayBench.core())
  result.failures=await page.evaluate(()=>replayBench.faults())
+ result.reviewRegressions=await page.evaluate(()=>replayBench.reviewRegressions())
  result.cleanup=await page.evaluate(()=>replayBench.dispose());assert.deepEqual(result.cleanup,{subscriptions:0,dom:0});assert.deepEqual(result.errors,[]);result.passed=true
 }catch(error){result.failure=String(error);throw error}finally{writeFileSync(output,JSON.stringify(result,null,2));await browser.close()}

@@ -118,3 +118,32 @@ describe('independent comparison ownership',()=>{
  })
 
 })
+
+it('invalidates prepared history after a confirmed comparison snapshot changes',async()=>{
+ const {manager}=setup(),provider=feed(),symbol={ticker:'A.X'},period={multiplier:1,timespan:'minute',text:'1m'},identity={source:'test',ticker:'A.X',market:'test',exchange:'X',currency:'USD',multiplier:1,timespan:'minute',adjustment:'none',sessionFilter:'all',timezone:'UTC'}
+ await manager.add(symbol,provider.value)
+ let release!:(value:any)=>void
+ provider.value.getReplayHistory=()=>new Promise(resolve=>release=resolve)
+ const pending=manager.prepareWorkspace({from:1,to:100,warmupBars:0},{signal:new AbortController().signal,reason:'enter'})
+ provider.push({bars:bars([110,220,330]),basis:'split'})
+ release({bars:bars([100,200,300]),clocks:[1,2,3].map(timestamp=>({timestamp,completedAt:timestamp})),identity,historyKind:'current-history',metadata:{state:'ready'},coverage:{from:1,to:100,warmupBars:0}})
+ const prepared=await pending
+ expect(()=>prepared.assertCurrent()).toThrow('比较行情已改变');expect(manager.getState().handles[0].basis).toBe('split');prepared.release();manager.dispose()
+})
+it('does not scan the main prefix for a step without any comparison members',async()=>{
+ const {manager}=setup(),identity={source:'test',ticker:'MAIN.X',market:'test',exchange:'X',currency:'USD',multiplier:1,timespan:'minute',adjustment:'none',sessionFilter:'all',timezone:'UTC'},source=bars(Array.from({length:50000},()=>10)),query={from:1,to:50001,warmupBars:0}
+ const main=prepareReplayHistory({bars:source,clocks:source.map(b=>({timestamp:b.timestamp,completedAt:b.timestamp})),identity,historyKind:'current-history',metadata:{state:'ready'},coverage:query},query,{ticker:'MAIN.X'},{multiplier:1,timespan:'minute',text:'1m'})
+ let reads=0;main.bars=new Proxy(main.bars,{get(target,key,receiver){if(typeof key==='string'&&/^\d+$/.test(key))reads++;return Reflect.get(target,key,receiver)}})
+ const prepared=await manager.prepareWorkspace(query,{signal:new AbortController().signal,reason:'enter'})
+ const first=manager.beginWorkspaceUpdate();first.applyReplay(prepared,main,25000,false);first.seal();first.publish();prepared.installed();reads=0
+ const step=manager.beginWorkspaceUpdate();step.applyReplay(prepared,main,25001,true);step.seal();step.publish()
+ expect(reads).toBeLessThan(10);manager.dispose()
+})
+
+it('settles a failed live comparison prepare even when another provider ignores cancellation',async()=>{
+ const {manager,chart}=setup(),first=feed(),second=feed()
+ await manager.add({ticker:'A.X'},first.value);await manager.add({ticker:'B.X'},second.value)
+ vi.mocked(first.value.getHistoryKLineData).mockRejectedValueOnce(Error('real read failed'))
+ vi.mocked(second.value.getHistoryKLineData).mockImplementationOnce(()=>new Promise(()=>{}))
+ await expect(manager.prepareWorkspaceLive(chart.getDataList(),new AbortController().signal)).rejects.toThrow('real read failed');manager.dispose()
+})

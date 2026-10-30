@@ -31,7 +31,7 @@ function abortable<T>(work:Promise<T>,signal:AbortSignal):Promise<T>{
  })
 }
 type PendingUpdate={bar:KLineData}|{snapshot:HistorySnapshot}|{error:string}
-type Member={identity?:SeriesIdentity;handle:ComparisonHandle;feed:ComparisonDatafeed;bars:KLineData[];basis?:string;stream:number;subscribed:boolean;pending?:PendingUpdate[];prices:Map<number,number>;returns?:(timestamp:number)=>number|undefined;returnBase?:number;returnPrices?:Map<number,number>}
+type Member={revision:number;identity?:SeriesIdentity;handle:ComparisonHandle;feed:ComparisonDatafeed;bars:KLineData[];basis?:string;stream:number;subscribed:boolean;pending?:PendingUpdate[];prices:Map<number,number>;returns?:(timestamp:number)=>number|undefined;returnBase?:number;returnPrices?:Map<number,number>}
 interface Options {locale?:()=>string;chart:()=>Chart|null;symbol:()=>SymbolInfo;period:()=>Period;instanceId:string;onChange?:(state:ComparisonState)=>void}
 export class ComparisonManager {
  private workspaceLocked=false
@@ -92,7 +92,7 @@ export class ComparisonManager {
    validateHistoryResult(snapshot,{kind:'range',from:this.referenceFrom??main[0].timestamp,to:main.at(-1)!.timestamp+1})
    if(snapshot.metadata?.state==='partial')throw Error('比较历史区间尚未完整')
    const current=this.main(),prices=priceMap(snapshot.bars),base=this.commonBase(current,[...[...this.members.values()].map(m=>m.prices),prices],this.referenceFrom??main[0].timestamp,main.at(-1)!.timestamp)
-   const member:Member={identity:snapshot.identity,handle:{id,symbol:clone(symbol),period,indicatorId:'',readAt:Date.now(),sourceTimestamp:snapshot.metadata?.sourceTimestamp,basis:snapshot.basis,mode:feed.mode??(feed.subscribeSnapshots?'http-snapshot':'stream')},feed,bars:copyBars(snapshot.bars),basis:snapshot.basis,stream:0,subscribed:false,prices}
+   const member:Member={revision:0,identity:snapshot.identity,handle:{id,symbol:clone(symbol),period,indicatorId:'',readAt:Date.now(),sourceTimestamp:snapshot.metadata?.sourceTimestamp,basis:snapshot.basis,mode:feed.mode??(feed.subscribeSnapshots?'http-snapshot':'stream')},feed,bars:copyBars(snapshot.bars),basis:snapshot.basis,stream:0,subscribed:false,prices}
    const oldBase=this.base,oldNotice=this.notice;if(!this.members.size)this.mainPrices=priceMap(current);this.members.set(id,member);this.base=base;this.notice=()=>`${this.text('comparison_recalculated')}${new Date(base).toISOString()}`
    try{this.render();this.start(member)}catch(reason){if(member.handle.indicatorId)this.chart().removeIndicator({id:member.handle.indicatorId});this.members.delete(id);this.base=oldBase;this.notice=oldNotice;if(this.members.size)this.render();else this.clearIndicators();throw reason}
    this.referenceFrom??=main[0].timestamp
@@ -125,7 +125,7 @@ export class ComparisonManager {
   try {
   if(m.feed.subscribeSnapshots)m.feed.subscribeSnapshots(m.handle.symbol,m.handle.period,value=>{
     if(!owned())return
-    if(preparingUpdate()){try{const snapshot=historySnapshot(value);pending.push({snapshot:{bars:copyBars(snapshot.bars),basis:snapshot.basis,metadata:snapshot.metadata&&{...snapshot.metadata}}})}catch(reason){pending.push({error:reason instanceof Error?reason.message:String(reason)})}}
+    if(preparingUpdate()){try{const snapshot=historySnapshot(value);pending.push({snapshot:{bars:copyBars(snapshot.bars),basis:snapshot.basis,identity:snapshot.identity&&{...snapshot.identity},metadata:snapshot.metadata&&{...snapshot.metadata}}})}catch(reason){pending.push({error:reason instanceof Error?reason.message:String(reason)})}}
     else if(active())this.update(m,value)
   },reason=>{if(!owned())return;if(preparingUpdate())pending.push({error:reason instanceof Error?reason.message:String(reason)});else if(active())this.fail(reason,m.handle.id)})
   else m.feed.subscribe(m.handle.symbol,m.handle.period,bar=>{if(!owned())return;if(preparingUpdate())pending.push({bar:{...bar}});else if(active())this.updateBar(m,bar)})
@@ -141,7 +141,7 @@ export class ComparisonManager {
    const old=m.bars[low],revised=bar.timestamp===this.base&&old?.close!==bar.close
    if(old?.timestamp===bar.timestamp)m.bars[low]={...bar};else m.bars.splice(low,0,{...bar})
    if(!m.prices.has(bar.timestamp)||m.prices.get(bar.timestamp)!==bar.close){m.prices.set(bar.timestamp,bar.close);m.returnPrices=undefined}
-   m.handle={...m.handle,readAt:Date.now(),sourceTimestamp:undefined};this.errorsByOwner.delete(m.handle.id)
+   ++m.revision;m.handle={...m.handle,readAt:Date.now(),sourceTimestamp:undefined};this.errorsByOwner.delete(m.handle.id)
    if(revised)this.notice=()=>`${m.handle.symbol.ticker}${this.text('comparison_member_revised')}${new Date(this.base!).toISOString()}`
    this.render();this.emit()
   }catch(reason){this.fail(reason,m.handle.id)}
@@ -158,7 +158,7 @@ export class ComparisonManager {
    const snapshot=this.mergeSnapshot(m,historySnapshot(value))
    const base=this.base!,old=m.bars.find(bar=>bar.timestamp===base)?.close,actual=snapshot.bars.find(bar=>bar.timestamp===base)?.close
    this.checkBase(snapshot.bars,base)
-   m.bars=copyBars(snapshot.bars);m.prices=priceMap(m.bars);m.basis=snapshot.basis;m.handle={...m.handle,readAt:Date.now(),sourceTimestamp:snapshot.metadata?.sourceTimestamp,basis:snapshot.basis};this.errorsByOwner.delete(m.handle.id)
+   ++m.revision;m.bars=copyBars(snapshot.bars);m.prices=priceMap(m.bars);m.basis=snapshot.basis;m.identity=snapshot.identity??m.identity;m.handle={...m.handle,readAt:Date.now(),sourceTimestamp:snapshot.metadata?.sourceTimestamp,basis:snapshot.basis};this.errorsByOwner.delete(m.handle.id)
    if(old!==actual)this.notice=()=>`${m.handle.symbol.ticker}${this.text('comparison_member_revised')}${new Date(base).toISOString()}`
    this.render();this.emit()
   }catch(reason){this.fail(reason,m.handle.id)}
@@ -186,33 +186,36 @@ export class ComparisonManager {
       const feed=factory!(clone(record.symbol),clone(record.period))
       if(comparisonOwners.has(feed))throw new WorkspaceReplayError('IDENTITY_MISMATCH','比较工厂必须返回独立行情实例')
       comparisonOwners.add(feed)
-      const member:Member={handle:{id:this.key(record.symbol),symbol:clone(record.symbol),period:clone(record.period),indicatorId:'',mode:feed.mode},feed,bars:[],stream:0,subscribed:false,prices:new Map()};created.push(member);return member
+      const member:Member={revision:0,handle:{id:this.key(record.symbol),symbol:clone(record.symbol),period:clone(record.period),indicatorId:'',mode:feed.mode},feed,bars:[],stream:0,subscribed:false,prices:new Map()};created.push(member);return member
     })
     if(members.length!==new Set(members.map(m=>m.handle.id)).size||[...this.members.keys()].some(id=>!members.some(m=>m.handle.id===id)))throw new WorkspaceReplayError('IDENTITY_MISMATCH','已保存的比较成员与当前图表不同')
    }
+   const revisions=new Map(members.map(m=>[m,m.revision]))
    const results=await Promise.allSettled(members.map(async(member,index)=>{try{
     const record=records?.[index],expected=record?{identity:record.identity,basis:record.basis}:{identity:member.identity,basis:member.basis}
     const window=await readReplayHistory(member.feed,member.handle.symbol,member.handle.period,query,{...context,signal},created.includes(member)?record:expected)
     check();windows.set(member.handle.id,window)
    }catch(error){if(failure===undefined){failure=error;reads.abort()}throw error}}))
    check();if(failure!==undefined)throw failure;const failed=results.find(result=>result.status==='rejected');if(failed?.status==='rejected')throw failed.reason
-   return {members,windows,assertCurrent:()=>{check();if(members.some(m=>!created.includes(m)&&this.members.get(m.handle.id)!==m))throw abort()},release,installed:()=>{installed=true},records:members.map(member=>{const window=windows.get(member.handle.id)!;return {symbol:clone(member.handle.symbol),period:clone(member.handle.period),identity:{...window.identity},basis:window.basis}})}
+   return {members,windows,assertCurrent:()=>{check();if(members.some(m=>!created.includes(m)&&(this.members.get(m.handle.id)!==m||!installed&&m.revision!==revisions.get(m))))throw new WorkspaceReplayError('BUSY','准备期间比较行情已改变，请重试')},release,installed:()=>{installed=true},records:members.map(member=>{const window=windows.get(member.handle.id)!;return {symbol:clone(member.handle.symbol),period:clone(member.handle.period),identity:{...window.identity},basis:window.basis}})}
   }catch(error){release();throw error}
  }
  async prepareWorkspaceLive(main:KLineData[],signal:AbortSignal){
-  this.valid();const members=[...this.members.values()],generation=this.generation
+  this.valid();const members=[...this.members.values()],generation=this.generation,revisions=new Map(members.map(m=>[m,m.revision]))
   const from=Math.min(main[0]?.timestamp??Infinity,...members.map(m=>m.bars[0]?.timestamp??Infinity)),to=Math.max(Date.now(),main.at(-1)?.timestamp??0)+1
-  const results=await Promise.allSettled(members.map(async member=>{
-    const result=await abortable(member.feed.getHistoryKLineData(member.handle.symbol,member.handle.period,{kind:'range',from,to},{signal,reason:'resume'}),signal)
+  const reads=new AbortController(),joined=AbortSignal.any([signal,reads.signal]);let failure:unknown
+  const results=await Promise.allSettled(members.map(async member=>{try{
+    const result=await abortable(member.feed.getHistoryKLineData(member.handle.symbol,member.handle.period,{kind:'range',from,to},{signal:joined,reason:'resume'}),joined)
     validateHistoryResult(result,{kind:'range',from,to});if(result.metadata?.state==='partial')throw new WorkspaceReplayError('PARTIAL_HISTORY','比较实时历史窗口尚未完整')
     return {member,snapshot:historySnapshot(result)}
-  }))
+  }catch(error){if(failure===undefined&&!signal.aborted){failure=error;reads.abort()}throw error}}))
   signal.throwIfAborted();if(this.disposed||generation!==this.generation)throw abort()
-  const failed=results.find(result=>result.status==='rejected');if(failed?.status==='rejected')throw failed.reason
+  if(failure!==undefined)throw failure
   const values=results.map(result=>(result as PromiseFulfilledResult<{member:Member;snapshot:HistorySnapshot}>).value)
   const base=members.length?this.commonBase(main,values.map(v=>priceMap(v.snapshot.bars)),this.referenceFrom):undefined
-  return {values,base,assertCurrent:()=>{signal.throwIfAborted();if(this.disposed||generation!==this.generation||members.some(m=>this.members.get(m.handle.id)!==m))throw abort()}}
+  return {values,base,assertCurrent:()=>{signal.throwIfAborted();if(this.disposed||generation!==this.generation||members.some(m=>this.members.get(m.handle.id)!==m||m.revision!==revisions.get(m)))throw abort()}}
  }
+
  beginWorkspaceUpdate(){
   if(this.workspaceAtomic)throw new WorkspaceReplayError('BUSY','比较正在提交')
   const oldMembers=new Map(this.members),old={replay:this.replay,cutoff:this.cutoff,fullMain:this.fullMain,base:this.base,referenceFrom:this.referenceFrom,notice:this.notice,error:this.error,windows:this.workspaceWindows,errors:new Map(this.errorsByOwner)},oldData=[...this.members.values()].map(member=>({member,bars:member.bars,length:member.bars.length,basis:member.basis,identity:member.identity,handle:{...member.handle}}))
@@ -225,7 +228,7 @@ export class ComparisonManager {
     const mainLength=replayPrefixLength(main.visibleAt,cursor),tail=incremental&&old.replay&&this.fullMain===main.bars
     this.fullMain=main.bars
     if(!tail)this.mainPrices=new Map()
-    for(let i=tail?this.mainPrices.size:0;i<mainLength;i++){const bar=main.bars[i];this.mainPrices.set(bar.timestamp,bar.close)}
+    for(let i=tail?this.mainPrices.size:0;this.members.size&&i<mainLength;i++){const bar=main.bars[i];this.mainPrices.set(bar.timestamp,bar.close)}
     for(const member of this.members.values()){
       const window=prepared.windows.get(member.handle.id)!,length=replayPrefixLength(window.visibleAt,cursor),append=tail&&old.windows.get(member.handle.id)===window&&length>=member.bars.length
       if(append){for(let i=member.bars.length;i<length;i++){const bar=window.bars[i];member.bars.push(bar);member.prices.set(bar.timestamp,bar.close)}}
@@ -234,7 +237,7 @@ export class ComparisonManager {
     }
     const maps=[...this.members.values()].map(m=>m.prices),last=main.bars[mainLength-1]?.timestamp
     if(!tail||this.base===undefined||!this.mainPrices.has(this.base)||maps.some(map=>!map.has(this.base!))){
-      this.base=last===undefined?undefined:visibleCommonBase(main.bars,maps,undefined,last,this.options.locale?.()??'zh-CN')
+      this.base=last===undefined||!this.members.size?undefined:visibleCommonBase(main.bars,maps,undefined,last,this.options.locale?.()??'zh-CN')
     }
     this.mainReturnPrices=undefined;this.error=undefined;this.errorsByOwner.clear();this.notice=this.base===undefined&&this.members.size?()=>this.text('comparison_no_common_time'):undefined
     this.render();this.emit()
@@ -278,7 +281,7 @@ export class ComparisonManager {
     try{
       const result=await m.feed.getHistoryKLineData(m.handle.symbol,m.handle.period,{kind:'range',from,to},{signal:controller.signal,reason:'resume'})
       if(this.disposed||epoch!==this.generation||controller.signal.aborted)throw abort()
-      validateHistoryResult(result,{kind:'range',from,to});if(result.metadata?.state==='partial')throw Error('比较历史区间尚未完整');const merged=this.mergeSnapshot(m,historySnapshot(result)),snapshot={bars:copyBars(merged.bars),basis:merged.basis,metadata:merged.metadata&&{...merged.metadata}};if(!stage)this.errorsByOwner.delete(m.handle.id);return snapshot
+      validateHistoryResult(result,{kind:'range',from,to});if(result.metadata?.state==='partial')throw Error('比较历史区间尚未完整');const merged=this.mergeSnapshot(m,historySnapshot(result)),snapshot={bars:copyBars(merged.bars),basis:merged.basis,identity:merged.identity&&{...merged.identity},metadata:merged.metadata&&{...merged.metadata}};if(!stage)this.errorsByOwner.delete(m.handle.id);return snapshot
     }catch(reason){
       if(!controller.signal.aborted&&epoch===this.generation){const message=reason instanceof Error?reason.message:String(reason);this.errorsByOwner.set(m.handle.id,message);throw Error(`${m.handle.symbol.ticker}：${message}`)}
       throw reason
@@ -290,7 +293,7 @@ export class ComparisonManager {
    const apply=()=>{
     if(this.disposed||epoch!==this.generation||members.length!==this.members.size||members.some(m=>this.members.get(m.handle.id)!==m))throw abort()
     let revised=false
-    for(let i=0;i<members.length;i++){const old=members[i].bars.find(b=>b.timestamp===base)?.close,current=snapshots[i].bars.find(b=>b.timestamp===base)?.close;if(old!==current)revised=true;members[i].bars=snapshots[i].bars;members[i].prices=priceMap(members[i].bars);members[i].basis=snapshots[i].basis;members[i].handle={...members[i].handle,readAt:Date.now(),sourceTimestamp:snapshots[i].metadata?.sourceTimestamp,basis:snapshots[i].basis}}
+    for(let i=0;i<members.length;i++){const old=members[i].bars.find(b=>b.timestamp===base)?.close,current=snapshots[i].bars.find(b=>b.timestamp===base)?.close;if(old!==current)revised=true;++members[i].revision;members[i].bars=snapshots[i].bars;members[i].prices=priceMap(members[i].bars);members[i].basis=snapshots[i].basis;members[i].identity=snapshots[i].identity??members[i].identity;members[i].handle={...members[i].handle,readAt:Date.now(),sourceTimestamp:snapshots[i].metadata?.sourceTimestamp,basis:snapshots[i].basis}}
     this.base=base;if(rebase)this.referenceFrom=window?.from
     if(rebase||revised)this.notice=()=>`${this.text(rebase?'comparison_range_reset':'comparison_base_revised')}: ${new Date(base).toISOString()}`
     this.error=undefined;for(const m of members)this.errorsByOwner.delete(m.handle.id)
@@ -325,7 +328,7 @@ export class ComparisonManager {
 
 
  private render(){
-  if(!this.members.size||this.base===undefined){const prices=this.mainPrices;for(const member of this.members.values()){if(member.handle.indicatorId)this.chart().removeIndicator({id:member.handle.indicatorId});member.handle.indicatorId='';member.returns=undefined;member.returnPrices=undefined}this.clearIndicators();this.mainPrices=prices;return}
+  if(!this.members.size||this.base===undefined){const prices=this.mainPrices;for(const member of this.members.values()){if(member.handle.indicatorId)this.chart().removeIndicator({id:member.handle.indicatorId});member.handle.indicatorId='';member.returns=undefined;member.returnPrices=undefined}this.clearIndicators(true);this.mainPrices=prices;return}
   const chart=this.chart();registerCompare()
   if(!this.axisId){this.axisId=chart.createYAxis({id:`${this.options.instanceId}_returns`,paneId:'candle_pane',name:'normal',position:'left',createTicks:({defaultTicks})=>defaultTicks.map(t=>({...t,text:`${Number(t.value).toFixed(2)}%`}))})??undefined;if(!this.axisId)throw Error(this.text('comparison_error_14'))}
   const apply=(id:string|undefined,desiredId:string,label:string,valueAt:(timestamp:number)=>number|undefined,color:string)=>{
@@ -340,7 +343,7 @@ export class ComparisonManager {
   const colors=['#38bdf8','#a78bfa','#fb7185','#4ade80'];let index=0
   for(const m of this.members.values()){if(m.returnPrices!==m.prices||m.returnBase!==this.base){m.returns=makeLookup(m.prices,this.base,this.options.locale?.()??'zh-CN');m.returnPrices=m.prices;m.returnBase=this.base}m.handle.indicatorId=apply(m.handle.indicatorId||undefined,m.handle.id,`${this.text('comparison_member_return')} ${m.handle.symbol.ticker}`,m.returns!,colors[index++%colors.length])}
  }
- private clearIndicators(){const chart=this.options.chart();if(this.mainIndicator)chart?.removeIndicator({id:this.mainIndicator});if(this.axisId)chart?.removeYAxis({id:this.axisId,paneId:'candle_pane'});this.mainIndicator=undefined;this.axisId=undefined;this.mainReturns=()=>undefined;this.mainReturnBase=undefined;this.mainReturnPrices=undefined;this.mainPrices.clear();this.errorsByOwner.delete('main')}
+ private clearIndicators(keepPrices=false){const chart=this.options.chart();if(this.mainIndicator)chart?.removeIndicator({id:this.mainIndicator});if(this.axisId)chart?.removeYAxis({id:this.axisId,paneId:'candle_pane'});this.mainIndicator=undefined;this.axisId=undefined;this.mainReturns=()=>undefined;this.mainReturnBase=undefined;this.mainReturnPrices=undefined;if(!keepPrices)this.mainPrices.clear();this.errorsByOwner.delete('main')}
  clear(){this.workspaceWindows.clear();this.workspaceAtomic=false;this.workspaceLocked=false;this.preparedResume=undefined;++this.generation;for(const p of this.pending.values()){p.controller.abort();this.releasePending(p,this.options.period())}this.pending.clear();for(const m of this.members.values()){this.stop(m);comparisonOwners.delete(m.feed);m.feed.dispose?.();this.options.chart()?.removeIndicator({id:m.handle.indicatorId})}this.members.clear();for(const c of this.resumes)c.abort();this.clearIndicators();this.base=undefined;this.referenceFrom=undefined;this.notice=undefined;this.error=undefined;this.errorsByOwner.clear();this.replay=false;this.restoring=false;this.cutoff=Infinity;this.fullMain=[];this.emit()}
  dispose(){if(this.disposed)return;this.disposed=true;this.clear()}
 }

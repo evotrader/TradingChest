@@ -19,7 +19,7 @@ const cells=()=>workspace.getCells(),primary=()=>cells()[0].chart
 const loaded=async()=>{await wait(()=>cells().length>0&&cells().every(c=>c.chart?.getAnalysisContext()),'工作台图表未就绪')}
 function mountCell(host,cell){
  let resolve;const ready=new Promise(done=>resolve=done)
- const pro=new KLineChartPro({container:host,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:['VOL','MACD'],datafeed:feed(cell.symbol.ticker,cell.cellId),drawingAlertScope:`replay-bench:${cell.cellId}`,createComparisonDatafeed:s=>feed(s.ticker),onDataReady:()=>resolve(pro),onDataState:s=>states.set(pro,s),onDrawingAlertTrigger:e=>triggers.push(e),onReplayDrawingAlertTrigger:e=>triggers.push(e)})
+ const pro=new KLineChartPro({container:host,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:['VOL','MACD'],datafeed:feed(cell.symbol.ticker,cell.cellId),drawingAlertScope:`replay-bench:${cell.cellId}`,createComparisonDatafeed:s=>feed(s.ticker),onDataReady:()=>{resolve(pro);if(failures.has(`callback:${cell.cellId}`))throw Error("隔离宿主通知失败")},onDataState:s=>states.set(pro,s),onDrawingAlertTrigger:e=>triggers.push(e),onReplayDrawingAlertTrigger:e=>triggers.push(e)})
  return {ready,dispose:()=>pro.dispose()}
 }
 function objects(){
@@ -129,6 +129,25 @@ window.replayBench={
    failures.add(key);let error;try{await exit()}catch(e){error=e}failures.clear();assert(error,'故障退出不能成功');assert(workspace.getReplayState().phase==='paused','退出失败保留暂停');await settle(half,true,true);assert(subscriptions===0,'退出失败清理已准备订阅');result.push(key)
   }
   await exit();await settle(bars.length,false,true);return result
+ },
+ async reviewRegressions(){
+  const half=Math.floor(bars.length/2),result=[]
+  await enter(half);await settle(half,true,true)
+  const first=primary().getChart(),ma=first.getIndicators({name:'MA'})[0],calc=ma.calc
+  let once=true;ma.calc=function(...args){if(once){once=false;throw Error('隔离指标计算失败')}return calc.apply(this,args)}
+  let error;try{await workspace.stepReplay('forward')}catch(e){error=e}finally{ma.calc=calc}
+  assert(error?.message.includes('指标'),'计算失败必须拒绝步进');await settle(half,true,true);result.push('calc-failure-rollback')
+  const second=cells()[1].chart.getChart(),reset=second.resetData
+  let release;ma.calc=function(values,indicator){const result=calc.call(this,values,indicator);if(values.length===half+200)return new Promise(resolve=>{release=()=>resolve(result)});return result}
+  once=true;second.resetData=function(...args){if(once){once=false;throw Error('隔离第二图失败')}return reset.apply(this,args)}
+  error=undefined;try{await seek(half+200)}catch(e){error=e}finally{second.resetData=reset;ma.calc=calc}
+  assert(error&&release,'必须实际到达挂起计算和第二图失败');await settle(half,true,true);release();await frame();await settle(half,true,true);result.push('late-calc-cannot-overwrite-rollback')
+  const stale=bars.map(b=>({...b})),last=stale.at(-1);last.close-=1;last.low=Math.min(last.low,last.close)
+  await primary().applySnapshot({symbol,period,bars:stale,basis});await exit();await settle(bars.length,false,true);result.push('resume-supersedes-old-snapshot')
+  primary().startReplay(half);await wait(()=>first.getDataList().length===half,'单图未进入回放')
+  failures.add('callback:primary');try{await primary().stopReplay()}finally{failures.clear()}
+  assert(primary().getReplayEngine()===null,'单图应已释放回放');await settle(bars.length,false,true);result.push('committed-legacy-exit-isolates-callback')
+  return result
  },
  async sample(){
   const samples={},half=Math.floor(bars.length/2),forward=Math.floor(bars.length*.75),backward=Math.floor(bars.length*.25)

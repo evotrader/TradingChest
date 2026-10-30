@@ -75,4 +75,11 @@ describe('drawing alerts consume the actual paired loader seam',()=>{
    s.runtime.execute({type:'rearm',id:'alert'});s.loader.push(bar(9));s.status({type:'error',code:'SOURCE_UNAVAILABLE',message:'读取失败'});s.loader.push(bar(11));expect(s.event).toHaveBeenCalledTimes(1)
   }finally{s.dispose()}
  })
+ it('rolls back alert comparison points, deduplication and callbacks as one workspace transaction',async()=>{
+  const s=await setup();try{
+   s.loader.push(bar(9));const before=s.runtime.getState(),transaction=s.runtime.beginTransaction();s.loader.push(bar(11));expect(s.event).not.toHaveBeenCalled();expect(s.runtime.getState()[0].hasTriggered).toBe(true)
+   transaction.rollback();expect(s.runtime.getState()).toEqual(before);s.loader.push(bar(9));const next=s.runtime.beginTransaction();s.loader.push(bar(11));expect(s.event).not.toHaveBeenCalled();next.publish();expect(s.event).toHaveBeenCalledOnce()
+  }finally{s.dispose()}
+ })
+
 })

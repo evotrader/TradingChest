@@ -129,9 +129,10 @@ describe('chart lifecycle isolation', () => {
   it('does not resume subscriptions after unmount during replay reload', async () => {
     const pending = deferred()
     const host = mount(vi.fn().mockResolvedValueOnce(historyResponse({kind:'before',before:bars.at(-1)!.timestamp+1,countBack:bars.length})).mockReturnValueOnce(pending.promise)); await tick()
-    host.api.startReplay(2); host.api.stopReplay(); host.unmount()
+    host.api.startReplay(2); const stopping=host.api.stopReplay().then(()=>false,error=>error.name==='AbortError'); host.unmount()
     pending.resolve(historyResponse({kind:'before',before:bars.at(-1)!.timestamp+1,countBack:bars.length})); await tick()
     expect(host.feed.subscribe).toHaveBeenCalledTimes(1)
+    expect(await stopping).toBe(true)
   })
 
   it('targets only selected owned drawings; Escape preserves completed and system overlays', async () => {
@@ -230,10 +231,10 @@ describe('chart lifecycle isolation', () => {
       expect(mock.chart.scrollToDataIndex).toHaveBeenLastCalledWith(1,0)
       chart.startReplay(2)
       expect(chart.locateTimestamp(request).reason).toBe('not-ready')
-      chart.stopReplay()
+      const stopping=chart.stopReplay()
       expect(chart.locateTimestamp(request).reason).toBe('not-ready')
       const query=history.mock.calls.at(-1)![2] as HistoryQuery
-      pending.resolve(historyResponse(query)); await tick(); await tick()
+      pending.resolve(historyResponse(query)); await stopping; await tick(); await tick()
       expect(chart.locateTimestamp(request).status).toBe('reference-window')
       history.mockImplementation((_symbol:any,_period:any,query:HistoryQuery)=>Promise.resolve(historyResponse(query)))
       chart.setSymbol({ticker:'OTHER'}); await tick()
@@ -302,12 +303,13 @@ describe('chart lifecycle isolation', () => {
     expect(pagination.reason).toBe('load-more')
     host.api.startReplay(2)
     expect(pagination.signal.aborted).toBe(true)
-    host.api.stopReplay()
+    const stopping=host.api.stopReplay().then(()=>false,error=>error.name==='AbortError')
     await tick()
     const resumed = host.feed.getHistoryKLineData.mock.calls.at(-1)![3]
     expect(resumed.reason).toBe('resume')
     host.unmount()
     expect(resumed.signal.aborted).toBe(true)
+    expect(await stopping).toBe(true)
   })
 
 })

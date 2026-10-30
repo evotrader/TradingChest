@@ -3,6 +3,7 @@ vi.mock('klinecharts',()=>({registerIndicator:vi.fn()}))
 import type {Chart,KLineData} from 'klinecharts'
 import type {HistoryQuery,HistoryResult,HistorySnapshot} from '../../types'
 import type {ComparisonDatafeed} from '../types'
+import {prepareReplayHistory} from '../../replay/history'
 import {ComparisonManager} from '../manager'
 const bars=(values:number[],start=1)=>values.map((close,i)=>({timestamp:start+i,open:close,high:close,low:close,close,volume:1}))
 function historyResult(query:HistoryQuery,source:ReturnType<typeof bars>):HistoryResult {
@@ -96,6 +97,24 @@ describe('independent comparison ownership',()=>{
  it('copies provider metadata before a staged replay resume commits',async()=>{
   const {manager}=setup(),a=feed();await manager.add({ticker:'A.X'},a.value);manager.enterReplay(2);
   const metadata={state:'ready' as const,sourceTimestamp:123};vi.mocked(a.value.getHistoryKLineData).mockImplementationOnce(async(_s,_p,query)=>({...historyResult(query,bars([100,200,300])),metadata}));await manager.prepareResume();metadata.sourceTimestamp=NaN;manager.leaveReplay();expect(manager.getState().handles[0].sourceTimestamp).toBe(123);manager.dispose();
+ })
+
+ it('restores historical comparison directly with no live common point and never retains a future baseline',async()=>{
+  const {manager,setMain,indicators}=setup();setMain([])
+  const symbol={ticker:'A.X'},period={multiplier:1,timespan:'minute',text:'1m'},query={from:1,to:100,warmupBars:0},identity={source:'test',ticker:'A.X',market:'test',exchange:'X',currency:'USD',multiplier:1,timespan:'minute',adjustment:'raw',sessionFilter:'all',timezone:'UTC'}
+  const input={bars:bars([100,200,300]),clocks:[{timestamp:1,completedAt:10},{timestamp:2,completedAt:20},{timestamp:3,completedAt:30}],identity,basis:'raw',historyKind:'current-history' as const,metadata:{state:'ready' as const},coverage:{...query}}
+  const provider=feed();provider.value.getReplayHistory=vi.fn(async()=>input)
+  const prepared=await manager.prepareWorkspace(query,{signal:new AbortController().signal,reason:'restore'},[{symbol,period,identity,basis:'raw'}],()=>provider.value)
+  expect(provider.value.getHistoryKLineData).not.toHaveBeenCalled();expect(manager.getState().handles).toEqual([])
+  const main=prepareReplayHistory({...input,bars:bars([10,20,30]),identity:{...identity,ticker:'MAIN.X'}},query,{ticker:'MAIN.X'},period)
+  const tx=manager.beginWorkspaceUpdate();tx.applyReplay(prepared,main,5,false);setMain([]);tx.seal();prepared.installed();tx.publish();expect(manager.getState().baseTimestamp).toBeUndefined();expect(indicators.size).toBe(0)
+  const next=manager.beginWorkspaceUpdate();next.applyReplay(prepared,main,20,true);setMain(bars([10,20]));next.seal();next.publish();expect(manager.getState().baseTimestamp).toBe(1);expect(manager.getState().handles[0].plottedReturn).toBe(100)
+  const back=manager.beginWorkspaceUpdate();back.applyReplay(prepared,main,5,false);setMain([]);back.seal();back.publish();expect(manager.getState().baseTimestamp).toBeUndefined();expect(indicators.size).toBe(0)
+  prepared.release();manager.dispose();expect(provider.value.dispose).toHaveBeenCalledOnce()
+ })
+ it('requires timing on hidden members and releases newly prepared feeds on failure',async()=>{
+  const {manager}=setup(),provider=feed();await manager.add({ticker:'A.X'},provider.value)
+  await expect(manager.prepareWorkspace({from:1,to:100,warmupBars:0},{signal:new AbortController().signal,reason:'enter'})).rejects.toMatchObject({code:'UNSUPPORTED'});expect(provider.value.unsubscribe).not.toHaveBeenCalled();manager.dispose()
  })
 
 })

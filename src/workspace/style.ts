@@ -33,4 +33,6 @@ export const workspaceStyle = `
 .tc-workspace-header select {min-width:0;max-width:100%}
 .tc-workspace-cell-status {overflow-wrap:anywhere;min-width:0}
 .tc-workspace-body {min-width:0;min-height:180px;flex:1}
+
+.tc-workspace-grid{position:relative}.tc-workspace-replay-busy{position:absolute;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.9);color:#e2e8f0;padding:20px;text-align:center}
 `

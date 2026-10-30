@@ -1,10 +1,13 @@
+import {readReplayHistory,replayPrefixLength,type ReplayWindow} from '../replay/history'
+import {WorkspaceReplayError,type ReplayComparisonRecord,type ReplayHistoryQuery,type ReplayRequestContext} from '../replay/types'
+import type {SeriesIdentity} from '../datafeed/session'
 import i18n from '../i18n'
 import {registerIndicator,type Chart,type KLineData} from 'klinecharts'
 import {visibleTimestamps} from '../workspace/viewportSync'
 import {historySnapshot,validateBars} from '../core/engineDataLoader'
 import {validateHistoryResult} from '../datafeed/history'
 import type {HistorySnapshot,Period,SymbolInfo} from '../types'
-import {commonBaseWithPrices,baseClose,priceMap} from './group'
+import {commonBaseWithPrices,visibleCommonBase,baseClose,priceMap} from './group'
 import type {ComparisonDatafeed,ComparisonHandle,ComparisonState} from './types'
 
 const comparisonOwners=new WeakSet<ComparisonDatafeed>()
@@ -28,9 +31,12 @@ function abortable<T>(work:Promise<T>,signal:AbortSignal):Promise<T>{
  })
 }
 type PendingUpdate={bar:KLineData}|{snapshot:HistorySnapshot}|{error:string}
-type Member={handle:ComparisonHandle;feed:ComparisonDatafeed;bars:KLineData[];basis?:string;stream:number;subscribed:boolean;pending?:PendingUpdate[];prices:Map<number,number>;returns?:(timestamp:number)=>number|undefined;returnBase?:number;returnPrices?:Map<number,number>}
+type Member={identity?:SeriesIdentity;handle:ComparisonHandle;feed:ComparisonDatafeed;bars:KLineData[];basis?:string;stream:number;subscribed:boolean;pending?:PendingUpdate[];prices:Map<number,number>;returns?:(timestamp:number)=>number|undefined;returnBase?:number;returnPrices?:Map<number,number>}
 interface Options {locale?:()=>string;chart:()=>Chart|null;symbol:()=>SymbolInfo;period:()=>Period;instanceId:string;onChange?:(state:ComparisonState)=>void}
 export class ComparisonManager {
+ private workspaceLocked=false
+ private workspaceAtomic=false
+ private workspaceWindows=new Map<string,ReplayWindow>()
  private members=new Map<string,Member>()
  private pending=new Map<string,{symbol:SymbolInfo;controller:AbortController;feed:ComparisonDatafeed;released:boolean}>()
  private emitQueued=false
@@ -64,14 +70,14 @@ export class ComparisonManager {
   const errors=[this.error,...[...this.errorsByOwner].map(([owner,message])=>`${owner==='main'?this.text('comparison_main'):this.members.get(owner)?.handle.symbol.ticker??owner}：${message}`)]
   return {handles,pending:[...this.pending].map(([id,p])=>({id,symbol:clone(p.symbol)})),baseTimestamp:this.base,notice:this.notice?.(),error:[...new Set(errors.filter(Boolean))].join('；')||undefined,replay:this.replay,restoring:this.restoring,mainTimestamp:timestamp,mainReturn:timestamp===undefined?undefined:this.mainReturns(timestamp)}
  }
- private emit(){if(this.disposed||this.emitQueued)return;this.emitQueued=true;queueMicrotask(()=>{this.emitQueued=false;if(!this.disposed)this.options.onChange?.(this.getState())})}
+ private emit(){if(this.disposed||this.workspaceAtomic||this.emitQueued)return;this.emitQueued=true;queueMicrotask(()=>{this.emitQueued=false;if(!this.disposed&&!this.workspaceAtomic)this.options.onChange?.(this.getState())})}
  private fail(reason:unknown,owner?:string){const message=reason instanceof Error?reason.message:String(reason);if(owner)this.errorsByOwner.set(owner,message);else this.error=message;this.emit()}
  private chart(){const c=this.options.chart();if(!c)throw Error(this.text('comparison_error_1'));return c}
  private main(){return this.replay?this.fullMain:this.chart().getDataList()}
  private key(symbol:SymbolInfo){const p=this.options.period();return `${this.options.instanceId}|${symbol.ticker}|${p.multiplier}:${p.timespan}`}
  private valid(){if(this.disposed)throw abort()}
  async add(symbol:SymbolInfo,feed:ComparisonDatafeed):Promise<ComparisonHandle>{
-  this.valid();const id=this.key(symbol)
+  this.valid();if(this.workspaceLocked){feed.dispose?.();throw new WorkspaceReplayError('REPLAY_OWNED','复盘期间不能更换比较成员')}const id=this.key(symbol)
   if(comparisonOwners.has(feed))throw Error(this.text('comparison_error_2'))
   if(symbol.ticker===this.options.symbol().ticker||this.members.has(id)||this.pending.has(id)){feed.dispose?.();throw Error(this.text('comparison_error_3'))}
   if(this.restoring){feed.dispose?.();throw Error(this.text('comparison_error_4'))}
@@ -86,7 +92,7 @@ export class ComparisonManager {
    validateHistoryResult(snapshot,{kind:'range',from:this.referenceFrom??main[0].timestamp,to:main.at(-1)!.timestamp+1})
    if(snapshot.metadata?.state==='partial')throw Error('比较历史区间尚未完整')
    const current=this.main(),prices=priceMap(snapshot.bars),base=this.commonBase(current,[...[...this.members.values()].map(m=>m.prices),prices],this.referenceFrom??main[0].timestamp,main.at(-1)!.timestamp)
-   const member:Member={handle:{id,symbol:clone(symbol),period,indicatorId:'',readAt:Date.now(),sourceTimestamp:snapshot.metadata?.sourceTimestamp,basis:snapshot.basis,mode:feed.mode??(feed.subscribeSnapshots?'http-snapshot':'stream')},feed,bars:copyBars(snapshot.bars),basis:snapshot.basis,stream:0,subscribed:false,prices}
+   const member:Member={identity:snapshot.identity,handle:{id,symbol:clone(symbol),period,indicatorId:'',readAt:Date.now(),sourceTimestamp:snapshot.metadata?.sourceTimestamp,basis:snapshot.basis,mode:feed.mode??(feed.subscribeSnapshots?'http-snapshot':'stream')},feed,bars:copyBars(snapshot.bars),basis:snapshot.basis,stream:0,subscribed:false,prices}
    const oldBase=this.base,oldNotice=this.notice;if(!this.members.size)this.mainPrices=priceMap(current);this.members.set(id,member);this.base=base;this.notice=()=>`${this.text('comparison_recalculated')}${new Date(base).toISOString()}`
    try{this.render();this.start(member)}catch(reason){if(member.handle.indicatorId)this.chart().removeIndicator({id:member.handle.indicatorId});this.members.delete(id);this.base=oldBase;this.notice=oldNotice;if(this.members.size)this.render();else this.clearIndicators();throw reason}
    this.referenceFrom??=main[0].timestamp
@@ -97,6 +103,7 @@ export class ComparisonManager {
  private releasePending(p:{symbol:SymbolInfo;feed:ComparisonDatafeed;released:boolean},period:Period){if(p.released)return;p.released=true;comparisonOwners.delete(p.feed);p.feed.unsubscribe(p.symbol,period);p.feed.dispose?.()}
  cancel(id:string){const p=this.pending.get(id);if(!p)return;p.controller.abort();this.pending.delete(id);this.releasePending(p,this.options.period());this.emit()}
  remove(id:string){
+  if(this.workspaceLocked)throw new WorkspaceReplayError('REPLAY_OWNED','复盘期间不能移除比较成员')
   this.cancel(id);const m=this.members.get(id);if(!m)return
   if(this.preparedResume!==undefined)this.preparedResume=null
   this.stop(m);comparisonOwners.delete(m.feed);m.feed.dispose?.();this.chart().removeIndicator({id:m.handle.indicatorId});this.members.delete(id);this.errorsByOwner.delete(id)
@@ -105,8 +112,8 @@ export class ComparisonManager {
   else {try{this.rebase('comparison_removed_rebase')}catch(reason){this.notice=()=>this.text('comparison_removed_retained');this.fail(reason);this.render()}}
   this.emit()
  }
- async resetRange(){this.valid();if(this.replay)throw Error(this.text('comparison_error_8'));const window=visibleTimestamps(this.chart());if(!window)throw Error(this.text('comparison_error_9'));await this.fetchGroup(true,window)}
- async retry(){this.valid();await this.fetchGroup(false)}
+ async resetRange(){this.valid();if(this.workspaceLocked)throw new WorkspaceReplayError('REPLAY_OWNED','请先退出工作台复盘');if(this.replay)throw Error(this.text('comparison_error_8'));const window=visibleTimestamps(this.chart());if(!window)throw Error(this.text('comparison_error_9'));await this.fetchGroup(true,window)}
+ async retry(){this.valid();if(this.workspaceLocked)throw new WorkspaceReplayError('REPLAY_OWNED','请先退出工作台复盘');await this.fetchGroup(false)}
  private rebase(message:string){if(!this.members.size)return;const main=this.main();this.base=this.commonBase(main,[...this.members.values()].map(m=>m.prices),this.referenceFrom);this.notice=()=>`${this.text(message)} · ${this.text('comparison_common_base')}: ${new Date(this.base!).toISOString()}`;this.error=undefined;this.render()}
  private start(m:Member,preparing=false){
   if((this.replay&&!preparing)||(this.restoring&&!preparing)||this.disposed||m.subscribed||this.members.get(m.handle.id)!==m)return
@@ -162,6 +169,93 @@ export class ComparisonManager {
    if(!this.replay){const next=this.chart().getDataList();validateBars(next);const old=this.mainPrices.get(this.base!),current=next.find(b=>b.timestamp===this.base)?.close;this.checkBase(next,this.base!);this.mainPrices=priceMap(next);this.errorsByOwner.delete('main');if(old!==undefined&&old!==current)this.notice=()=>`${this.text('comparison_main_revised')}${new Date(this.base!).toISOString()}`}
    this.render();this.emit()
   }catch(reason){this.fail(reason,'main')}
+ }
+ lockWorkspace(value:boolean){this.workspaceLocked=value}
+ async prepareWorkspace(query:ReplayHistoryQuery,context:ReplayRequestContext,records?:ReplayComparisonRecord[],factory?:(symbol:SymbolInfo,period:Period)=>ComparisonDatafeed){
+  this.valid();if(this.pending.size||this.restoring)throw new WorkspaceReplayError('BUSY','比较行情尚未读取完成')
+  const generation=this.generation,created:Member[]=[],windows=new Map<string,ReplayWindow>(),reads=new AbortController(),signal=AbortSignal.any([context.signal,reads.signal]);let failure:unknown
+  let members=[...this.members.values()],installed=false,released=false
+  const check=()=>{context.signal.throwIfAborted();if(this.disposed||this.generation!==generation)throw abort()}
+  const release=()=>{if(released)return;released=true;if(!installed)for(const member of created){comparisonOwners.delete(member.feed);member.feed.dispose?.()}}
+  try {
+   if(records){
+    if(records.length&&!factory)throw new WorkspaceReplayError('UNSUPPORTED','宿主没有提供比较行情工厂')
+    members=records.map(record=>{
+      const existing=this.members.get(this.key(record.symbol))
+      if(existing)return existing
+      const feed=factory!(clone(record.symbol),clone(record.period))
+      if(comparisonOwners.has(feed))throw new WorkspaceReplayError('IDENTITY_MISMATCH','比较工厂必须返回独立行情实例')
+      comparisonOwners.add(feed)
+      const member:Member={handle:{id:this.key(record.symbol),symbol:clone(record.symbol),period:clone(record.period),indicatorId:'',mode:feed.mode},feed,bars:[],stream:0,subscribed:false,prices:new Map()};created.push(member);return member
+    })
+    if(members.length!==new Set(members.map(m=>m.handle.id)).size||[...this.members.keys()].some(id=>!members.some(m=>m.handle.id===id)))throw new WorkspaceReplayError('IDENTITY_MISMATCH','已保存的比较成员与当前图表不同')
+   }
+   const results=await Promise.allSettled(members.map(async(member,index)=>{try{
+    const record=records?.[index],expected=record?{identity:record.identity,basis:record.basis}:{identity:member.identity,basis:member.basis}
+    const window=await readReplayHistory(member.feed,member.handle.symbol,member.handle.period,query,{...context,signal},created.includes(member)?record:expected)
+    check();windows.set(member.handle.id,window)
+   }catch(error){if(failure===undefined){failure=error;reads.abort()}throw error}}))
+   check();if(failure!==undefined)throw failure;const failed=results.find(result=>result.status==='rejected');if(failed?.status==='rejected')throw failed.reason
+   return {members,windows,assertCurrent:()=>{check();if(members.some(m=>!created.includes(m)&&this.members.get(m.handle.id)!==m))throw abort()},release,installed:()=>{installed=true},records:members.map(member=>{const window=windows.get(member.handle.id)!;return {symbol:clone(member.handle.symbol),period:clone(member.handle.period),identity:{...window.identity},basis:window.basis}})}
+  }catch(error){release();throw error}
+ }
+ async prepareWorkspaceLive(main:KLineData[],signal:AbortSignal){
+  this.valid();const members=[...this.members.values()],generation=this.generation
+  const from=Math.min(main[0]?.timestamp??Infinity,...members.map(m=>m.bars[0]?.timestamp??Infinity)),to=Math.max(Date.now(),main.at(-1)?.timestamp??0)+1
+  const results=await Promise.allSettled(members.map(async member=>{
+    const result=await abortable(member.feed.getHistoryKLineData(member.handle.symbol,member.handle.period,{kind:'range',from,to},{signal,reason:'resume'}),signal)
+    validateHistoryResult(result,{kind:'range',from,to});if(result.metadata?.state==='partial')throw new WorkspaceReplayError('PARTIAL_HISTORY','比较实时历史窗口尚未完整')
+    return {member,snapshot:historySnapshot(result)}
+  }))
+  signal.throwIfAborted();if(this.disposed||generation!==this.generation)throw abort()
+  const failed=results.find(result=>result.status==='rejected');if(failed?.status==='rejected')throw failed.reason
+  const values=results.map(result=>(result as PromiseFulfilledResult<{member:Member;snapshot:HistorySnapshot}>).value)
+  const base=members.length?this.commonBase(main,values.map(v=>priceMap(v.snapshot.bars)),this.referenceFrom):undefined
+  return {values,base,assertCurrent:()=>{signal.throwIfAborted();if(this.disposed||generation!==this.generation||members.some(m=>this.members.get(m.handle.id)!==m))throw abort()}}
+ }
+ beginWorkspaceUpdate(){
+  if(this.workspaceAtomic)throw new WorkspaceReplayError('BUSY','比较正在提交')
+  const oldMembers=new Map(this.members),old={replay:this.replay,cutoff:this.cutoff,fullMain:this.fullMain,base:this.base,referenceFrom:this.referenceFrom,notice:this.notice,error:this.error,windows:this.workspaceWindows,errors:new Map(this.errorsByOwner)},oldData=[...this.members.values()].map(member=>({member,bars:member.bars,length:member.bars.length,basis:member.basis,identity:member.identity,handle:{...member.handle}}))
+  this.workspaceAtomic=true;let open=true
+  const assert=()=>{if(!open||this.disposed)throw abort()}
+  return {
+   applyReplay:(prepared:Awaited<ReturnType<ComparisonManager['prepareWorkspace']>>,main:ReplayWindow,cursor:number,incremental:boolean)=>{
+    assert();prepared.assertCurrent();for(const member of this.members.values())this.stop(member)
+    this.members=new Map(prepared.members.map(m=>[m.handle.id,m]));this.workspaceWindows=prepared.windows;this.replay=true;this.cutoff=cursor;this.restoring=false
+    const mainLength=replayPrefixLength(main.visibleAt,cursor),tail=incremental&&old.replay&&this.fullMain===main.bars
+    this.fullMain=main.bars
+    if(!tail)this.mainPrices=new Map()
+    for(let i=tail?this.mainPrices.size:0;i<mainLength;i++){const bar=main.bars[i];this.mainPrices.set(bar.timestamp,bar.close)}
+    for(const member of this.members.values()){
+      const window=prepared.windows.get(member.handle.id)!,length=replayPrefixLength(window.visibleAt,cursor),append=tail&&old.windows.get(member.handle.id)===window&&length>=member.bars.length
+      if(append){for(let i=member.bars.length;i<length;i++){const bar=window.bars[i];member.bars.push(bar);member.prices.set(bar.timestamp,bar.close)}}
+      else {member.bars=window.bars.slice(0,length);member.prices=priceMap(member.bars)}
+      member.basis=window.basis;member.identity=window.identity;member.handle={...member.handle,basis:window.basis};member.returnPrices=undefined
+    }
+    const maps=[...this.members.values()].map(m=>m.prices),last=main.bars[mainLength-1]?.timestamp
+    if(!tail||this.base===undefined||!this.mainPrices.has(this.base)||maps.some(map=>!map.has(this.base!))){
+      this.base=last===undefined?undefined:visibleCommonBase(main.bars,maps,undefined,last,this.options.locale?.()??'zh-CN')
+    }
+    this.mainReturnPrices=undefined;this.error=undefined;this.errorsByOwner.clear();this.notice=this.base===undefined&&this.members.size?()=>this.text('comparison_no_common_time'):undefined
+    this.render();this.emit()
+   },
+   applyLive:(prepared:Awaited<ReturnType<ComparisonManager['prepareWorkspaceLive']>>,main:KLineData[])=>{
+    assert();prepared.assertCurrent();this.restoring=true
+    for(const {member,snapshot} of prepared.values){this.stop(member);member.bars=copyBars(snapshot.bars);member.prices=priceMap(member.bars);member.basis=snapshot.basis;member.identity=snapshot.identity;member.handle={...member.handle,basis:snapshot.basis};this.start(member,true)}
+    this.replay=false;this.cutoff=Infinity;this.fullMain=[];this.mainPrices=priceMap(main);this.base=prepared.base;this.workspaceWindows=new Map();this.error=undefined;this.errorsByOwner.clear();this.render()
+   },
+   seal:()=>{assert();this.workspaceAtomic=false;this.restoring=false},
+   publish:()=>{for(const member of this.members.values())this.flush(member);this.emit()},
+   rollback:()=>{
+    if(!open||this.disposed)return
+    try{for(const member of this.members.values()){this.stop(member);if(!oldMembers.has(member.handle.id)){if(member.handle.indicatorId)this.chart().removeIndicator({id:member.handle.indicatorId});}}
+    this.members=oldMembers
+    for(const value of oldData){value.bars.length=value.length;Object.assign(value.member,{bars:value.bars,basis:value.basis,identity:value.identity,handle:value.handle,prices:priceMap(value.bars),returnPrices:undefined})}
+    this.replay=old.replay;this.cutoff=old.cutoff;this.fullMain=old.fullMain;this.mainPrices=priceMap(this.replay?this.chart().getDataList():this.main());this.base=old.base;this.referenceFrom=old.referenceFrom;this.notice=old.notice;this.error=old.error;this.errorsByOwner=old.errors;this.workspaceWindows=old.windows;this.mainReturnPrices=undefined;this.restoring=false
+    if(!this.replay)for(const member of this.members.values())this.start(member)
+    this.render()}finally{this.workspaceAtomic=false;open=false}this.emit()
+   }
+  }
  }
  enterReplay(cutoff:number){
   this.valid();const source=this.chart().getDataList();if(this.members.size)this.checkBase(source,this.base!);this.cancelReads();this.fullMain=copyBars(source);this.mainPrices=priceMap(this.fullMain);this.replay=true;this.cutoff=cutoff
@@ -231,7 +325,7 @@ export class ComparisonManager {
 
 
  private render(){
-  if(!this.members.size||this.base===undefined)return
+  if(!this.members.size||this.base===undefined){const prices=this.mainPrices;for(const member of this.members.values()){if(member.handle.indicatorId)this.chart().removeIndicator({id:member.handle.indicatorId});member.handle.indicatorId='';member.returns=undefined;member.returnPrices=undefined}this.clearIndicators();this.mainPrices=prices;return}
   const chart=this.chart();registerCompare()
   if(!this.axisId){this.axisId=chart.createYAxis({id:`${this.options.instanceId}_returns`,paneId:'candle_pane',name:'normal',position:'left',createTicks:({defaultTicks})=>defaultTicks.map(t=>({...t,text:`${Number(t.value).toFixed(2)}%`}))})??undefined;if(!this.axisId)throw Error(this.text('comparison_error_14'))}
   const apply=(id:string|undefined,desiredId:string,label:string,valueAt:(timestamp:number)=>number|undefined,color:string)=>{
@@ -247,6 +341,6 @@ export class ComparisonManager {
   for(const m of this.members.values()){if(m.returnPrices!==m.prices||m.returnBase!==this.base){m.returns=makeLookup(m.prices,this.base,this.options.locale?.()??'zh-CN');m.returnPrices=m.prices;m.returnBase=this.base}m.handle.indicatorId=apply(m.handle.indicatorId||undefined,m.handle.id,`${this.text('comparison_member_return')} ${m.handle.symbol.ticker}`,m.returns!,colors[index++%colors.length])}
  }
  private clearIndicators(){const chart=this.options.chart();if(this.mainIndicator)chart?.removeIndicator({id:this.mainIndicator});if(this.axisId)chart?.removeYAxis({id:this.axisId,paneId:'candle_pane'});this.mainIndicator=undefined;this.axisId=undefined;this.mainReturns=()=>undefined;this.mainReturnBase=undefined;this.mainReturnPrices=undefined;this.mainPrices.clear();this.errorsByOwner.delete('main')}
- clear(){this.preparedResume=undefined;++this.generation;for(const p of this.pending.values()){p.controller.abort();this.releasePending(p,this.options.period())}this.pending.clear();for(const m of this.members.values()){this.stop(m);comparisonOwners.delete(m.feed);m.feed.dispose?.();this.options.chart()?.removeIndicator({id:m.handle.indicatorId})}this.members.clear();for(const c of this.resumes)c.abort();this.clearIndicators();this.base=undefined;this.referenceFrom=undefined;this.notice=undefined;this.error=undefined;this.errorsByOwner.clear();this.replay=false;this.restoring=false;this.cutoff=Infinity;this.fullMain=[];this.emit()}
+ clear(){this.workspaceWindows.clear();this.workspaceAtomic=false;this.workspaceLocked=false;this.preparedResume=undefined;++this.generation;for(const p of this.pending.values()){p.controller.abort();this.releasePending(p,this.options.period())}this.pending.clear();for(const m of this.members.values()){this.stop(m);comparisonOwners.delete(m.feed);m.feed.dispose?.();this.options.chart()?.removeIndicator({id:m.handle.indicatorId})}this.members.clear();for(const c of this.resumes)c.abort();this.clearIndicators();this.base=undefined;this.referenceFrom=undefined;this.notice=undefined;this.error=undefined;this.errorsByOwner.clear();this.replay=false;this.restoring=false;this.cutoff=Infinity;this.fullMain=[];this.emit()}
  dispose(){if(this.disposed)return;this.disposed=true;this.clear()}
 }

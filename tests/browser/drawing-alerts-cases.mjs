@@ -65,7 +65,7 @@ export async function drawingAlertCases(page){
   const liveBefore=alertBench.events.length,replayBefore=alertBench.replayEvents.length
   pro.startReplay(position);await alertBench.frame();pro.getReplayEngine().stepForward();await alertBench.frame()
   const afterForward=alertBench.replayEvents.length-replayBefore;pro.getReplayEngine().stepBackward();await alertBench.frame();pro.getReplayEngine().stepForward();await alertBench.frame()
-  const state=pro.getDrawingAlertState().find(s=>s.rule.id==='replay-rule');pro.stopReplay()
+  const state=pro.getDrawingAlertState().find(s=>s.rule.id==='replay-rule');await pro.stopReplay()
   const deadline=performance.now()+10000;while(pro.getReplayEngine()){if(performance.now()>deadline)throw Error('未真实退出回放');await alertBench.frame()}
   return {afterForward,afterBackward:alertBench.replayEvents.length-replayBefore,live:alertBench.events.length-liveBefore,liveMarker:state.hasTriggered,replayMarker:state.replay.hasTriggered,afterExit:pro.getDrawingAlertState().find(s=>s.rule.id==='replay-rule').hasTriggered}
  })
@@ -85,7 +85,7 @@ export async function drawingAlertCases(page){
   const repeated=alertBench.replayEvents.slice(before).map(event=>event.barTimestamp)
   pro.executeDrawingAlertCommand({type:'rearm',id:'replay-bars'});replay.goToPosition(position);await alertBench.frame();replay.stepForward();await alertBench.frame()
   const rearmed=alertBench.replayEvents.slice(before).map(event=>event.barTimestamp)
-  pro.stopReplay();while(pro.getReplayEngine())await alertBench.frame()
+  await pro.stopReplay();while(pro.getReplayEngine())await alertBench.frame()
   return {repeated,rearmed,expected:[bars[position].timestamp,bars[position+1].timestamp],live:alertBench.events.length-live}
  })
  assert.deepEqual(replayBars.repeated,replayBars.expected);assert.deepEqual(replayBars.rearmed,[...replayBars.expected,replayBars.expected[0]]);assert.equal(replayBars.live,0);scenarios.push('once-per-bar-fixed-history-seek-deduplication-and-explicit-rearm')

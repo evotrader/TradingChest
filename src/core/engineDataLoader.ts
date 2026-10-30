@@ -1,6 +1,10 @@
 import type { Chart, DataLoader, DataLoaderGetBarsParams, KLineData, Period as EnginePeriod } from 'klinecharts'
 import type { Datafeed, Period, SymbolInfo, ChartProOptions, HistorySnapshot, HistoryResult, HistoryQuery, ChartDataState, DatafeedStatus, ChartSnapshot } from '../types'
 import {readHistory,validateHistorySnapshot} from '../datafeed/history'
+import {readReplayHistory,replayPrefixLength,replayAbortable,type ReplayWindow} from '../replay/history'
+import type {SeriesIdentity} from '../datafeed/session'
+import type {ReplayHistoryQuery,ReplayRequestContext} from '../replay/types'
+import {WorkspaceReplayError} from '../replay/types'
 import {bindIdentityEpoch} from './identityEpoch'
 
 export function toEnginePeriod(period: Period): EnginePeriod {
@@ -26,7 +30,7 @@ export function historySnapshot<T extends HistorySnapshot>(result:T):T {
   return result
 }
 const changed = (a: KLineData, b: KLineData): boolean => ['open','high','low','close','volume'].some(key => a[key] !== b[key])
-export interface ConfirmedSeries {symbol:SymbolInfo;period:Period;basis?:string;confirmed:boolean;epoch:number;revision:number;replay:boolean;cutoff?:number;contentRevision?:number;contentChange?:'replace'|'tail';writer?:'stream'|'snapshot'|'initial'|'page'|'reload'|'replay-reset'|'replay-tail'}
+export interface ConfirmedSeries {symbol:SymbolInfo;period:Period;basis?:string;confirmed:boolean;epoch:number;revision:number;replay:boolean;cutoff?:number;replayOwner?:'workspace';identity?:SeriesIdentity;contentRevision?:number;contentChange?:'replace'|'tail';writer?:'stream'|'snapshot'|'initial'|'page'|'reload'|'replay-reset'|'replay-tail'}
 type ReadingState=Pick<ChartDataState,'lastRead'|'connection'|'revisionRequired'|'errorCode'|'operation'>&{hasMoreBefore?:boolean}
 interface Hooks {
   committed?:(state:ConfirmedSeries)=>void
@@ -38,6 +42,10 @@ interface Hooks {
 }
 /** One writer and one subscription per chart; all asynchronous work belongs to its generation. */
 export class EngineDataLoader implements DataLoader {
+  private workspaceAtomic=false
+  private workspaceWindow?:ReplayWindow
+  private workspaceReplay?:{owner:'workspace';from:number;to:number;cutoff:number}
+  private seriesIdentity?:SeriesIdentity
   private confirmedBars:KLineData[]=[]
   private contentRevision=0
   private contentChange:'replace'|'tail'='replace'
@@ -84,8 +92,19 @@ export class EngineDataLoader implements DataLoader {
   }
   private emitState():void {
     if(this.resumeCheckpoint||this.publishing)return
-    if(this.current&&!this.disposed)this.hooks.committed?.({...this.current,basis:this.basis,confirmed:this.confirmed,epoch:this.identityEpoch,revision:this.alignmentRevision,replay:!!this.replay,cutoff:this.replay?.at(-1)?.timestamp,contentRevision:this.contentRevision,contentChange:this.contentChange,writer:this.writer})
-    if(this.current && !this.disposed)this.hooks.state?.({...this.current,basis:this.basis,timestamp:this.chart.getDataList().at(-1)?.timestamp,restoring:this.restoring,replay:!!this.replay,error:this.readError,...this.reading,dataStatus:!this.confirmed?'unconfirmed':this.chart.getDataList().length?'ready':'empty'})
+    if(this.current&&!this.disposed)this.hooks.committed?.(this.getConfirmedSeries()!)
+    if(this.current&&!this.disposed)this.hooks.state?.(this.getDataState()!)
+  }
+  getConfirmedSeries():ConfirmedSeries|undefined {
+    return this.current&&{...this.current,basis:this.basis,identity:this.seriesIdentity&&{...this.seriesIdentity},confirmed:this.confirmed,epoch:this.identityEpoch,revision:this.alignmentRevision,replay:!!this.replay,cutoff:this.workspaceReplay?.cutoff??this.replay?.at(-1)?.timestamp,replayOwner:this.workspaceReplay?.owner,contentRevision:this.contentRevision,contentChange:this.contentChange,writer:this.writer}
+  }
+  getDataState():ChartDataState|undefined {
+    return this.current&&{...this.current,basis:this.basis,timestamp:this.chart.getDataList().at(-1)?.timestamp,restoring:this.restoring,replay:!!this.replay,replayContext:this.workspaceReplay&&{...this.workspaceReplay},error:this.readError,...this.reading,dataStatus:!this.confirmed?'unconfirmed':this.chart.getDataList().length?'ready':'empty'}
+  }
+  workspaceVersion():string {return JSON.stringify([this.generation,this.contentRevision,this.alignmentRevision,this.basis,this.reading.revisionRequired,this.readError,this.seriesIdentity])}
+  readWorkspaceHistory(query:ReplayHistoryQuery,context:ReplayRequestContext,expected?:{identity:SeriesIdentity;basis?:string}):Promise<ReplayWindow> {
+    if(this.disposed||!this.current||!this.confirmed)throw new WorkspaceReplayError('BUSY','请先等待图表完成行情读取')
+    return readReplayHistory(this.feed,this.current.symbol,this.current.period,query,context,expected??{identity:this.seriesIdentity,basis:this.basis})
   }
   private setLoading(active:boolean):void {this.restoring=active;this.hooks.loading(active);this.emitState()}
   private reportError(error:Parameters<NonNullable<ChartProOptions['onError']>>[0]):void {this.readError=error.message;this.reading.errorCode=(error.raw as {code?:string})?.code;this.hooks.error(error);this.emitState()}
@@ -111,6 +130,7 @@ export class EngineDataLoader implements DataLoader {
     this.confirmedBars=[];this.contentChange='replace';this.writer='initial'
     this.prepared = undefined
     this.basis = undefined
+    this.seriesIdentity=undefined;this.workspaceWindow=undefined;this.workspaceReplay=undefined;this.workspaceAtomic=false
     this.pendingSnapshot = undefined
     this.snapshotTask = undefined
     this.suspended = false
@@ -166,7 +186,7 @@ export class EngineDataLoader implements DataLoader {
       const {bars,basis}=historySnapshot(result)
       if (!active() || controller.signal.aborted) return
       previous={reading:structuredClone(this.reading),basis:this.basis,confirmed:this.confirmed,error:this.readError}
-      if (request.type === 'init') {this.confirmed = true;this.basis=basis;this.suspended=false}
+      if (request.type === 'init') {this.confirmed = true;this.basis=basis;this.seriesIdentity=result.identity&&{...result.identity};this.suspended=false}
       else if (bars.length>0 && basis !== this.basis) throw new Error('历史复权口径已变化，请重试重新加载行情')
       this.reading.lastRead=read
       this.reading.hasMoreBefore=result.hasMoreBefore
@@ -182,7 +202,7 @@ export class EngineDataLoader implements DataLoader {
       ++this.alignmentRevision
       this.emitState()
       if(!active()||controller.signal.aborted){prepared?.completion?.reject(new DOMException('History cancelled','AbortError'));return}
-      if (request.type === 'init'&&!this.resumeCheckpoint) this.hooks.ready(identity)
+      if (request.type === 'init'&&!this.resumeCheckpoint&&!this.workspaceAtomic) this.hooks.ready(identity)
       prepared?.completion?.resolve()
     } catch (error) {
       if(prepared?.completion){prepared.completion.reject(error);return}
@@ -202,7 +222,7 @@ export class EngineDataLoader implements DataLoader {
     if (this.disposed || !this.confirmed || !this.current) return
     this.stopSubscription()
     this.stream = callback
-    if (this.replay||this.resumeCheckpoint) return
+    if (this.replay||this.resumeCheckpoint||this.workspaceAtomic) return
     this.startSubscription()
     queueMicrotask(() => {void this.drainSnapshots().catch(()=>{})})
   }
@@ -215,7 +235,7 @@ export class EngineDataLoader implements DataLoader {
     this.subscription=subscription
     try {this.feed.subscribe(identity.symbol,identity.period,bar=>{
       if(this.disposed||generation!==this.generation||this.subscription!==subscription||this.replay)return
-      if(this.resumeCheckpoint){subscription.pending.push({...bar});return}
+      if(this.resumeCheckpoint||this.workspaceAtomic){subscription.pending.push({...bar});return}
       this.push(bar)
     })} catch(error) {this.stopSubscription();throw error}
   }
@@ -234,7 +254,7 @@ export class EngineDataLoader implements DataLoader {
     try {
       const cleanup=this.feed.subscribeStatus(identity.symbol,identity.period,status=>{
         if(!owned||this.disposed||generation!==this.generation)return
-        if(this.resumeCheckpoint){(this.statusQueue??=[]).push({...status});return}
+        if(this.resumeCheckpoint||this.workspaceAtomic){(this.statusQueue??=[]).push({...status});return}
         this.acceptStatus(status)
       })
       if(!owned||this.disposed||generation!==this.generation||this.stopStatus!==stop){cleanup();if(this.stopStatus===stop)this.stopStatus=undefined}
@@ -251,7 +271,7 @@ export class EngineDataLoader implements DataLoader {
   }
   unsubscribeBar = (): void => {this.stopSubscription();this.stream=undefined}
   push(bar: KLineData,writer:'stream'|'snapshot'='stream'): void {
-    if (this.disposed || !this.stream || this.replay || this.suspended || this.resumeCheckpoint) return
+    if (this.disposed || !this.stream || this.replay || this.suspended || this.resumeCheckpoint || this.workspaceAtomic) return
     try { validateBars([bar]) } catch (error) {this.reportError({type:'invalid-bar',message:String(error),raw:bar});return}
     const latest = this.chart.getDataList().at(-1)
     if (latest && bar.timestamp < latest.timestamp) {
@@ -274,10 +294,10 @@ export class EngineDataLoader implements DataLoader {
   }
   private drainSnapshots(): Promise<void> {
     if (this.snapshotTask) return this.snapshotTask
-    if (!this.confirmed || !this.stream || this.replay || this.resumeCheckpoint || !this.pendingSnapshot) return Promise.resolve()
+    if (!this.confirmed || !this.stream || this.replay || this.resumeCheckpoint || this.workspaceAtomic || !this.pendingSnapshot) return Promise.resolve()
     const generation = this.generation
     const task = (async () => {
-      while (this.pendingSnapshot && !this.replay && !this.resumeCheckpoint && !this.disposed && generation === this.generation) {
+      while (this.pendingSnapshot && !this.replay && !this.resumeCheckpoint && !this.workspaceAtomic && !this.disposed && generation === this.generation) {
         const snapshot=this.pendingSnapshot;this.pendingSnapshot=undefined
         const data=this.chart.getDataList(),last=data.at(-1)?.timestamp ?? -Infinity
         const existing=new Map(data.map(bar=>[bar.timestamp,bar]))
@@ -298,7 +318,7 @@ export class EngineDataLoader implements DataLoader {
     })().finally(()=>{
       if(this.snapshotTask!==task)return
       this.snapshotTask=undefined
-      if(this.pendingSnapshot && !this.replay && !this.resumeCheckpoint && !this.disposed)queueMicrotask(()=>{void this.drainSnapshots().catch(()=>{})})
+      if(this.pendingSnapshot && !this.replay && !this.resumeCheckpoint && !this.workspaceAtomic && !this.disposed)queueMicrotask(()=>{void this.drainSnapshots().catch(()=>{})})
     })
     this.snapshotTask=task
     return this.snapshotTask
@@ -355,7 +375,7 @@ export class EngineDataLoader implements DataLoader {
       this.invalidate()
       completionGeneration = this.generation
       this.replay = undefined
-      const initialized=new Promise<void>((resolve,reject)=>{this.prepared={bars,basis:result.basis,hasMoreBefore:result.hasMoreBefore,read:{query:{...query},metadata:result.metadata&&{...result.metadata},hasMoreBefore:result.hasMoreBefore},completion:{resolve,reject}}})
+      const initialized=new Promise<void>((resolve,reject)=>{this.prepared={bars,basis:result.basis,identity:result.identity,hasMoreBefore:result.hasMoreBefore,read:{query:{...query},metadata:result.metadata&&{...result.metadata},hasMoreBefore:result.hasMoreBefore},completion:{resolve,reject}}})
       this.chart.resetData()
       await initialized
       if(this.disposed||this.current!==identity||completionGeneration!==this.generation)throw new DOMException('行情恢复已取消','AbortError')
@@ -407,6 +427,57 @@ export class EngineDataLoader implements DataLoader {
       rollback:()=>{if(!active())return;this.invalidate();if(!active())return;this.basis=checkpoint.basis;this.confirmed=checkpoint.confirmed;this.replay=checkpoint.replay;this.prepared=checkpoint.replay?undefined:{bars:checkpoint.bars,basis:checkpoint.basis,hasMoreBefore:checkpoint.reading.hasMoreBefore,read:checkpoint.reading.lastRead};this.chart.resetData();if(!active())return;this.confirmed=checkpoint.confirmed;this.suspended=checkpoint.replay?checkpoint.suspended:true;this.reading=checkpoint.reading;this.readError=checkpoint.error;this.resumeCheckpoint=undefined;this.chart.setBarSpace(checkpoint.space);const index=this.chart.getDataList().findIndex(b=>b.timestamp===checkpoint.anchor);if(index>=0)this.restoreAnchor(checkpoint.anchor!,checkpoint.anchorX,checkpoint.space);this.emitState()}
     }
   }
+  /** Read without changing the confirmed projection or releasing live subscriptions. */
+  async prepareWorkspaceLive(signal:AbortSignal):Promise<HistoryResult> {
+    if(this.disposed||!this.current)throw new WorkspaceReplayError('DISPOSED','图表已经销毁')
+    const data=this.chart.getDataList(),generation=this.generation
+    const query:HistoryQuery=data.length?{kind:'range',from:data[0].timestamp,to:Math.max(Date.now(),data.at(-1)!.timestamp+1)}:{kind:'before',before:Date.now(),countBack:500}
+    const result=await replayAbortable(readHistory(this.feed,this.current.symbol,this.current.period,query,{signal,reason:'resume'}),signal)
+    if(this.disposed||generation!==this.generation)throw new DOMException('行情身份已改变','AbortError')
+    if(result.metadata?.state==='partial')throw new WorkspaceReplayError('PARTIAL_HISTORY','实时恢复窗口尚未完整')
+    const basisChanged=result.basis!==this.basis,timestamps=new Set(result.bars.map(bar=>bar.timestamp))
+    if(basisChanged&&data.some(bar=>!timestamps.has(bar.timestamp)))throw new WorkspaceReplayError('IDENTITY_MISMATCH','新口径没有覆盖已加载历史')
+    const bars=basisChanged?result.bars:[...new Map([...data,...result.bars].map(bar=>[bar.timestamp,bar])).values()].sort((a,b)=>a.timestamp-b.timestamp)
+    return {...result,bars}
+  }
+  /** Checkpoints reference frozen replay windows; an incremental step never clones full history. */
+  beginWorkspaceUpdate() {
+    if(this.workspaceAtomic||this.resumeCheckpoint||this.disposed||!this.current)throw new WorkspaceReplayError('BUSY','图表正在恢复')
+    const data=this.chart.getDataList(),range=this.chart.getVisibleRange(),anchor=data[Math.min(data.length-1,Math.max(0,range.to-1))]?.timestamp
+    const checkpoint={window:this.workspaceWindow,context:this.workspaceReplay&&{...this.workspaceReplay},bars:this.workspaceWindow?undefined:data.map(bar=>({...bar})),replay:!!this.replay,basis:this.basis,identity:this.seriesIdentity,reading:structuredClone(this.reading),error:this.readError,confirmed:this.confirmed,suspended:this.suspended,anchor,x:anchor===undefined?undefined:(this.chart.convertToPixel({timestamp:anchor},{paneId:'candle_pane'}) as {x?:number}|undefined)?.x,space:this.chart.getBarSpace().bar}
+    this.workspaceAtomic=true
+    let open=true
+    const current=()=>{if(!open||this.disposed)throw new DOMException('复盘操作已取消','AbortError')}
+    return {
+      applyReplay:(window:ReplayWindow,context:{owner:'workspace';from:number;to:number;cutoff:number},incremental:boolean,onBar?:()=>void)=>{
+        current();const length=replayPrefixLength(window.visibleAt,context.cutoff),before=this.chart.getDataList().length
+        const append=incremental&&this.workspaceWindow===window&&!!this.replay&&length>=before
+        this.workspaceWindow=window;this.workspaceReplay={...context};this.seriesIdentity=window.identity;this.basis=window.basis;this.reading.revisionRequired=false;this.reading.errorCode=undefined;this.readError=undefined
+        if(append){
+          for(let i=before;i<length;i++){current();this.replay!.push(window.bars[i]);++this.publishing;try{this.stream?.(window.bars[i])}finally{--this.publishing}this.confirmContent(true,'replay-tail');this.emitState();onBar?.()}
+          if(length===before)this.emitState()
+        }else this.setReplay(window.bars.slice(0,length))
+      },
+      applyLive:async(result:HistoryResult)=>{
+        current();this.invalidate();this.workspaceWindow=undefined;this.workspaceReplay=undefined;this.replay=undefined
+        const initialized=new Promise<void>((resolve,reject)=>{this.prepared={...result,completion:{resolve,reject}}})
+        this.chart.resetData();await initialized;current();this.reading.revisionRequired=false;this.readError=undefined;this.reading.errorCode=undefined;this.startSubscription()
+        if(checkpoint.anchor!==undefined){this.chart.setBarSpace(checkpoint.space);this.restoreAnchor(checkpoint.anchor,checkpoint.x,checkpoint.space)}
+      },
+      seal:()=>{current();this.workspaceAtomic=false},
+      publish:()=>{if(this.disposed)return;this.flushSubscription();this.emitState();if(!this.replay&&this.current)this.hooks.ready(this.current);void this.drainSnapshots().catch(()=>{})},
+      rollback:async()=>{
+        if(!open||this.disposed)return
+        try{this.invalidate();this.workspaceWindow=checkpoint.window;this.workspaceReplay=checkpoint.context;this.basis=checkpoint.basis;this.seriesIdentity=checkpoint.identity
+        if(checkpoint.replay){this.setReplay(checkpoint.window?checkpoint.window.bars.slice(0,replayPrefixLength(checkpoint.window.visibleAt,checkpoint.context!.cutoff)):checkpoint.bars!)}
+        else {this.replay=undefined;const initialized=new Promise<void>((resolve,reject)=>{this.prepared={bars:checkpoint.bars!,basis:checkpoint.basis,identity:checkpoint.identity,hasMoreBefore:checkpoint.reading.hasMoreBefore,read:checkpoint.reading.lastRead,completion:{resolve,reject}}});this.chart.resetData();await initialized;current();this.startSubscription()}
+        this.reading=checkpoint.reading;this.readError=checkpoint.error;this.confirmed=checkpoint.confirmed;this.suspended=checkpoint.suspended
+        this.chart.setBarSpace(checkpoint.space);if(checkpoint.anchor!==undefined)this.restoreAnchor(checkpoint.anchor,checkpoint.x,checkpoint.space)
+        this.emitState()}finally{this.workspaceAtomic=false;open=false}
+        this.flushSubscription()
+      }
+    }
+  }
   setReplay(bars: KLineData[]): void {
     if(this.resumeCheckpoint){this.basis=this.resumeCheckpoint.basis;this.confirmed=this.resumeCheckpoint.confirmed;this.resumeCheckpoint=undefined}
     this.invalidate()
@@ -421,5 +492,5 @@ export class EngineDataLoader implements DataLoader {
     this.emitState()
   }
   pushReplay(bar: KLineData): void {if(this.replay){const generation=this.generation;this.replay=[...this.replay,bar];++this.publishing;try{this.stream?.(bar)}finally{--this.publishing}if(this.disposed||generation!==this.generation)return;this.confirmContent(true,'replay-tail');this.emitState()}}
-  dispose(): void {if(!this.disposed){this.disposed=true;this.invalidate();this.confirmedBars=[];bindIdentityEpoch(this.chart)}}
+  dispose(): void {if(!this.disposed){this.disposed=true;this.invalidate();this.confirmedBars=[];this.workspaceWindow=undefined;this.workspaceReplay=undefined;this.replay=undefined;this.pendingSnapshot=undefined;bindIdentityEpoch(this.chart)}}
 }

@@ -23,9 +23,9 @@ try{
   const before=await page.evaluate(failFirst=>{
    const last=test.bars.at(-1),next={...last,timestamp:last.timestamp+60000};test.queued=next;let supplied=false
    test.feed.subscribe=()=>{test.state.subscriptions++;if(!supplied){supplied=true;void test.chart.applySnapshot({symbol:test.chart.getSymbol(),period:test.chart.getPeriod(),basis:'raw',bars:[...test.bars,next]})}if(test.state.failSubscribe)throw Error('Isolated preparation subscription failure')}
-   test.chart.startReplay(5);const token=test.context().token;test.state.failSubscribe=failFirst;test.chart.stopReplay();return {token}
+   test.chart.startReplay(5);const token=test.context().token;test.state.failSubscribe=failFirst;test.chart.stopReplay().catch(error=>{test.stopError=String(error)});return {token}
   },failFirst)
-  if(failFirst){await expect(page.locator('.klinecharts-pro-data-error')).toContainText('回放恢复失败');assert.deepEqual(await page.evaluate(()=>({bars:test.chart.getChart().getDataList().length,token:test.context().token,subscriptions:test.state.subscriptions})),{bars:5,token:before.token,subscriptions:0});await page.evaluate(()=>{test.state.failSubscribe=false;test.chart.stopReplay()})}
+  if(failFirst){await expect(page.locator('.klinecharts-pro-data-error')).toContainText('回放恢复失败');assert.deepEqual(await page.evaluate(()=>({bars:test.chart.getChart().getDataList().length,token:test.context().token,subscriptions:test.state.subscriptions})),{bars:5,token:before.token,subscriptions:0});await page.evaluate(()=>{test.state.failSubscribe=false;test.chart.stopReplay().catch(error=>{test.stopError=String(error)})})}
   await expect(page.locator('.klinecharts-pro-replay-bar')).toHaveCount(0)
   await page.waitForFunction(()=>test.chart.getChart().getDataList().length===21,{},{timeout:3000})
   assert.equal(await page.evaluate(()=>test.chart.getChart().getDataList().at(-1).timestamp),await page.evaluate(()=>test.queued.timestamp))
@@ -48,15 +48,15 @@ try{
    const feed={searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>({...window.historyResult(query,test.memberBars),basis:'member-raw'}),subscribe:()=>{test.memberSubscriptions++;if(test.memberFailSubscribe)throw Error('Isolated member subscription failure')},unsubscribe:()=>test.memberSubscriptions--}
    await test.chart.addComparison({ticker:'OTHER'},feed);test.chart.startReplay(5)
    const state=test.chart.getComparisons();test.before={handle:state.handles[0],notice:state.notice,main:test.chart.getChart().getDataList().map(b=>({...b})),token:test.context().token}
-   test.memberBars=test.memberBars.map((b,i)=>i===4?{...b,close:102,high:103}:b);test.state.failSubscribe=true;test.chart.stopReplay();return test.before
+   test.memberBars=test.memberBars.map((b,i)=>i===4?{...b,close:102,high:103}:b);test.state.failSubscribe=true;test.chart.stopReplay().catch(error=>{test.stopError=String(error)});return test.before
   })
   await expect(page.locator('.klinecharts-pro-data-error')).toContainText('回放恢复失败')
   const unchanged=async()=>{const current=await page.evaluate(()=>({state:test.chart.getComparisons(),main:test.chart.getChart().getDataList(),token:test.context().token}));assert.deepEqual(current.state.handles[0],before.handle);assert.equal(current.state.notice,before.notice);assert.equal(current.state.replay,true);assert.deepEqual(current.main,before.main);assert.equal(current.token,before.token)}
   await unchanged()
-  await page.evaluate(()=>{test.state.failSubscribe=false;test.memberFailSubscribe=true;test.chart.stopReplay()})
+  await page.evaluate(()=>{test.state.failSubscribe=false;test.memberFailSubscribe=true;test.chart.stopReplay().catch(error=>{test.stopError=String(error)})})
   await expect(page.locator('.klinecharts-pro-data-error')).toContainText('Isolated member subscription failure');await unchanged()
   assert.deepEqual(await page.evaluate(()=>[test.state.subscriptions,test.memberSubscriptions]),[0,0])
-  await page.evaluate(()=>{test.memberFailSubscribe=false;test.chart.stopReplay()});await expect(page.locator('.klinecharts-pro-replay-bar')).toHaveCount(0)
+  await page.evaluate(()=>{test.memberFailSubscribe=false;test.chart.stopReplay().catch(error=>{test.stopError=String(error)})});await expect(page.locator('.klinecharts-pro-replay-bar')).toHaveCount(0)
   const committed=await page.evaluate(()=>{const h=test.chart.getComparisons().handles[0];return {value:test.chart.getChart().getIndicators({id:h.indicatorId})[0].extendData.valueAt(test.bars[4].timestamp),subscriptions:[test.state.subscriptions,test.memberSubscriptions]}})
   assert.ok(Math.abs(committed.value-(102/22-1)*100)<1e-8);assert.deepEqual(committed.subscriptions,[1,1])
  })
@@ -66,9 +66,9 @@ try{
    test.feed.subscribe=(_s,_p,callback)=>{test.state.subscriptions++;const last=test.bars.at(-1),close=test.failSynchronous?999:31,bar={...last,timestamp:last.timestamp+60000,close,high:close+1};callback(bar);bar.close=NaN;if(test.failSynchronous)throw Error('Isolated synchronous main failure')}
    test.initialToken=test.context().token;if(mode==='replay')test.chart.startReplay(5)
   },{mode,failFirst})
-  const restore=async()=>{if(mode==='replay')await page.evaluate(()=>test.chart.stopReplay());else return page.evaluate(async()=>{try{await test.chart.reloadData();return false}catch{return true}})}
+  const restore=async()=>{if(mode==='replay')return page.evaluate(()=>test.chart.stopReplay().then(()=>false,()=>true));else return page.evaluate(async()=>{try{await test.chart.reloadData();return false}catch{return true}})}
   const rejected=await restore()
-  if(failFirst){if(mode==='replay')await expect(page.locator('.klinecharts-pro-data-error')).toContainText('回放恢复失败');else assert.equal(rejected,true);assert.equal(await page.evaluate(()=>test.chart.getChart().getDataList().length),mode==='replay'?5:20);assert.equal(await page.evaluate(()=>test.context().token),await page.evaluate(()=>test.initialToken));assert.equal(await page.evaluate(()=>test.state.subscriptions),0);await page.evaluate(()=>{test.failSynchronous=false});await restore()}
+  if(failFirst){assert.equal(rejected,true);if(mode==='replay')await expect(page.locator('.klinecharts-pro-data-error')).toContainText('回放恢复失败');else assert.equal(rejected,true);assert.equal(await page.evaluate(()=>test.chart.getChart().getDataList().length),mode==='replay'?5:20);assert.equal(await page.evaluate(()=>test.context().token),await page.evaluate(()=>test.initialToken));assert.equal(await page.evaluate(()=>test.state.subscriptions),0);await page.evaluate(()=>{test.failSynchronous=false});await restore()}
   await expect(page.locator('.klinecharts-pro-replay-bar')).toHaveCount(0)
   assert.deepEqual(await page.evaluate(()=>({bars:test.chart.getChart().getDataList().length,close:test.chart.getChart().getDataList().at(-1).close,subscriptions:test.state.subscriptions})),{bars:21,close:31,subscriptions:1})
  })
@@ -78,9 +78,9 @@ try{
    const feed={searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,query)=>window.historyResult(query,test.bars),unsubscribe:()=>test.syncMemberSubscriptions--}
    const subscribe=callback=>{test.syncMemberSubscriptions++;if(test.deliverSync){const rows=test.bars.map(b=>({...b}));rows.at(-1).close=test.failSynchronous?999:91;rows.at(-1).high=rows.at(-1).close+1;callback(mode==='bar'?rows.at(-1):{bars:rows});rows.at(-1).close=NaN;if(test.failSynchronous)throw Error('Isolated synchronous member failure')}}
    if(mode==='snapshot'){feed.subscribe=()=>{};feed.subscribeSnapshots=(_s,_p,callback)=>subscribe(callback)}else feed.subscribe=(_s,_p,callback)=>subscribe(callback)
-   test.syncHandle=await test.chart.addComparison({ticker:'SYNC'},feed);test.chart.startReplay(5);test.initialToken=test.context().token;test.deliverSync=true;test.chart.stopReplay()
+   test.syncHandle=await test.chart.addComparison({ticker:'SYNC'},feed);test.chart.startReplay(5);test.initialToken=test.context().token;test.deliverSync=true;test.chart.stopReplay().catch(error=>{test.stopError=String(error)})
   },{mode,failFirst})
-  if(failFirst){await expect(page.locator('.klinecharts-pro-data-error')).toContainText('回放恢复失败');assert.equal(await page.evaluate(()=>test.context().token),await page.evaluate(()=>test.initialToken));assert.deepEqual(await page.evaluate(()=>[test.state.subscriptions,test.syncMemberSubscriptions]),[0,0]);await page.evaluate(()=>{test.failSynchronous=false;test.chart.stopReplay()})}
+  if(failFirst){await expect(page.locator('.klinecharts-pro-data-error')).toContainText('回放恢复失败');assert.equal(await page.evaluate(()=>test.context().token),await page.evaluate(()=>test.initialToken));assert.deepEqual(await page.evaluate(()=>[test.state.subscriptions,test.syncMemberSubscriptions]),[0,0]);await page.evaluate(()=>{test.failSynchronous=false;test.chart.stopReplay().catch(error=>{test.stopError=String(error)})})}
   await expect(page.locator('.klinecharts-pro-replay-bar')).toHaveCount(0)
   const state=await page.evaluate(()=>({value:test.chart.getComparisons().handles[0].plottedReturn,subscriptions:[test.state.subscriptions,test.syncMemberSubscriptions]}))
   assert.ok(Number.isFinite(state.value)&&Math.abs(state.value-(91/11-1)*100)<1e-8);assert.deepEqual(state.subscriptions,[1,1])
@@ -92,7 +92,7 @@ try{
    test.a=await test.chart.addComparison({ticker:'A'},makeFeed('aBars'));test.b=await test.chart.addComparison({ticker:'B'},makeFeed('bBars'))
    test.chart.startReplay(5);test.previousToken=test.context().token
    test.bBars=test.bBars.map((b,i)=>i===4?{...b,close:51,high:52}:b)
-   test.state.hold=true;test.chart.stopReplay()
+   test.state.hold=true;test.chart.stopReplay().catch(error=>{test.stopError=String(error)})
   },change)
   await page.waitForFunction(()=>typeof test.state.release==='function')
   await page.evaluate(change=>{if(change==='known-member')test.chart.removeComparison(test.a.id);else if(change==='unknown-member')test.chart.removeComparison('does-not-exist');else test.bBars[4].close=NaN;test.state.hold=false;test.state.release()},change)

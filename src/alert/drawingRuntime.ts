@@ -45,10 +45,17 @@ export class DrawingAlertRuntime {
   private context?:Context
   private consumed?:string
   private currentMode:Mode='live'
+  private transaction?:Array<()=>void>
   private disposed=false
   constructor(private options:Options){this.scope=options.scope??createOpaqueId();if(typeof this.scope!=='string'||!this.scope)throw Error('画线提醒 scope 不能为空');this.catalog=copyDrawingCatalog(options.catalog);this.resolvers=createDrawingAlertResolverMap(options.levelResolvers)}
-  private safely(callback:(()=>void)|undefined):void{try{callback?.()}catch(error){try{this.options.error?.(error)}catch{}}}
+  private safely(callback:(()=>void)|undefined):void{if(this.transaction){if(callback)this.transaction.push(callback);return}try{callback?.()}catch(error){try{this.options.error?.(error)}catch{}}}
   private emit():void{if(this.disposed)return;if(this.options.changed)this.safely(()=>this.options.changed!(this.getState()));if(this.options.invalidated)this.safely(()=>this.options.invalidated!(()=>this.getState()))}
+  beginTransaction(){
+    if(this.transaction)throw Error('提醒正在提交')
+    const entries=clone(this.entries),context=this.context,consumed=this.consumed,mode=this.currentMode,queue:Array<()=>void>=[]
+    this.transaction=queue
+    return {rollback:()=>{this.transaction=undefined;this.entries=entries;this.context=context;this.consumed=consumed;this.currentMode=mode;queue.length=0},publish:()=>{this.transaction=undefined;for(const callback of queue)this.safely(callback);queue.length=0}}
+  }
   private clear(entry:Entry):void{entry.live.previous=undefined;entry.replay.previous=undefined}
   private readSource(id:string,cache:Round):DrawingSnapshot|undefined {
     if(!cache.sources.has(id))cache.sources.set(id,this.options.source(id))
@@ -286,5 +293,5 @@ export class DrawingAlertRuntime {
     if(changed)this.emit()
     for(const event of deliveries)this.safely(()=>event.mode==='replay'?this.options.replayTrigger?.(clone(event)):this.options.trigger?.(clone(event)))
   }
-  dispose():void{this.disposed=true;this.entries.clear();this.rulesBySource.clear();this.resolvers.clear();this.catalog=[];this.context=undefined;this.consumed=undefined}
+  dispose():void{this.disposed=true;this.transaction=undefined;this.entries.clear();this.rulesBySource.clear();this.resolvers.clear();this.catalog=[];this.context=undefined;this.consumed=undefined}
 }

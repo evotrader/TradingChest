@@ -1,7 +1,9 @@
 import type { KLineData } from 'klinecharts'
 import type { Datafeed, DatafeedRequestContext, DatafeedStatus, HistoryQuery, HistoryResult, Period, SymbolInfo } from '../types'
 
+import {replayAbortable} from '../replay/history'
 import {validateHistoryResult} from './history'
+import {WorkspaceReplayError,type ReplayHistoryQuery,type ReplayHistoryResult,type ReplayRequestContext} from '../replay/types'
 
 export interface SeriesIdentity {
   source: string
@@ -20,6 +22,7 @@ export interface SessionUpdate { identity: SeriesIdentity; bar: KLineData; kind:
 export interface DataSession {
   identity: SeriesIdentity
   getHistory(query:HistoryQuery, context?: DatafeedRequestContext): Promise<HistoryBatch>
+  getReplayHistory?(query:ReplayHistoryQuery,context:ReplayRequestContext):Promise<ReplayHistoryResult>
   subscribe(callback: (update: SessionUpdate) => void): () => void
   subscribeStatus?(accept:(status:DatafeedStatus)=>void):()=>void
   dispose?(): void
@@ -105,11 +108,21 @@ export function createSessionDatafeed(provider: SessionProvider, options: {
         if (context?.reason === 'initial' || context?.reason === 'resume') owner.latest = -Infinity
         owner.latest = Math.max(owner.latest,bars.at(-1)?.timestamp ?? -Infinity)
         if(result.metadata)options.onStatus?.({state:result.metadata.state,identity:owner.identity,sourceTimestamp:result.metadata.sourceTimestamp,delayMs:result.metadata.delayMs})
-        return {bars:result.bars,basis:result.basis,metadata:result.metadata,hasMoreBefore:result.hasMoreBefore}
+        return {bars:result.bars,basis:result.basis,metadata:result.metadata,hasMoreBefore:result.hasMoreBefore,identity:{...owner.identity}}
       } catch (error) {
         if (active === owner && generation === owner.historyGeneration && !context?.signal.aborted) options.onStatus?.({state:'error',identity:owner.identity,error})
         throw error
       }
+    },
+    async getReplayHistory(symbol,period,query,context){
+      context.signal.throwIfAborted()
+      const owner=ensure(symbol,period),generation=owner.historyGeneration
+      if(!owner.session.getReplayHistory)throw new WorkspaceReplayError('UNSUPPORTED','当前行情会话未提供逐 K 线复盘时钟')
+      const result=await replayAbortable(owner.session.getReplayHistory({...query},{...context}),context.signal)
+      context.signal.throwIfAborted()
+      if(active!==owner||generation!==owner.historyGeneration)throw new DOMException('Session replaced','AbortError')
+      if(seriesIdentityKey(result.identity)!==owner.key)throw new WorkspaceReplayError('IDENTITY_MISMATCH','复盘响应不属于当前行情会话')
+      return result
     },
     subscribeStatus(symbol,period,accept){const listener={request:requestKey(symbol,period),accept};listeners.add(listener);try{ensure(symbol,period)}catch(error){listeners.delete(listener);throw error}return()=>{listeners.delete(listener)}},
     subscribe(symbol,period,callback) {

@@ -7,19 +7,19 @@ const assert=(condition,message)=>{if(!condition)throw Error(message)}
 const period={multiplier:1,timespan:'minute',text:'1m'},symbol={ticker:'REPLAY.TEST',market:'test',exchange:'X',priceCurrency:'USD'},basis='synthetic-unadjusted'
 const identity=(s,p)=>({source:'synthetic',ticker:s.ticker,market:s.market,exchange:s.exchange,currency:s.priceCurrency,multiplier:p.multiplier,timespan:p.timespan,adjustment:'none',sessionFilter:'all',timezone:'UTC'})
 let workspace,bars=[],subscriptions=0,historyReads=0,replayReads=0,baseline=false,alertDocument,analysis=[],events=[]
-const states=new WeakMap(),triggers=[]
+const states=new WeakMap(),triggers=[],failures=new Set()
 const data=(ticker)=>ticker===symbol.ticker?bars:bars.map(bar=>{const factor=Number(ticker.at(-1))+2;return {...bar,open:bar.open*factor,high:bar.high*factor,low:bar.low*factor,close:bar.close*factor}})
-function feed(ticker){
+function feed(ticker,owner=ticker){
  const values=data(ticker);let subscribed=false
- return {searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,q)=>{historyReads++;return {bars:q.kind==='before'?values.filter(b=>b.timestamp<q.before):values.filter(b=>b.timestamp>=q.from&&b.timestamp<q.to),basis,metadata:{state:'ready'},hasMoreBefore:false}},
-  getReplayHistory:async(s,p,q,context)=>{replayReads++;context.signal.throwIfAborted();const before=values.filter(b=>b.timestamp<q.from).slice(-q.warmupBars),selected=[...before,...values.filter(b=>b.timestamp>=q.from&&b.timestamp<q.to)];return {bars:selected,clocks:selected.map(b=>({timestamp:b.timestamp,completedAt:b.timestamp,availableAt:b.timestamp})),identity:identity(s,p),basis,metadata:{state:selected.length?'ready':'empty'},historyKind:'current-history',coverage:{from:q.from,to:q.to,warmupBars:before.length}}},
-  subscribe:()=>{assert(!subscribed,'重复订阅');subscribed=true;subscriptions++},unsubscribe:()=>{if(subscribed){subscribed=false;subscriptions--}}}
+ return {searchSymbols:async()=>[],getHistoryKLineData:async(_s,_p,q)=>{historyReads++;if(failures.has(`history:${owner}`))throw Error(`历史读取失败 ${owner}`);return {bars:q.kind==='before'?values.filter(b=>b.timestamp<q.before):values.filter(b=>b.timestamp>=q.from&&b.timestamp<q.to),basis,metadata:{state:'ready'},hasMoreBefore:false}},
+  getReplayHistory:async(s,p,q,context)=>{replayReads++;context.signal.throwIfAborted();if(failures.has(`replay:${owner}`))throw Error(`复盘时钟失败 ${owner}`);const before=values.filter(b=>b.timestamp<q.from).slice(-q.warmupBars),selected=[...before,...values.filter(b=>b.timestamp>=q.from&&b.timestamp<q.to)];return {bars:selected,clocks:selected.map(b=>({timestamp:b.timestamp,completedAt:b.timestamp,availableAt:b.timestamp})),identity:identity(s,p),basis,metadata:{state:selected.length?'ready':'empty'},historyKind:'current-history',coverage:{from:q.from,to:q.to,warmupBars:before.length}}},
+  subscribe:()=>{assert(!subscribed,'重复订阅');subscribed=true;subscriptions++;if(failures.has(`subscribe:${owner}`))throw Error(`订阅失败 ${owner}`)},unsubscribe:()=>{if(subscribed){subscribed=false;subscriptions--}}}
 }
 const cells=()=>workspace.getCells(),primary=()=>cells()[0].chart
 const loaded=async()=>{await wait(()=>cells().length>0&&cells().every(c=>c.chart?.getAnalysisContext()),'工作台图表未就绪')}
 function mountCell(host,cell){
  let resolve;const ready=new Promise(done=>resolve=done)
- const pro=new KLineChartPro({container:host,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:['VOL','MACD'],datafeed:feed(cell.symbol.ticker),drawingAlertScope:`replay-bench:${cell.cellId}`,createComparisonDatafeed:async s=>feed(s.ticker),onDataReady:()=>resolve(pro),onDataState:s=>states.set(pro,s),onDrawingAlertTrigger:e=>triggers.push(e),onReplayDrawingAlertTrigger:e=>triggers.push(e)})
+ const pro=new KLineChartPro({container:host,symbol:cell.symbol,period:cell.period,mainIndicators:['MA'],subIndicators:['VOL','MACD'],datafeed:feed(cell.symbol.ticker,cell.cellId),drawingAlertScope:`replay-bench:${cell.cellId}`,createComparisonDatafeed:s=>feed(s.ticker),onDataReady:()=>resolve(pro),onDataState:s=>states.set(pro,s),onDrawingAlertTrigger:e=>triggers.push(e),onReplayDrawingAlertTrigger:e=>triggers.push(e)})
  return {ready,dispose:()=>pro.dispose()}
 }
 function objects(){
@@ -92,12 +92,43 @@ const seek=async(position)=>{if(baseline)for(const {chart:pro} of cells())pro.ge
 const exit=async()=>{if(baseline)for(const {chart:pro} of cells())await pro.stopReplay();else await workspace.stopReplay()}
 window.replayBench={
  async mount({count,layout,legacy}){
-  assert(!workspace,'前一工作台未释放');baseline=legacy;bars=makeBars(count);historyReads=0;replayReads=0;triggers.length=0
+  assert(!workspace,'前一工作台未释放');baseline=legacy;bars=makeBars(count);historyReads=0;replayReads=0;triggers.length=0;failures.clear()
   events=Array.from({length:1000},(_,i)=>{const timestamp=bars[Math.floor(i*(count-1)/999)].timestamp;return {id:`event-${i}`,timestamp,availableAt:timestamp,label:`事件 ${i}`}})
   analysis=events.map((e,i)=>({timestamp:e.timestamp,availableAt:e.timestamp,value:Math.sin(i/7)}))
   workspace=new ChartWorkspace({container:document.querySelector('#charts'),height:layout===4?1400:800,context:'replay-bench',symbols:[symbol],initialSymbol:symbol,initialPeriod:period,getPeriods:async()=>[period],replay:{enabled:true},mountCell})
   await workspace.setLayout(layout);await loaded();primary().restoreDrawings('local',objects());await installHostLayers();await settle(count,false,true)
   return {count,layout,subscriptions,historyReads,replayReads}
+ },
+ async core(){
+  const half=Math.floor(bars.length/2),result=[]
+  const check=async(name,action,position,replay)=>{await action();const projection=await settle(position,replay,true);result.push({name,projection:projection.projection,state:workspace.getReplayState()})}
+  await check('enter',()=>enter(half),half,true)
+  const before={historyReads,replayReads}
+  await check('step',()=>workspace.stepReplay('forward'),half+1,true)
+  assert(before.historyReads===historyReads&&before.replayReads===replayReads,'步进不能重读历史')
+  assert(primary().getReplayEngine()===null,'不能暴露可更改组内时钟的逐图引擎')
+  let rejected=false;try{await primary().stopReplay()}catch(error){rejected=error.code==='REPLAY_OWNED'}assert(rejected,'逐图退出必须拒绝')
+  await check('seek-forward',()=>seek(Math.floor(bars.length*.75)),Math.floor(bars.length*.75),true)
+  await check('seek-backward',()=>seek(Math.floor(bars.length*.25)),Math.floor(bars.length*.25),true)
+  await check('exit',exit,bars.length,false)
+  return result
+ },
+ async faults(){
+  const half=Math.floor(bars.length/2),result=[]
+  for(const cellId of ['primary','secondary-1']){
+   failures.add(`replay:${cellId}`);let error;try{await enter(half)}catch(e){error=e}failures.clear();assert(error?.cellId===cellId,'准备失败必须指出来源窗格');await settle(bars.length,false,true);assert(subscriptions===5,'进入失败不得释放原订阅');result.push(`prepare-${cellId}`)
+  }
+  await enter(half);await settle(half,true,true)
+  for(const cellId of ['primary','secondary-1']){
+   const pro=cells().find(c=>c.cellId===cellId).chart,chart=pro.getChart(),original=chart.resetData
+   let fail=true;chart.resetData=function(...args){if(fail){fail=false;throw Error('隔离绘制应用失败')}return original.apply(this,args)}
+   let error;try{await seek(half-100)}catch(e){error=e}finally{chart.resetData=original}
+   assert(error?.cellId===cellId,'应用失败必须指出窗格');assert(workspace.getReplayState().phase==='paused','成功回滚后应暂停');await settle(half,true,true);assert(subscriptions===0,'回滚不得遗留实时订阅');result.push(`apply-${cellId}`)
+  }
+  for(const key of ['history:primary','history:COMPARE1','subscribe:primary','subscribe:secondary-1','subscribe:COMPARE1']){
+   failures.add(key);let error;try{await exit()}catch(e){error=e}failures.clear();assert(error,'故障退出不能成功');assert(workspace.getReplayState().phase==='paused','退出失败保留暂停');await settle(half,true,true);assert(subscriptions===0,'退出失败清理已准备订阅');result.push(key)
+  }
+  await exit();await settle(bars.length,false,true);return result
  },
  async sample(){
   const samples={},half=Math.floor(bars.length/2),forward=Math.floor(bars.length*.75),backward=Math.floor(bars.length*.25)

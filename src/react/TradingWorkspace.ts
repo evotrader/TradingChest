@@ -29,6 +29,7 @@ export type TradingWorkspaceProps=StoreProps & {
   onReady?:(workspace:ChartWorkspace)=>void
   onActiveCell?:ChartWorkspaceOptions['onActiveCell']
   onLayoutChange?:ChartWorkspaceOptions['onLayoutChange']
+  onReplayStateChange?:ChartWorkspaceOptions['onReplayStateChange']
   onError?:ChartWorkspaceOptions['onError']
   className?:string
   style?:React.CSSProperties
@@ -60,6 +61,7 @@ export const TradingWorkspace=React.forwardRef<ChartWorkspace,TradingWorkspacePr
         locale:latest.current.locale,theme:latest.current.theme,
         onActiveCell:cell=>{if(!controller.signal.aborted)latest.current.onActiveCell?.(cell)},
         onLayoutChange:layout=>{if(!controller.signal.aborted)latest.current.onLayoutChange?.(layout)},
+        onReplayStateChange:state=>{if(!controller.signal.aborted)latest.current.onReplayStateChange?.(state)},
         onError:error=>{if(!controller.signal.aborted)latest.current.onError?.(error)},
         mountCell:(container,cell,signal)=>{
           let disposed=false,readyState:ReactWorkspaceCellReady|undefined

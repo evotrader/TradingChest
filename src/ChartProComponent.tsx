@@ -14,6 +14,9 @@ import {DrawingSnapResults} from './drawing/snapResults'
  * limitations under the License.
  */
 
+import {WorkspaceReplayError} from './replay/types'
+import {createReplayParticipant} from './workspace/createReplayParticipant'
+import type {ReplayParticipant} from './workspace/replayParticipant'
 import { createSignal, createMemo, createEffect, onMount, Show, onCleanup, startTransition, Component, ErrorBoundary,untrack,For,batch } from 'solid-js'
 
 import {
@@ -89,6 +92,7 @@ import { buildStyles } from './core/buildStyles'
 import type { OverlayLifecycleEvent, OverlayLifecycleSource } from './types'
 
 export interface ChartComponentApi extends ChartPro {
+  replayParticipant:ReplayParticipant
   cancelDrawing: () => void
   deleteSelectedDrawing: () => void
   createDrawing: (overlay: OverlayCreate) => void
@@ -326,12 +330,23 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     result.text={...result.text,color:inputs.color};return result
   }
 
+  const replayLifecycle=new AbortController()
+  const [workspaceOwned,setWorkspaceOwned]=createSignal(false)
+  let replayCallbacks:Array<()=>void>|undefined
+  const replayCallbackKeys=new Map<string,number>()
+  const notifyReplay=(callback:()=>void,key?:string)=>{if(replayCallbacks){const index=key===undefined?undefined:replayCallbackKeys.get(key);if(index===undefined){if(key!==undefined)replayCallbackKeys.set(key,replayCallbacks.length);replayCallbacks.push(callback)}else replayCallbacks[index]=callback}else callback()}
+  const beginReplayCallbacks=()=>{
+    if(replayCallbacks)throw new WorkspaceReplayError('BUSY','图表正在提交复盘')
+    const callbacks:Array<()=>void>=[];replayCallbacks=callbacks
+    return {publish:()=>{replayCallbacks=undefined;for(const callback of callbacks)try{callback()}catch(error){try{props.onError?.({type:'replay-callback',message:error instanceof Error?error.message:String(error),raw:error})}catch{}}callbacks.length=0;replayCallbackKeys.clear()},rollback:()=>{replayCallbacks=undefined;callbacks.length=0;replayCallbackKeys.clear()}}
+  }
+  const assertWorkspaceFree=()=>{if(workspaceOwned())throw new WorkspaceReplayError('REPLAY_OWNED','此图由工作台复盘控制，请使用工作台控制条')}
   let comparisonPanel:HTMLDivElement|undefined,comparisonResizeFrame:number|undefined,comparisonPanelHeight=0
   const resizeComparisonPanel=()=>{if(comparisonResizeFrame!==undefined||disposed)return;comparisonResizeFrame=requestAnimationFrame(()=>{comparisonResizeFrame=undefined;if(disposed)return;const height=comparisonPanel?.clientHeight??0;if(height!==comparisonPanelHeight){comparisonPanelHeight=height;widget?.resize()}})}
   const [comparisonState,setComparisonState]=createSignal<ComparisonState>({handles:[],pending:[],replay:false,restoring:false})
   const [comparisonSelected,setComparisonSelected]=createSignal('')
   let factoryGeneration=0
-  const comparisons=new ComparisonManager({locale,chart:()=>widget,symbol,period,instanceId:`compare_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,onChange:state=>{if(!disposed){setComparisonState(state);resizeComparisonPanel();props.onComparisonChange?.(state)}}})
+  const comparisons=new ComparisonManager({locale,chart:()=>widget,symbol,period,instanceId:`compare_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,onChange:state=>{if(!disposed){setComparisonState(state);resizeComparisonPanel();notifyReplay(()=>props.onComparisonChange?.(state),'comparison')}}})
   const addSelectedComparison=async()=>{
     const selected=props.comparisonSymbols?.find(value=>value.ticker===comparisonSelected()),factory=props.createComparisonDatafeed
     if(!selected||!factory)return
@@ -340,7 +355,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
 
   const [analysisViews,setAnalysisViews]=createSignal<AnalysisView[]>([])
-  const analysis=new AnalysisManager({chart:()=>widget,confirmedBars:()=>loader?.getConfirmedBars()??[],locale,changed:setAnalysisViews,onAnalysisLayerChange:props.onAnalysisLayerChange,onAnalysisEventClick:props.onAnalysisEventClick,onAnalysisPointSelect:props.onAnalysisPointSelect})
+  const analysis=new AnalysisManager({chart:()=>widget,confirmedBars:()=>loader?.getConfirmedBars()??[],locale,changed:setAnalysisViews,onAnalysisLayerChange:state=>notifyReplay(()=>props.onAnalysisLayerChange?.(state),`analysis:${state.id}`),onAnalysisEventClick:props.onAnalysisEventClick,onAnalysisPointSelect:props.onAnalysisPointSelect})
   const analysisClick=(event:MouseEvent)=>analysis.click(event)
 
   // 回放状态
@@ -351,6 +366,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   const assertDrawingTransition=()=>{const state=drawingCoordinator?.state();if(state&&(state.pending&&!(drawingHistory.isLayoutRestoring()&&state.pending===1)||state.uncertainLogicalIds.length))throw Error('绘图提交或迁移尚未确认，请先核对原目标再切换')}
   const setChartPeriod = (nextPeriod: Period) => {
+    assertWorkspaceFree()
     if (replayEngine) return
     assertDrawingTransition();++indicatorGeneration
     setPeriod(nextPeriod)
@@ -358,6 +374,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
 
   const startReplay = (startPosition?: number) => {
+    assertWorkspaceFree()
     if (disposed || replayEngine || !widget) return
     const dataList = widget.getDataList()
     if (dataList.length === 0) return
@@ -389,8 +406,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   }
 
   const [resuming,setResuming] = createSignal(false)
-  const stopReplay = () => {
-    if (disposed || !replayEngine || resuming()) return
+  let replayStopTask:Promise<void>|undefined
+  const stopReplay = async ():Promise<void> => {
+    if(workspaceOwned())return Promise.reject(new WorkspaceReplayError('REPLAY_OWNED','请使用工作台退出复盘'))
+    if(replayStopTask)return replayStopTask
+    if (disposed || !replayEngine) return Promise.resolve()
     replayEngine.pause()
     setResuming(true)
     const engine=replayEngine,revision=replayRevision
@@ -401,7 +421,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     let mainRestored=false
     const reloadMain=()=>{assertCurrent();return (loader?.reload(true)??Promise.resolve()).then(()=>{assertCurrent();mainRestored=true})}
     const restore=comparisons.getState().handles.length?comparisons.prepareResume().then(reloadMain):reloadMain()
-    restore.then(() => {
+    const task=restore.then(() => {
       assertCurrent()
       transaction?.prepare()
       comparisons.leaveReplay()
@@ -417,7 +437,9 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
       if(current()&&!mainRestored)transaction?.rollback()
       if(current()&&mainRestored){transaction?.rollback();props.onReplayReset?.(retainedReplay.at(-1)?.close,retainedReplay.at(-1)?.timestamp);if(retainedSpace!==undefined)widget?.setBarSpace(retainedSpace);if(retainedRange){widget?.scrollToDataIndex(Math.min(retainedReplay.length-1,retainedRange.to-1),0);if(retainedSpace!==undefined)widget?.scrollByDistance(retainedSpace/2,0)}}
       if(!disposed)setLoadError(error instanceof DOMException&&error.name==='AbortError'?i18n('replay_restore_cancelled',locale()):i18n('replay_restore_failure',locale()).replace('{reason}',error instanceof Error?error.message:String(error)))
-    }).finally(() => {setResuming(false)})
+      throw error
+    }).finally(() => {setResuming(false);if(replayStopTask===task)replayStopTask=undefined})
+    replayStopTask=task;return task
   }
 
   // Only drawings created through this instance's UI belong to its shortcuts.
@@ -1143,7 +1165,9 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
 
   drawingAlerts=new DrawingAlertRuntime({catalog:drawingCatalog,levelResolvers:props.drawingAlertLevelResolvers,scope:props.drawingAlertScope,source:id=>drawingCoordinator.getDrawing(id),uncertain:id=>drawingHistory.isUncertain(id),restoring:()=>drawingHistory.isLayoutRestoring(),invalidated:read=>untrack(()=>{if(drawingAlertOpen())setDrawingAlertStates(read());if(props.onDrawingAlertStateChange)props.onDrawingAlertStateChange(read())}),trigger:props.onDrawingAlertTrigger?event=>props.onDrawingAlertTrigger?.(event):undefined,replayTrigger:props.onReplayDrawingAlertTrigger?event=>props.onReplayDrawingAlertTrigger?.(event):undefined,error:error=>props.onError?.({type:'drawing-alert-callback',message:error instanceof Error?error.message:String(error),raw:error})})
   drawingController.refresh()
+  const participant=createReplayParticipant({loader:()=>loader,chart:()=>widget,comparisons,analysis,alerts:()=>drawingAlerts,factory:props.createComparisonDatafeed,assertTransition:assertDrawingTransition,legacyActive:()=>!!replayEngine,owner:setWorkspaceOwned,callbacks:beginReplayCallbacks,active:value=>props.onReplayActiveChange?.(value),reset:bar=>notifyReplay(()=>props.onReplayReset?.(bar?.close,bar?.timestamp)),price:bar=>notifyReplay(()=>props.onReplayPriceUpdate?.(bar.close,bar.timestamp)),signal:replayLifecycle.signal})
   props.ref({
+    replayParticipant:participant,
     getAnalysisContext:()=>analysis.getContext(),
     addAnalysisLayer:(context,spec)=>analysis.add(context,spec),
     getIndicatorCatalog:()=>copyIndicatorCatalog(catalog),
@@ -1175,8 +1199,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     resetDrawingHistory:()=>drawingHistory.reset(),
     undoDrawing:()=>drawingController.travel('undo'),
     redoDrawing:()=>drawingController.travel('redo'),
-    retryData:()=>replayEngine?Promise.reject(new Error('回放中请先退出回放')):loader?.retry()??Promise.resolve(),
-    reloadData: options => replayEngine ? Promise.reject(new Error('回放中请先退出回放，再重新加载行情')) : loader?.reload(options?.preserveViewport ?? true) ?? Promise.resolve(),
+    retryData:()=>workspaceOwned()?Promise.reject(new WorkspaceReplayError('REPLAY_OWNED','请使用工作台恢复复盘')):replayEngine?Promise.reject(new Error('回放中请先退出回放')):loader?.retry()??Promise.resolve(),
+    reloadData: options => workspaceOwned()?Promise.reject(new WorkspaceReplayError('REPLAY_OWNED','请使用工作台恢复复盘')):replayEngine ? Promise.reject(new Error('回放中请先退出回放，再重新加载行情')) : loader?.reload(options?.preserveViewport ?? true) ?? Promise.resolve(),
     applySnapshot: snapshot => loader?.applySnapshot(snapshot) ?? Promise.reject(new Error(i18n('chart_not_ready',locale()))),
     setTheme,
     getTheme: () => theme(),
@@ -1186,7 +1210,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     getLocale: () => locale(),
     setTimezone: (tz: string) => { setTimezone({ key: tz, text: translateTimezone(tz, locale()) }) },
     getTimezone: () => timezone().key,
-    setSymbol: (s: SymbolInfo) => { if (!replayEngine) {assertDrawingTransition();++indicatorGeneration;setSymbol(s)} },
+    setSymbol: (s: SymbolInfo) => { assertWorkspaceFree();if (!replayEngine) {assertDrawingTransition();++indicatorGeneration;setSymbol(s)} },
     getSymbol: () => symbol(),
     setPeriod: setChartPeriod,
     getPeriod: () => period(),
@@ -1208,8 +1232,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     resetComparisonRange:()=>comparisons.resetRange(),
     refreshComparisons:()=>comparisons.retry(),
     startReplay: (pos?: number) => { startReplay(pos) },
-    stopReplay: () => { stopReplay() },
-    getReplayEngine: () => replayEngine,
+    stopReplay,
+    getReplayEngine: () => workspaceOwned()?null:replayEngine,
     createTradeVisualization: () => { throw new Error('[TradingChest] createTradeVisualization must be called on KLineChartPro instance') },
     feedPrice: () => { throw new Error('[TradingChest] feedPrice must be called on KLineChartPro instance') },
     dispose: () => { throw new Error('[TradingChest] dispose must be called on KLineChartPro instance') },
@@ -1349,11 +1373,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           }
         })
       },
-      state: state=>{if(drawingAnalytics.setDataState(state)&&drawingCoordinator.getDrawings().some(d=>isVolumeDrawing(d.overlay.name))){drawingController.refresh();widget?.resize()}if(state.error)settleWorkspaceBinding(Error(state.error));setDataState(state);setLoadError(state.error?`${state.errorCode??state.operation??'data'}: ${state.error}`:'');comparisons.mainChanged();refreshAlertContext();props.onDataState?.(state)},
+      state: state=>{if(drawingAnalytics.setDataState(state)&&drawingCoordinator.getDrawings().some(d=>isVolumeDrawing(d.overlay.name))){drawingController.refresh();widget?.resize()}if(state.error)settleWorkspaceBinding(Error(state.error));setDataState(state);setLoadError(state.error?`${state.errorCode??state.operation??'data'}: ${state.error}`:'');comparisons.mainChanged();refreshAlertContext();notifyReplay(()=>props.onDataState?.(state),'state')},
       loading: active => {setLoading(active);setLoadingVisible(active)},
-      ready: identity => {setLoadError('');refreshSharedDrawings();if(!resuming())props.onDataReady?.(identity)},
+      ready: identity => {setLoadError('');refreshSharedDrawings();if(!resuming())notifyReplay(()=>props.onDataReady?.(identity),'ready')},
       error: error => {settleWorkspaceBinding(Error(error.message));setLoadError(error.message);props.onError?.(error)},
-      price: bar => props.onPriceUpdate?.(bar.close,bar.timestamp)
+      price: bar => notifyReplay(()=>props.onPriceUpdate?.(bar.close,bar.timestamp))
     })
 
     // Capture default styles once for "restore defaults" in settings modal
@@ -1393,6 +1417,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
   })
 
   onCleanup(() => {
+    replayLifecycle.abort();replayCallbacks=undefined
     disposed = true
     drawingSnapResults?.dispose();drawingSnapResults=undefined
     drawingAlerts?.dispose();confirmedAlertSeries=undefined
@@ -1587,7 +1612,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         <SymbolSearchModal
           locale={locale()}
           datafeed={props.datafeed}
-          onSymbolSelected={symbol => {try{assertDrawingTransition();setSymbol(symbol)}catch(error){setLoadError(error instanceof Error?error.message:String(error))}}}
+          onSymbolSelected={symbol => {try{assertWorkspaceFree();assertDrawingTransition();setSymbol(symbol)}catch(error){setLoadError(error instanceof Error?error.message:String(error))}}}
           onClose={() => { setSymbolSearchModalVisible(false) }}/>
       </Show>
       <Show when={indicatorModalVisible()}>
@@ -1707,8 +1732,9 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         }}
         replayActive={replayState().active}
         onReplayClick={() => {
+          if(workspaceOwned()){setLoadError('此图由工作台复盘控制，请使用工作台控制条');return}
           if (replayState().active) {
-            stopReplay()
+            void stopReplay().catch(()=>{})
           } else {
             startReplay()
           }
@@ -1723,7 +1749,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         </div>}</Show>
         <For each={Object.entries(drawingState().projectionErrors??{})}>{([id,message])=><div role="alert" class="klinecharts-pro-data-error">{id}: {message} <button onClick={()=>{drawingHistory.reproject();drawingCoordinator.project()}}>{i18n('retry',locale())}</button></div>}</For>
         <Show when={workbenchState()?.lastResult?.message}><div role="alert" class="klinecharts-pro-data-error">{workbenchState()?.lastResult?.message}</div></Show>
-        <Show when={loadError()}><div role="alert" class="klinecharts-pro-data-error">{loadError()} <button onClick={() => {!engineReady() ? retryInitialization?.() : replayEngine ? stopReplay() : void loader?.retryError().catch(()=>{})}}>{i18n('retry',locale())}</button></div></Show>
+        <Show when={workspaceOwned()}><div class="klinecharts-pro-workspace-replay" role="status">此图由工作台复盘控制；请使用工作台播放、定位与退出</div></Show>
+        <Show when={loadError()}><div role="alert" class="klinecharts-pro-data-error">{loadError()} <button onClick={() => {!engineReady() ? retryInitialization?.() : replayEngine ? void stopReplay().catch(()=>{}) : void loader?.retryError().catch(()=>{})}}>{i18n('retry',locale())}</button></div></Show>
       </div>
       <div
         class="klinecharts-pro-content" onKeyDown={handleKeyDown}>
@@ -1796,7 +1823,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
           onStepBackward={() => { if(!resuming())replayEngine?.stepBackward() }}
           onSpeedChange={(speed: ReplaySpeed) => { if(!resuming())replayEngine?.setSpeed(speed) }}
           onPositionChange={(pos: number) => { if(!resuming())replayEngine?.goToPosition(pos) }}
-          onStop={() => { stopReplay() }}
+          onStop={() => { void stopReplay().catch(()=>{}) }}
         />
       </div>
       <div class="klinecharts-pro-analysis" style={{'max-height':analysisViews().some(v=>v.state.type==='label-series'&&v.state.visible)?'240px':'100px','overflow-y':'auto','flex-shrink':'0'}}>

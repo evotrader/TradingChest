@@ -2,6 +2,7 @@ import {describe,it,expect,vi} from 'vitest'
 vi.mock('klinecharts',()=>({registerIndicator:vi.fn()}))
 import type {Chart,KLineData} from 'klinecharts'
 import {AnalysisManager} from '../../analysis/manager'
+import {prepareReplayHistory} from '../../replay/history'
 import {EngineDataLoader} from '../engineDataLoader'
 import type {Datafeed} from '../../types'
 
@@ -70,4 +71,20 @@ describe('analysis indexes follow the actual confirmed loader',()=>{
       expect(s.manager.views()[0].events.map(value=>value.id)).toEqual(['past'])
     }finally{s.dispose()}
   })
+  it('uses completion time and a global cutoff even when follower bars are unchanged, with strict availability only in workspace replay',async()=>{
+    const s=await setup();try{
+      const context=s.manager.getContext()!
+      s.manager.add(context,{id:'events',label:'events',type:'events',data:[{id:'known',label:'known',timestamp:100,availableAt:250},{id:'missing',label:'missing',timestamp:100},{id:'in-bar',label:'in-bar',timestamp:260,availableAt:260}]})
+      const window=prepareReplayHistory({bars:[bar(100),bar(200)],clocks:[{timestamp:100,completedAt:200},{timestamp:200,completedAt:400}],identity:{source:'test',ticker:symbol.ticker,market:'test',exchange:'X',currency:'USD',multiplier:1,timespan:'minute',adjustment:'raw',sessionFilter:'all',timezone:'UTC'},basis:'raw',historyKind:'current-history',metadata:{state:'ready'},coverage:{from:100,to:500,warmupBars:0}},{from:100,to:500,warmupBars:0},symbol,period)
+      const apply=(cursor:number,incremental=false)=>{const tx=s.loader.beginWorkspaceUpdate();tx.applyReplay(window,{owner:'workspace',from:100,to:500,cutoff:cursor},incremental);tx.seal();tx.publish()}
+      apply(150);expect(s.loader.getConfirmedBars()).toEqual([]);expect(s.manager.views()[0].events).toEqual([]);expect(s.loader.getDataState()).toMatchObject({dataStatus:'empty',replayContext:{cutoff:150}})
+      apply(250);expect(s.loader.getConfirmedBars().map(b=>b.timestamp)).toEqual([100]);expect(s.manager.views()[0].events.map(e=>e.id)).toEqual(['known'])
+      apply(260,true);expect(s.loader.getConfirmedBars()).toHaveLength(1);expect(s.manager.views()[0].events.map(e=>e.id)).toEqual(['known','in-bar']);expect(s.loader.getConfirmedSeries()?.cutoff).toBe(260)
+      const tx=s.loader.beginWorkspaceUpdate(),analysis=s.manager.beginTransaction();tx.applyReplay(window,{owner:'workspace',from:100,to:500,cutoff:450},true);await tx.rollback();analysis.rollback()
+      expect(s.loader.getConfirmedBars().map(b=>b.timestamp)).toEqual([100]);expect(s.manager.views()[0].events.map(e=>e.id)).toEqual(['known','in-bar'])
+      const live=await s.loader.prepareWorkspaceLive(new AbortController().signal),restore=s.loader.beginWorkspaceUpdate();await restore.applyLive(live);restore.seal();restore.publish()
+      expect(s.loader.getDataState()?.replay).toBe(false);expect(s.manager.views()[0].events.map(e=>e.id)).toEqual(['known','missing','in-bar'])
+    }finally{s.dispose()}
+  })
+
 })

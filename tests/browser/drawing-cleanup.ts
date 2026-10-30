@@ -62,7 +62,7 @@ export function installDrawingCleanup(){
     const shared=await bench.charts[0].executeDrawingCommand({type:'transfer',ids:['volume-0','volume-1'],scope:'host'});if(shared.status!=='completed')throw Error('量价工具未实际进入共享文档')
     await bench.frame();if(!bench.charts.every((c:any)=>['volume-0','volume-1'].every(id=>c.getDrawingState().analytics[id]?.status==='ready')))throw Error('共享图未独立计算量价工具')
     bench.charts[1].startReplay(9800);await bench.frame();if(!bench.charts[1].getDrawingState().analytics['volume-1']?.replayPartial)throw Error('清理验收没有进入真实回放前缀')
-    bench.charts[1].stopReplay();await bench.frame()
+    await bench.charts[1].stopReplay();await bench.frame()
     await bench.charts[0].executeDrawingCommand({type:'select',ids:['bench-0000']})
    }
    return {cycle:++cycle,subscribers,connections:connections.size}

@@ -1,4 +1,5 @@
 import type {Datafeed,DatafeedRequestContext,HistoryQuery,HistoryResult,HistorySnapshot,Period,SymbolInfo} from '../types'
+import {seriesIdentityKey} from './session'
 
 export class HistoryError extends Error {
   constructor(readonly code:string,message:string){super(message);this.name='HistoryError'}
@@ -26,13 +27,15 @@ function checkedHistorySnapshot<T extends HistorySnapshot>(snapshot:T,query?:His
     if(copy)bars[index]={...bar}
   }
   const meta=snapshot.metadata
+  if(snapshot.identity!==undefined)try{seriesIdentityKey(snapshot.identity)}catch{fail('历史来源身份无效')}
   if(meta&&(!['ready','empty','partial'].includes(meta.state)||
     meta.sourceTimestamp!==undefined&&!time(meta.sourceTimestamp)||
     meta.delayMs!==undefined&&(!Number.isFinite(meta.delayMs)||meta.delayMs<0)||
     meta.state==='empty'&&snapshot.bars.length!==0||meta.state==='ready'&&snapshot.bars.length===0))fail('历史元数据无效')
-  return copy?{...snapshot,bars,metadata:meta&&{...meta}}:snapshot
+  return copy?{...snapshot,bars,metadata:meta&&{...meta},...(snapshot.identity?{identity:{...snapshot.identity}}:{})}:snapshot
 }
 export function validateHistorySnapshot(snapshot:HistorySnapshot):void {checkedHistorySnapshot(snapshot)}
+export function copyHistorySnapshot<T extends HistorySnapshot>(snapshot:T):T{return checkedHistorySnapshot(snapshot,undefined,true)}
 function checkedHistoryResult(result:HistoryResult,query:HistoryQuery,copy=false):HistoryResult {
   validateHistoryQuery(query)
   const checked=checkedHistorySnapshot(result,query,copy)

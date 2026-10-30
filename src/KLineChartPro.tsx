@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import {registerReplayParticipant} from './workspace/replayParticipant'
 import { render } from 'solid-js/web'
 
 import { getOverlayClass, utils, Nullable, DeepPartial, Styles } from 'klinecharts'
@@ -54,7 +55,7 @@ export default class KLineChartPro implements ChartPro {
     this._solidDispose = render(
       () => (
         <ChartProComponent
-          ref={(chart: ChartComponentApi) => { this._chartApi = chart }}
+          ref={(chart: ChartComponentApi) => { this._chartApi = chart;this._releaseReplayParticipant=registerReplayParticipant(this,chart.replayParticipant) }}
           indicatorCatalog={options.indicatorCatalog}
           resolveDrawingShareKey={options.resolveDrawingShareKey}
           drawingWorkspaceSessions={options.drawingWorkspaceSessions}
@@ -117,7 +118,7 @@ export default class KLineChartPro implements ChartPro {
             if (!this._disposed && !this._replayActive) this._alertManager.checkPrice(price, timestamp)
           }}
           onReplayActiveChange={(active: boolean) => {
-            if (active) this._historyReady = false
+            this._historyReady = !active
             this._replayActive = active
             if (!active) this._alertManager.resetPrevPrice()
           }}
@@ -277,6 +278,7 @@ export default class KLineChartPro implements ChartPro {
 
   private _instanceId = `tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
+  private _releaseReplayParticipant?:()=>void
   private _disposed = false
   private _solidDispose: (() => void) | null = null
   private _clickHandler: ((e: Event) => void) | null = null
@@ -507,8 +509,8 @@ export default class KLineChartPro implements ChartPro {
     this._api().startReplay(startPosition)
   }
 
-  stopReplay (): void {
-    this._api().stopReplay()
+  stopReplay (): Promise<void> {
+    return this._api().stopReplay()
   }
 
   commitDrawing(change:Parameters<ChartPro['commitDrawing']>[0]) {return this._api().commitDrawing(change)}
@@ -538,6 +540,7 @@ export default class KLineChartPro implements ChartPro {
   dispose (): void {
     if (this._disposed) return // 幂等：重复调用安全
     this._disposed = true
+    this._releaseReplayParticipant?.();this._releaseReplayParticipant=undefined
     // Unmount below stops replay without reloading history or resubscribing.
     // 3. Clear alerts & TradeVis instance data
     for (const manager of this._symbolAlerts.values()) manager.clearAll()

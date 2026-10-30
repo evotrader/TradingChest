@@ -1,3 +1,6 @@
+import {WorkspaceReplayController} from './replayController'
+import {WorkspaceReplayError,type WorkspaceReplayState,type ReplaySpeed} from '../replay/types'
+import {replayFrame} from '../core/chartPaint'
 import {createOpaqueId} from '../ids'
 import {yieldTask} from '../core/yieldTask'
 import {DrawingSessionRegistry} from '../drawing/session'
@@ -25,6 +28,8 @@ type Runtime={cell:WorkspaceCell; element:HTMLElement;body:HTMLElement;status:HT
 
 /** The host owns data and persistence; this class owns all workspace interaction. */
 export class ChartWorkspace {
+  private replay?:WorkspaceReplayController
+  private replayOverlay?:HTMLElement
   private options:ChartWorkspaceOptions
   private root:HTMLElement
   private grid:HTMLElement
@@ -100,6 +105,32 @@ export class ChartWorkspace {
       if(this.disposed){this.disposeCell(c);return}this.cells=[c];this.geometry();this.setActive('primary');this.options.onLayoutChange?.(this.layout)
     }).catch(e=>this.error(e)).finally(()=>{this.initialization=undefined;this.busy=false})
   }
+  private replayCore():WorkspaceReplayController {
+    if(this.disposed)throw new WorkspaceReplayError('DISPOSED','工作台已经销毁')
+    if(!this.options.replay?.enabled)throw new WorkspaceReplayError('UNSUPPORTED','宿主尚未启用工作台复盘')
+    return this.replay??=new WorkspaceReplayController({cells:()=>this.cells.map(c=>{if(!c.pro)throw new WorkspaceReplayError('BUSY','请先等待全部窗格就绪',{cellId:c.cell.cellId});return {cellId:c.cell.cellId,chart:c.pro}}),active:()=>this.active,presentBusy:async signal=>{await replayFrame(signal);await yieldTask()},changed:state=>this.replayChanged(state)})
+  }
+  private replayChanged(state:WorkspaceReplayState){
+    if(this.disposed)return
+    const blocked=['loading','seeking','resuming','error'].includes(state.phase),locked=blocked||state.mode==='replay'
+    this.root.dataset.replayPhase=state.phase;this.root.dataset.replayMode=state.mode
+    this.layoutSelect.disabled=locked
+    for(const cell of this.cells){cell.body.inert=blocked;cell.symbolSelect.disabled=locked||!this.options.symbols.length;cell.periodSelect.disabled=locked||!cell.periodSelect.options.length;cell.pro?.getShortcutManager()?.setEnabled(!blocked&&cell.cell.cellId===this.active)}
+    if(blocked&&!this.replayOverlay){this.replayOverlay=document.createElement('div');this.replayOverlay.className='tc-workspace-replay-busy';this.replayOverlay.setAttribute('role','status');this.grid.append(this.replayOverlay)}
+    if(this.replayOverlay){this.replayOverlay.textContent=state.phase==='error'?`复盘恢复失败：${state.error?.message??'请重试返回实时'}`:'正在同步全部图表…';if(!blocked){this.replayOverlay.remove();this.replayOverlay=undefined}}
+    this.options.onReplayStateChange?.(state)
+  }
+  async startReplay(options:{from:number;to:number;cursor?:number;driverCellId?:string}):Promise<void>{if(this.initialization)await this.initialization;if(this.busy||this.cells.some(c=>c.transitioning))throw new WorkspaceReplayError('BUSY','工作台尚未就绪');return this.replayCore().start(options)}
+  playReplay():void{this.replayCore().play()}
+  pauseReplay():void{this.replayCore().pause()}
+  stepReplay(direction:'forward'|'backward'):Promise<void>{return this.replayCore().step(direction)}
+  seekReplay(timestamp:number):Promise<void>{return this.replayCore().seek(timestamp)}
+  setReplaySpeed(speed:ReplaySpeed):void{this.replayCore().speed(speed)}
+  setReplayDriver(cellId:string):void{this.replayCore().driver(cellId)}
+  stopReplay():Promise<void>{return this.replayCore().stop()}
+  resumeReplay():Promise<void>{return this.replayCore().resume()}
+  getReplayState():WorkspaceReplayState{return this.replay?.getState()??{mode:'live',phase:'idle',speed:1,availabilityAssumed:false,cells:[]}}
+  subscribeReplay(listener:(state:WorkspaceReplayState)=>void):()=>void{return this.replayCore().subscribe(listener)}
   private t(key:string,values:MessageValues={}){return translate(key,this.options.locale!).replace(/\{(\w+)\}/g,(match,name)=>String(values[name]??match))}
   private caption(key:string,values:MessageValues={}){const span=document.createElement('span');this.message(span,key,values);return span}
   private message(element:HTMLElement,key:string|null,values:MessageValues={}){
@@ -173,7 +204,7 @@ export class ChartWorkspace {
         const current=()=>!runtime.controller.signal.aborted&&version===acceptVersion&&candidate===pro
         accepted=Promise.resolve().then(()=>pro.bindDrawingWorkspace?.(sharedSessions,this.options.resolveDrawingShareKey)).then(()=>{
           if(!current())return
-          runtime.pro=pro;this.message(runtime.status,null);pro.getChart()?.resize();this.bindActions(runtime);pro.getShortcutManager()?.setEnabled(runtime.cell.cellId===this.active)
+          runtime.pro=pro;this.message(runtime.status,null);pro.getChart()?.resize();this.bindActions(runtime);pro.getShortcutManager()?.setEnabled(runtime.cell.cellId===this.active);if(this.cells.includes(runtime)&&this.replay){this.replay.replaceCell(runtime.cell.cellId,pro);this.replayChanged(this.replay.getState())}
         }).catch(error=>{if(current())throw error})
         announce()
         return accepted
@@ -189,18 +220,20 @@ export class ChartWorkspace {
     this.pending.delete(runtime)
     return runtime
   }
+  private replayBusy(){return !!this.replay&&['loading','seeking','resuming','error'].includes(this.replay.getState().phase)}
   private bindActions(c:Runtime){
     const chart=c.pro?.getChart();if(!chart)return
-    const crosshair=(data:unknown)=>{if(this.busy||!this.cells.includes(c)||this.propagating||c.cell.cellId!==this.active||!this.sync.crosshair)return;this.propagating=true;try{for(const target of this.cells)if(target!==c&&target.pro?.getChart()){this.message(target.status,syncCrosshair(chart,target.pro.getChart()!,data as Crosshair)?null:'workspace_missing_timestamp')}}finally{this.propagating=false}}
-    const viewport=()=>{if(this.busy||!this.cells.includes(c)||this.propagating||c.cell.cellId!==this.active||!this.sync.viewport)return;const window=visibleTimestamps(chart);if(!window)return;this.propagating=true;try{for(const target of this.cells)if(target!==c&&target.pro?.getChart())this.message(target.status,syncViewport(target.pro.getChart()!,window)?null:'workspace_viewport_unaligned')}finally{this.propagating=false}}
+    const crosshair=(data:unknown)=>{if(this.busy||this.replayBusy()||!this.cells.includes(c)||this.propagating||c.cell.cellId!==this.active||!this.sync.crosshair)return;this.propagating=true;try{for(const target of this.cells)if(target!==c&&target.pro?.getChart()){this.message(target.status,syncCrosshair(chart,target.pro.getChart()!,data as Crosshair)?null:'workspace_missing_timestamp')}}finally{this.propagating=false}}
+    const viewport=()=>{if(this.busy||this.replayBusy()||!this.cells.includes(c)||this.propagating||c.cell.cellId!==this.active||!this.sync.viewport)return;const window=visibleTimestamps(chart);if(!window)return;this.propagating=true;try{for(const target of this.cells)if(target!==c&&target.pro?.getChart())this.message(target.status,syncViewport(target.pro.getChart()!,window)?null:'workspace_viewport_unaligned')}finally{this.propagating=false}}
     chart.subscribeAction('onCrosshairChange',crosshair);chart.subscribeAction('onVisibleRangeChange',viewport)
     const leave=()=>{if(c.cell.cellId===this.active&&this.sync.crosshair)for(const target of this.cells)if(target!==c&&target.pro?.getChart())hideCrosshair(target.pro.getChart()!)}
     const dom=chart.getDom();dom?.addEventListener('mouseleave',leave)
     c.unsubscribe=()=>{dom?.removeEventListener('mouseleave',leave);chart.unsubscribeAction('onCrosshairChange',crosshair);chart.unsubscribeAction('onVisibleRangeChange',viewport)}
   }
   private disposeCell(c:Runtime){if(c.disposed)return;c.disposed=true;this.pending.delete(c);this.staged.delete(c);c.controller.abort();c.unsubscribeReady?.();c.unsubscribe?.();c.binding?.dispose();c.element.remove()}
-  setActive(id:string){const c=this.cells.find(c=>c.cell.cellId===id);if(!c)return;this.active=id;for(const item of this.cells){item.element.dataset.active=String(item===c);item.pro?.getShortcutManager()?.setEnabled(item===c)}this.options.onActiveCell?.({...c.cell})}
+  setActive(id:string){const c=this.cells.find(c=>c.cell.cellId===id);if(!c)return;this.active=id;for(const item of this.cells){item.element.dataset.active=String(item===c);item.pro?.getShortcutManager()?.setEnabled(item===c&&!this.replayBusy())}this.options.onActiveCell?.({...c.cell})}
   async setLayout(layout:WorkspaceLayout){
+    this.replay?.assertIdle()
     if(this.initialization)await this.initialization
     if(this.disposed)throw this.failure('workspace_closed')
     if(![1,2,4].includes(layout))throw this.failure('workspace_invalid_layout')
@@ -215,6 +248,7 @@ export class ChartWorkspace {
   }
   private async changeIdentity(c:Runtime,change:Partial<Pick<WorkspaceCell,'symbol'|'period'>>,propagate=true,isCurrent:()=>boolean=()=>true){
     if(this.busy)throw this.failure('workspace_busy')
+    this.replay?.assertIdle()
     const index=this.cells.indexOf(c);if(index<0)return
     if(change.symbol?.ticker===c.cell.symbol.ticker||change.period&&equalPeriod(change.period,c.cell.period))return
     if(c.transitioning)throw this.failure('workspace_cell_busy')
@@ -251,6 +285,7 @@ export class ChartWorkspace {
     await action
   }
   capture():WorkspaceDocument {
+    this.replay?.assertStable()
     if(this.busy||this.cells.length!==this.layout||this.cells.some(c=>c.transitioning))throw this.failure('workspace_not_ready')
     const cells=this.cells.map(c=>{if(!c.pro)throw this.failure('workspace_cell_not_ready',{id:c.cell.cellId});if(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)throw this.failure('workspace_drawing_save');const options=c.binding?.captureOptions?.()??{};return {...c.cell,chart:captureLayout(c.pro,{...options,localDrawingIds:[...(options.localDrawingIds??[]),...c.restoredIds,...c.pro.getDrawings().filter(d=>d.owner==='local').map(d=>d.logicalId)],context:{ticker:c.cell.symbol.ticker,period:{multiplier:c.cell.period.multiplier,timespan:c.cell.period.timespan}}})}})
     const doc:WorkspaceDocument={version:2,sharedDrawings:this.sharedSessions.capture(),layout:this.layout,activeCellId:this.active,sync:{...this.sync},columnRatio:this.columnRatio,rowRatio:this.rowRatio,cells}
@@ -403,5 +438,5 @@ export class ChartWorkspace {
   getCells(){return this.cells.map(c=>({...c.cell,chart:c.pro}))}
   private publishLabels(c:Runtime){c.element.style.display='flex';c.element.dataset.cellId=c.cell.cellId;this.aria(c.symbolSelect,'workspace_symbol',{id:c.cell.cellId});this.aria(c.periodSelect,'workspace_period',{id:c.cell.cellId})}
   private resetSelectors(c:Runtime){c.symbolSelect.value=c.cell.symbol.ticker;c.periodSelect.value=[...c.periodSelect.options].find(o=>equalPeriod(JSON.parse(o.value),c.cell.period))?.value??''}
-  dispose(){this.disposed=true;this.io?.controller.abort();this.deleteDialog?.remove();++this.operation;this.observer?.disconnect();for(const c of [...this.cells,...this.pending,...this.staged])this.disposeCell(c);this.cells=[];this.sharedSessions.dispose();this.root.remove()}
+  dispose(){this.disposed=true;this.replay?.dispose();this.replay=undefined;this.io?.controller.abort();this.deleteDialog?.remove();++this.operation;this.observer?.disconnect();for(const c of [...this.cells,...this.pending,...this.staged])this.disposeCell(c);this.cells=[];this.sharedSessions.dispose();this.root.remove()}
 }

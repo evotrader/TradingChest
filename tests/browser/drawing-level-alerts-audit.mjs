@@ -28,7 +28,7 @@ try{
 
   await load();await create({ratio:.5})
   const position=await page.evaluate(async()=>{const bars=levelBench.bars,position=bars.length-6;for(const [index,close] of [[position-1,14],[position,16],[bars.length-1,14]])Object.assign(bars[index],{open:close,high:close+1,low:close-1,close});await levelBench.replaceHistory(bars);return position})
-  await page.evaluate(async position=>{pro.startReplay(position);await levelBench.frame();pro.getReplayEngine().stepForward();await levelBench.frame();pro.stopReplay();await levelBench.frame()},position);await update(16)
+  await page.evaluate(async position=>{pro.startReplay(position);await levelBench.frame();pro.getReplayEngine().stepForward();await levelBench.frame();await pro.stopReplay();await levelBench.frame()},position);await update(16)
   assert.deepEqual(await counts(),{live:1,replay:1});let saved=await markers()
   await settings();await axis('对数轴');await modal.getByRole('button',{name:'恢复默认',exact:true}).click();assert.deepEqual(await markers(),saved);assert.equal((await states())[0].status,'waiting')
   await update(14);assert.deepEqual(await counts(),{live:1,replay:1});await update(16,true);assert.deepEqual(await counts(),{live:2,replay:1})

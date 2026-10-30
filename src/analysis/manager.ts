@@ -38,6 +38,7 @@ export class AnalysisManager {
   private epoch=-1
   private sequence=0
   private layers=new Map<string,Layer>()
+  private strictAvailability=false
   private replay=false
   private cutoff=Infinity
   private disposed=false
@@ -45,6 +46,10 @@ export class AnalysisManager {
   private timesDirty=true
   private signature=''
   constructor(private options:AnalysisOptions&{chart:()=>Chart|null;confirmedBars:()=>readonly KLineData[];locale:()=>string;changed?:(views:AnalysisView[])=>void}){}
+  beginTransaction(){
+    const layers=new Map(this.layers),snapshots=[...this.layers.values()].map(layer=>({layer,state:{...layer.state},events:layer.events,points:layer.points,spec:layer.spec})),context=this.context,epoch=this.epoch,cutoff=this.cutoff,replay=this.replay,strict=this.strictAvailability
+    return {rollback:()=>{for(const layer of this.layers.values())if(layers.get(layer.spec.id)!==layer)this.remove(layer);this.layers=layers;for(const item of snapshots)Object.assign(item.layer,{spec:item.spec,state:item.state,events:item.events,points:item.points});this.context=context;this.epoch=epoch;this.cutoff=cutoff;this.replay=replay;this.strictAvailability=strict;this.timesDirty=true;this.signature='';for(const layer of this.layers.values())this.render(layer);this.emit()}}
+  }
   getContext():AnalysisContext|null{return this.context?structuredClone(this.context):null}
   sync(state:ConfirmedSeries):void {
     if(this.disposed)return
@@ -52,9 +57,9 @@ export class AnalysisManager {
     const changed=!this.context||!confirmed||state.epoch!==this.epoch||this.context?.basis!==state.basis
     if(changed){this.clear();this.epoch=state.epoch;this.context=confirmed?{token:`analysis_${++this.sequence}_${Math.random().toString(36).slice(2)}`,symbol:{...state.symbol},period:{...state.period},basis:state.basis}:null}
     const signature=`${state.revision}:${bars.length}:${bars[0]?.timestamp}:${bars.at(-1)?.timestamp}`
-    const cutoff=state.replay?(state.cutoff??-Infinity):Infinity,modeChanged=this.replay!==state.replay||this.cutoff!==cutoff
+    const cutoff=state.replay?(state.cutoff??-Infinity):Infinity,modeChanged=this.replay!==state.replay||this.cutoff!==cutoff||this.strictAvailability!==(state.replayOwner==='workspace')
     if(!changed&&!modeChanged&&signature===this.signature)return
-    this.replay=state.replay;this.cutoff=cutoff
+    this.replay=state.replay;this.cutoff=cutoff;this.strictAvailability=state.replayOwner==='workspace'
     if(signature!==this.signature){this.signature=signature;this.timesDirty=true;for(const layer of this.layers.values())this.render(layer)}
     else if(modeChanged)for(const layer of this.layers.values())this.render(layer)
     this.emit()
@@ -81,7 +86,7 @@ export class AnalysisManager {
     // Context reads need no time index. Build once when an actual layer consumes it.
     if(this.timesDirty){this.times=new Map(this.options.confirmedBars().map((bar,index)=>[bar.timestamp,index]));this.timesDirty=false}
     const spec=layer.spec,visible=layer.state.visible,hiddenLabels=spec.type==='label-series'&&this.replay&&spec.data.some(p=>p.availableAt===undefined)
-    const available=(p:{availableAt?:number;timestamp?:number})=>!this.replay||((p.timestamp??-Infinity)<=this.cutoff&&(p.availableAt??p.timestamp??Infinity)<=this.cutoff)
+    const available=(p:{availableAt?:number;timestamp?:number})=>!this.replay||((!this.strictAvailability||p.availableAt!==undefined)&&(p.timestamp??-Infinity)<=this.cutoff&&(p.availableAt??p.timestamp??Infinity)<=this.cutoff)
     layer.events=[];layer.points=[]
     let eligible=0,unaligned=0
     const indexes=this.times,empty=Object.freeze({}),values:import('./renderers').AnalysisResult[]=spec.type==='label-series'?[]:Array(indexes.size).fill(empty),events:AnalysisEvent[]=[]
@@ -98,7 +103,7 @@ export class AnalysisManager {
         else {const p=point as import('./types').AnalysisPoint;values[index]=p.value===null?empty:spec.type==='histogram'?{value:p.value,lower:0}:{value:p.value}}
       }}
     }
-    layer.state={...layer.state,status:!visible||hiddenLabels?'hidden':!eligible?'empty':unaligned?'unaligned':'ready',unalignedCount:unaligned,reason:hiddenLabels?i18n('analysis_unknown_availability',this.options.locale()):unaligned?i18n('analysis_exact_only',this.options.locale()):undefined}
+    layer.state={...layer.state,status:!visible||hiddenLabels?'hidden':!eligible?'empty':unaligned?'unaligned':'ready',unalignedCount:unaligned,reason:hiddenLabels||this.strictAvailability&&spec.data.some(p=>p.availableAt===undefined)?i18n('analysis_unknown_availability',this.options.locale()):unaligned?i18n('analysis_exact_only',this.options.locale()):undefined}
     if(spec.type==='label-series')return
     const chart=this.options.chart();if(!chart)throw Error(i18n('analysis_validation_18',this.options.locale()))
     registerAnalysisRenderer()
@@ -116,7 +121,7 @@ export class AnalysisManager {
     layer.renderer=renderer
     if(layer.indicatorId&&chart.getIndicators({id:layer.indicatorId}).length)chart.overrideIndicator({id:layer.indicatorId,name:'TC_ANALYSIS',shortName:priceLabel,visible,extendData:renderer})
     else {
-      const id=chart.createIndicator({name:'TC_ANALYSIS',shortName:priceLabel,paneId:spec.type==='events'||spec.placement==='main'?'candle_pane':undefined,extendData:renderer,visible,series:spec.type!=='events'&&spec.valueType==='price'?'price':'normal',shouldOhlc:false},true)
+      const id=chart.createIndicator({id:layer.indicatorId,name:'TC_ANALYSIS',shortName:priceLabel,paneId:layer.paneId??(spec.type==='events'||spec.placement==='main'?'candle_pane':undefined),extendData:renderer,visible,series:spec.type!=='events'&&spec.valueType==='price'?'price':'normal',shouldOhlc:false},true)
       const actual=id?chart.getIndicators({id})[0]:undefined;if(!actual)throw Error(i18n('analysis_validation_19',this.options.locale()))
       layer.indicatorId=actual.id;layer.paneId=actual.paneId;layer.yAxisId=actual.yAxisId
       const binding=runtimeBindings.get(chart)??{indicatorIds:new Set<string>(),paneIds:new Set<string>(),axisIds:new Set<string>()};binding.indicatorIds.add(actual.id)

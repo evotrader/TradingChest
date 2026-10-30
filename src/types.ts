@@ -48,7 +48,7 @@ export interface HistoryMetadata {
   delayMs?:number
 }
 /** Provenance and metadata belong to this exact response. */
-export interface HistorySnapshot {bars:KLineData[];basis?:string;metadata?:HistoryMetadata}
+export interface HistorySnapshot {bars:KLineData[];basis?:string;metadata?:HistoryMetadata;identity?:import('./datafeed/session').SeriesIdentity}
 export interface HistoryResult extends HistorySnapshot {hasMoreBefore?:boolean}
 export type DatafeedStatus =
   | {type:'connection';state:'connected'|'disconnected'|'reconnecting'|'failed'}
@@ -67,6 +67,7 @@ export interface ChartDataState {
   timestamp?: number
   restoring: boolean
   replay: boolean
+  replayContext?:{owner:'workspace';from:number;to:number;cutoff:number}
   error?: string
   dataStatus:'unconfirmed'|'empty'|'ready'
   lastRead?:{query:HistoryQuery;metadata?:HistoryMetadata;hasMoreBefore?:boolean}
@@ -88,6 +89,7 @@ export interface DatafeedRequestContext {
 export interface Datafeed {
   searchSymbols (search?: string): Promise<SymbolInfo[]>
   getHistoryKLineData (symbol: SymbolInfo, period: Period, query:HistoryQuery, context?: DatafeedRequestContext): Promise<HistoryResult>
+  getReplayHistory?(symbol:SymbolInfo,period:Period,query:import('./replay/types').ReplayHistoryQuery,context:import('./replay/types').ReplayRequestContext):Promise<import('./replay/types').ReplayHistoryResult>
   subscribeStatus?(symbol:SymbolInfo,period:Period,accept:(status:DatafeedStatus)=>void):()=>void
   subscribe (symbol: SymbolInfo, period: Period, callback: DatafeedSubscribeCallback): void
   unsubscribe (symbol: SymbolInfo, period: Period): void
@@ -251,7 +253,7 @@ export interface ChartPro {
   /** 进入回放模式 */
   startReplay(startPosition?: number): void
   /** 退出回放模式 */
-  stopReplay(): void
+  stopReplay(): Promise<void>
   /** 获取回放引擎 */
   getReplayEngine(): Pick<import('./replay/ReplayEngine').ReplayEngine,keyof import('./replay/ReplayEngine').ReplayEngine> | null
   /** 创建交易可视化指标（自动连接点击检测） */

@@ -26,7 +26,9 @@ export interface ChartWorkspaceOptions {
   theme?:string
   /** Defaults to 100%; the containing element must provide a definite height. */
   height?:number|'100%'
-  toolbar?:{layout?:boolean;sync?:boolean;storage?:boolean;size?:boolean}
+  toolbar?:{layout?:boolean;sync?:boolean;storage?:boolean;size?:boolean;replay?:boolean;notes?:boolean}
+  replay?:{enabled:boolean}
+  onReplayStateChange?:(state:import('../replay/types').WorkspaceReplayState)=>void
   context:string
   symbols:SymbolInfo[]
   initialSymbol:SymbolInfo

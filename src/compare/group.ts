@@ -6,8 +6,13 @@ export function commonBase(main:KLineData[],series:KLineData[][],from=-Infinity,
 }
 export function priceMap(bars:KLineData[]):Map<number,number>{const prices=new Map<number,number>();for(const bar of bars)prices.set(bar.timestamp,bar.close);return prices}
 export function commonBaseWithPrices(main:KLineData[],maps:Map<number,number>[],from=-Infinity,to=Infinity,locale='zh-CN'):number {
+  const base=visibleCommonBase(main,maps,from,to,locale)
+  if(base===undefined)throw Error(i18n('comparison_no_common_time',locale))
+  return base
+}
+export function visibleCommonBase(main:KLineData[],maps:Map<number,number>[],from=-Infinity,to=Infinity,locale='zh-CN'):number|undefined {
   const base=main.find(bar=>bar.timestamp>=from&&bar.timestamp<=to&&maps.every(map=>map.has(bar.timestamp)))
-  if(!base)throw Error(i18n('comparison_no_common_time',locale))
+  if(!base)return undefined
   if([base.close,...maps.map(map=>map.get(base.timestamp)!)].some(close=>!Number.isFinite(close)||close===0))throw Error(i18n('comparison_bad_common_price',locale))
   return base.timestamp
 }

@@ -48,6 +48,7 @@ export class ChartWorkspace {
   private grid:HTMLElement
   private notice:HTMLElement
   private cells:Runtime[]=[]
+  private loadSequence=0
   private pending=new Set<Runtime>()
   private staged=new Set<Runtime>()
   private sharedSessions=new DrawingSessionRegistry({scope:'workspace'})
@@ -101,7 +102,7 @@ export class ChartWorkspace {
     this.savedSelect=document.createElement('select');this.aria(this.savedSelect,'workspace_saved_list')
     this.savedSelect.onchange=()=>{const id=this.savedSelect.value;if(id)void this.load(id).catch(e=>{this.renderSaved();this.error(e)})};storageGroup.append(this.savedSelect)
     this.nameInput=document.createElement('input');this.nameInput.type='text';this.nameInput.maxLength=80;this.aria(this.nameInput,'workspace_name');storageGroup.append(this.nameInput)
-    const actions:Array<[string,()=>Promise<unknown>|void]>=[['workspace_save',()=>this.save()],['workspace_save_as',()=>this.saveAs(this.nameInput.value)],['workspace_load',()=>this.load(this.savedSelect.value)],['workspace_rename',()=>this.renameSaved(this.savedSelect.value,this.nameInput.value)],['workspace_delete',()=>this.confirmDelete()],['workspace_refresh',()=>this.unknownWrite?this.confirmPending():this.listSaved()],['workspace_import',()=>this.importLegacy(this.nameInput.value)],['workspace_storage_retry',()=>this.unknownWrite?this.confirmPending():this.lastStorageAction?.()],['workspace_cancel',()=>this.io?.controller.abort()]]
+    const actions:Array<[string,()=>Promise<unknown>|void]>=[['workspace_save',()=>this.save()],['workspace_save_as',()=>this.saveAs(this.nameInput.value)],['workspace_load',()=>this.load(this.savedSelect.value)],['workspace_rename',()=>this.renameSaved(this.savedSelect.value,this.nameInput.value)],['workspace_delete',()=>this.confirmDelete()],['workspace_refresh',()=>this.unknownWrite?this.confirmPending():this.listSaved()],['workspace_import',()=>this.importLegacy(this.nameInput.value)],['workspace_storage_retry',()=>this.unknownWrite?this.confirmPending():this.lastStorageAction?.()],['workspace_cancel',()=>{this.io?.controller.abort();this.restoreController?.abort()}]]
     for(const [key,action] of actions){const button=document.createElement('button');button.type='button';button.dataset.storageAction=key;this.message(button,key);button.onclick=()=>void Promise.resolve().then(action).catch(e=>this.error(e));storageGroup.append(button);this.storeButtons.push(button)}
     storageGroup.append(this.caption('workspace_manual_save'))
     for(const key of ['columnRatio','rowRatio'] as const){
@@ -151,6 +152,16 @@ export class ChartWorkspace {
   setReplaySpeed(speed:ReplaySpeed):void{this.replayCore().speed(speed)}
   setReplayDriver(cellId:string):void{this.replayCore().driver(cellId)}
   async stopReplay():Promise<void>{if(this.restoreTask){this.restoreController?.abort();try{await this.restoreTask}catch(error){if(!(error instanceof DOMException&&error.name==='AbortError'))throw error}}return this.replayCore().stop()}
+  async prepareContextChange(signal?:AbortSignal):Promise<void>{
+    signal?.throwIfAborted()
+    if(this.disposed)throw this.failure('workspace_closed')
+    if(this.busy||this.restoreTask||this.cells.some(c=>c.transitioning))throw this.failure('workspace_busy')
+    this.replay?.pause();this.replay?.assertStable();this.assertDrawingIdle(this.cells)
+    await this.allowReplayReplacement('切换对象将关闭当前工作台',signal)
+    signal?.throwIfAborted()
+    if(this.replay)await this.replay.stop()
+    signal?.throwIfAborted();this.clearReplayRecord()
+  }
   resumeReplay():Promise<void>{if(this.busy||this.restoreTask||this.cells.some(c=>c.transitioning))return Promise.reject(new WorkspaceReplayError('BUSY','工作台尚未就绪'));return this.replayCore().resume()}
   getReplayState():WorkspaceReplayState{const state=this.replay?.getState()??{mode:'live' as const,phase:'idle' as const,speed:1 as const,availabilityAssumed:false,cells:[]};return this.restoreTask?{...state,phase:'loading'}:state}
   subscribeReplay(listener:(state:WorkspaceReplayState)=>void):()=>void{if(this.disposed)throw new WorkspaceReplayError('DISPOSED','工作台已经销毁');this.replayListeners.add(listener);try{listener(this.getReplayState())}catch{}return()=>this.replayListeners.delete(listener)}
@@ -170,8 +181,9 @@ export class ChartWorkspace {
     await new Promise<void>((resolve,reject)=>{
       const previous=document.activeElement as HTMLElement|null,element=document.createElement('div');element.setAttribute('role','alertdialog');element.setAttribute('aria-label','保留复盘记录');element.tabIndex=-1
       const message=document.createElement('span');message.textContent=`${reason}。可保存旧工作台、放弃当前记录或取消；已有存储原件不会删除。`;element.append(message)
+      let closed=false
       const abort=()=>finish(true)
-      const finish=(cancel=false)=>{signal?.removeEventListener('abort',abort);element.remove();this.replayDialog=undefined;previous?.focus();cancel?reject(new DOMException('已取消替换复盘记录','AbortError')):resolve()}
+      const finish=(cancel=false)=>{if(closed)return;closed=true;signal?.removeEventListener('abort',abort);element.remove();this.replayDialog=undefined;previous?.focus();cancel?reject(new DOMException('已取消替换复盘记录','AbortError')):resolve()}
       const save=document.createElement('button');save.type='button';save.textContent='保存旧工作台并继续';save.disabled=!this.options.store
       save.onclick=()=>{save.disabled=true;void (this.selected?this.save():this.saveAs(this.nameInput.value)).then(()=>finish()).catch(error=>{this.error(error);save.disabled=false})}
       const discard=document.createElement('button');discard.type='button';discard.textContent='放弃当前记录并继续';discard.onclick=()=>finish()
@@ -374,7 +386,7 @@ export class ChartWorkspace {
     this.updateStoreControls()
   }
   private updateStoreControls():void {
-    const unavailable=!this.options.store,pending=!!this.io,unknown=!!this.unknownWrite
+    const unavailable=!this.options.store,pending=!!this.io||!!this.restoreTask,unknown=!!this.unknownWrite
     this.savedSelect.disabled=unavailable||pending||unknown||!this.saved.length
     this.nameInput.disabled=unavailable||pending||unknown
     for(const button of this.storeButtons){const action=button.dataset.storageAction
@@ -418,7 +430,15 @@ export class ChartWorkspace {
     if(!id)throw this.failure('workspace_choose_saved')
     this.deleteDialog?.remove()
     this.lastStorageAction=()=>this.load(id)
-    return this.runStorage('read',async(store,signal)=>{const raw=await this.abortable(store.read(this.options.context,id,signal),signal);if(!raw)throw this.storageFailure('WORKSPACE_NOT_FOUND',this.t('workspace_no_saved'));await yieldTask();signal.throwIfAborted();const stored=this.stored(raw,id);signal.throwIfAborted();await yieldTask();signal.throwIfAborted();await this.restoreDocument(stored.document,()=>!signal.aborted&&!this.disposed,signal,true);signal.throwIfAborted();this.selected=this.summary(stored);this.nameInput.value=stored.name;this.renderSaved();this.message(this.notice,'workspace_restored')})
+    if(this.io?.kind==='write')throw this.failure('workspace_busy')
+    const sequence=++this.loadSequence
+    if(this.restoreTask){this.restoreController?.abort();try{await this.restoreTask}catch{} }
+    const stored=await this.runStorage('read',async(store,signal)=>{const raw=await this.abortable(store.read(this.options.context,id,signal),signal);if(!raw)throw this.storageFailure('WORKSPACE_NOT_FOUND',this.t('workspace_no_saved'));await yieldTask();signal.throwIfAborted();return this.stored(raw,id)})
+    const current=()=>sequence===this.loadSequence&&!this.disposed
+    if(!current())throw new DOMException('Workspace load cancelled','AbortError')
+    await this.restoreDocument(stored.document,current,undefined,true)
+    if(!current())throw new DOMException('Workspace load cancelled','AbortError')
+    this.selected=this.summary(stored);this.nameInput.value=stored.name;this.renderSaved();this.message(this.notice,'workspace_restored')
   }
   async renameSaved(id:string,name:string):Promise<WorkspaceSummary> {
     name=this.name(name);const expected=this.selected?.id===id?this.selected:this.saved.find(v=>v.id===id)
@@ -466,8 +486,8 @@ export class ChartWorkspace {
   private async restoreDocument(doc:WorkspaceDocument,isCurrent:()=>boolean,signal?:AbortSignal,ownsDocument=false){
     if(this.restoreTask)throw this.failure('workspace_busy')
     const controller=new AbortController();this.restoreController=controller
-    const task=this.performRestore(doc,isCurrent,signal?AbortSignal.any([signal,controller.signal]):controller.signal,ownsDocument).finally(()=>{if(this.restoreTask===task){this.restoreTask=undefined;this.restoreController=undefined;this.replayProjection='';if(this.options.replay?.enabled)this.replayChanged(this.getReplayState())}})
-    this.restoreTask=task;if(this.options.replay?.enabled)this.replayChanged(this.getReplayState());return task
+    const task=this.performRestore(doc,isCurrent,signal?AbortSignal.any([signal,controller.signal]):controller.signal,ownsDocument).finally(()=>{if(this.restoreTask===task){this.restoreTask=undefined;this.restoreController=undefined;this.updateStoreControls();this.replayProjection='';if(this.options.replay?.enabled)this.replayChanged(this.getReplayState())}})
+    this.restoreTask=task;this.updateStoreControls();if(this.options.replay?.enabled)this.replayChanged(this.getReplayState());return task
   }
   private async performRestore(doc:WorkspaceDocument,isCurrent:()=>boolean,signal?:AbortSignal,ownsDocument=false){
     if(this.initialization)await this.initialization

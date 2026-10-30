@@ -60,7 +60,7 @@ export function createReplayParticipant(options:Options):ReplayParticipant {
       const compare=await options.comparisons.prepareWorkspace(query,context,record?.comparisons,options.factory)
       const assertCurrent=()=>{valid();context.signal.throwIfAborted();if(loader.workspaceVersion()!==version)throw new WorkspaceReplayError('BUSY','准备期间行情已改变，请重试');compare.assertCurrent()}
       try{assertCurrent()}catch(error){compare.release();throw error}
-      return {window,record:{identity:{...window.identity},...(window.basis===undefined?{}:{basis:window.basis}),comparisons:compare.records},assertCurrent,release:compare.release,
+      return {window,availabilityAssumed:window.availabilityAssumed||[...compare.windows.values()].some(value=>value.availabilityAssumed),record:{identity:{...window.identity},...(window.basis===undefined?{}:{basis:window.basis}),comparisons:compare.records},assertCurrent,release:compare.release,
         begin:()=>begin(false,async(data,comparisons,cursor,incremental)=>{
           comparisons.applyReplay(compare,window,cursor,incremental)
           data.applyReplay(window,{owner:'workspace',from:query.from,to:query.to,cutoff:cursor},incremental,()=>{const last=loader.getConfirmedBars().at(-1);if(last)options.price(last)})

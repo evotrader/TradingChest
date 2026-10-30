@@ -55,7 +55,8 @@ export class ReplayControls {
   render(state:WorkspaceReplayState){
     const cells=this.workspace.getCells(),record=this.workspace.getReplayRecord(),locked=state.mode==='replay'||['loading','seeking','resuming','error'].includes(state.phase),busy=['loading','seeking','resuming'].includes(state.phase)
     const selected=state.driverCellId??this.driver.value
-    if([...this.driver.options].map(o=>o.value).join()!==cells.map(c=>c.cellId).join())this.driver.replaceChildren(...cells.map(c=>new Option(`${c.cellId} · ${c.symbol.name??c.symbol.ticker} · ${c.period.text}`,c.cellId)))
+    const choices=cells.map(c=>({value:c.cellId,label:`${c.cellId} · ${c.symbol.name??c.symbol.ticker} · ${c.period.text}`}))
+    if(this.driver.options.length!==choices.length||choices.some((choice,index)=>this.driver.options[index].value!==choice.value||this.driver.options[index].text!==choice.label))this.driver.replaceChildren(...choices.map(choice=>new Option(choice.label,choice.value)))
     if(cells.some(c=>c.cellId===selected))this.driver.value=selected
     if(!this.initialized&&!this.fromEdited){const data=cells[0]?.chart?.getChart()?.getDataList();if(data?.length){this.from.set(data[0].timestamp);this.to.set(data.at(-1)!.timestamp+1);this.cursor.set(data[0].timestamp);this.initialized=true}}
     const recordKey=record?JSON.stringify([record.from,record.to,record.participants]):''

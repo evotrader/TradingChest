@@ -7,6 +7,7 @@ import type {TimestampLocation} from '../core/locateTimestamp'
 /** Internal capability registered on actual library instances, never on provider objects. */
 export interface ReplayPrepared {
   window:ReplayWindow
+  availabilityAssumed:boolean
   record:Omit<ReplayParticipantRecord,'cellId'>
   assertCurrent():void
   release():void

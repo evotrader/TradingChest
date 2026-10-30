@@ -100,7 +100,7 @@ export class WorkspaceReplayController {
         this.checkDriver(driver,input.from,input.to)
         await this.transaction(members.map(m=>({cellId:m.cellId,...m.prepared!})),cursor,false,signal,()=>{
           this.record=record?{...clone(record),mode:'paused'}:{version:1,mode:'paused',historyKind:'current-history',from:input.from,to:input.to,cursor,driverCellId:driver,speed:1,participants:members.map(m=>({cellId:m.cellId,...m.prepared!.record})),notes:'',bookmarks:[]}
-          this.state={mode:'replay',phase:'paused',from:input.from,to:input.to,cursor,driverCellId:driver,speed:record?.speed??1,availabilityAssumed:members.some(m=>m.prepared!.window.availabilityAssumed),cells:this.summarize()}
+          this.state={mode:'replay',phase:'paused',from:input.from,to:input.to,cursor,driverCellId:driver,speed:record?.speed??1,availabilityAssumed:members.some(m=>m.prepared!.availabilityAssumed),cells:this.summarize()}
         })
       }catch(reason){if(this.state.phase!=='error'){for(const member of members){member.prepared?.release();member.participant.release()}this.members=[]}throw reason}
     })

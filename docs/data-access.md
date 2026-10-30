@@ -72,7 +72,7 @@ metadata 可省略。sourceTimestamp 是来源声明的观察时刻，delayMs �
 
 向 `ChartWorkspaceOptions.store` 注入异步 `WorkspaceStore` 才启用命名管理，原 storage/storageKey 构造参数已移除。库提供 `createIndexedDBWorkspaceStore({databaseName?})`，也可注入真实宿主服务。每次操作都带不透明 scope（原 context）、ID 和 revision。更新／删除比较原 revision，冲突报 `WORKSPACE_CONFLICT`，不自动覆盖。未提供 store 时禁用管理并说明原因，IndexedDB 不可用不会静默回落内存或 localStorage。
 
-手动保存，不自动保存。加载先验证并暂存全部窗格，成功才替换当前工作台和选中记录；失败保留旧图。取消／超时不能证明写入没发生；保存结果待确认时读取同 scope/ID 核对，核对前禁用新存储变更。`importLegacy(name)` 显式将旧布局新增为可选条目，随后需要选择／加载；不自动加载，不删除或覆盖旧键。WorkspaceDocument v1、单图 v3 不变，ID／名称／revision 在存储外层。详见 [API](./api#工作台存储接口)。
+手动保存，不自动保存。加载先验证并暂存全部窗格，成功才替换当前工作台和选中记录；失败保留旧图。取消／超时不能证明写入没发生；保存结果待确认时读取同 scope/ID 核对，核对前禁用新存储变更。`importLegacy(name)` 显式将旧布局新增为可选条目，随后需要选择／加载；不自动加载，不删除或覆盖旧键。当前 WorkspaceDocument v3、单图 v4，旧工作台在读取时纯迁移；ID／名称／revision 在存储外层。详见 [API](./api#工作台存储接口)。
 
 DefaultDatafeed 仍是可选 Polygon 数据实现，需要上游有效凭证。其股票历史覆盖下界使用文档声明的 **2003-09-10**，仅适用于 `market:'stocks'`；不套用到其他 markets，也不表示每只股票当日已有数据。其他 markets 未知边界时不伪造穷尽。实时仍仅支持 `stocks / 1 minute / adjusted:false`，其他组合为历史读取；来源未声明的观察时刻或延迟保持未知。
 

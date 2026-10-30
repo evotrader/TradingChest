@@ -35,6 +35,12 @@ describe('workspace clock and atomic protocol',()=>{
  it('permits empty followers and rejects an empty driver before applying',async()=>{
   const s=setup([[20,40],[]]);await s.start();expect(s.work.getState().phase).toBe('paused');expect(()=>s.work.driver('c1')).toThrow('没有可推进');await s.work.stop();await expect(s.work.start({from:10,to:100,driverCellId:'c1'})).rejects.toMatchObject({code:'EMPTY_DRIVER'});expect(s.states.every(v=>v.mode==='live')).toBe(true)
  })
+ it('locates the preceding distinct cutoff without scanning an equal-time batch',async()=>{
+  let reads=0
+  const times=new Proxy([10,...Array<number>(50000).fill(20),40],{get(target,key,receiver){if(typeof key==='string'&&/^\d+$/.test(key))reads++;return Reflect.get(target,key,receiver)}})
+  const s=setup([times]);await s.start();await s.work.seek(20);reads=0
+  await s.work.step('backward');expect(s.work.getState().cursor).toBe(10);expect(reads).toBeLessThanOrEqual(64);expect(s.participants[0].prepare).toHaveBeenCalledOnce()
+ })
  it.each([0,1,3])('rolls back all applied cells when entry cell %i fails and publishes no success',async index=>{
   const s=setup([[20],[20],[20],[20]]);s.faults.set(`c${index}`,'apply');await expect(s.start()).rejects.toThrow('failed');expect(s.states.every(v=>v.mode==='live'&&!v.claimed)).toBe(true);expect(s.work.getState().mode).toBe('live');expect(s.log.filter(v=>v.startsWith('publish'))).toEqual([])
  })

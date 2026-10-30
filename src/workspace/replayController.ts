@@ -118,9 +118,9 @@ export class WorkspaceReplayController {
     return this.run('seeking',signal=>this.move(cursor,false,signal))
   }
   private next(direction:'forward'|'backward'):number|undefined {
-    const times=this.members.find(m=>m.cellId===this.state.driverCellId)!.prepared!.window.visibleAt,cursor=this.state.cursor!,index=replayPrefixLength(times,cursor)
-    if(direction==='forward')return times[index]
-    let before=index-1;while(before>=0&&times[before]>=cursor)--before
+    const times=this.members.find(m=>m.cellId===this.state.driverCellId)!.prepared!.window.visibleAt,cursor=this.state.cursor!
+    if(direction==='forward')return times[replayPrefixLength(times,cursor)]
+    const before=replayPrefixLength(times,cursor-1)-1
     return Math.max(this.state.from!,times[before]??this.state.from!)
   }
   step(direction:'forward'|'backward'):Promise<void>{

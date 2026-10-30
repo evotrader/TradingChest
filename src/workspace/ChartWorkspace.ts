@@ -172,20 +172,20 @@ export class ChartWorkspace {
   updateReplayBookmark(id:string,patch:Partial<Omit<ReplayBookmark,'id'>>):void{this.editReplayRecord(record=>{const index=record.bookmarks.findIndex(b=>b.id===id);if(index<0)throw new WorkspaceReplayError('OUT_OF_RANGE','书签不存在');record.bookmarks[index]={...record.bookmarks[index],...structuredClone(patch),id}})}
   removeReplayBookmark(id:string):void{this.editReplayRecord(record=>{const index=record.bookmarks.findIndex(b=>b.id===id);if(index<0)throw new WorkspaceReplayError('OUT_OF_RANGE','书签不存在');record.bookmarks.splice(index,1)})}
   navigateReplayEvent(ref:{cellId:string;layerId:string;eventId:string}):Promise<void>{return this.replayCore().navigateEvent(ref)}
-  private async allowReplayReplacement(reason:string,signal?:AbortSignal,incoming?:WorkspaceReplayRecord):Promise<void>{
+  private async allowReplayReplacement(reason:string,signal?:AbortSignal,incoming?:WorkspaceReplayRecord):Promise<WorkspaceSummary|undefined>{
     await this.replayNotes?.guardDraft(signal);signal?.throwIfAborted()
     const record=this.getReplayRecord();if(!record)return
     if(incoming&&this.jsonEqual({from:record.from,to:record.to,participants:record.participants,notes:record.notes,bookmarks:record.bookmarks},{from:incoming.from,to:incoming.to,participants:incoming.participants,notes:incoming.notes,bookmarks:incoming.bookmarks}))return
     if(!record.notes&&!record.bookmarks.length&&!this.replayRecordSaved)return
     if(this.replayDialog)throw new WorkspaceReplayError('BUSY','请先处理当前复盘记录')
-    await new Promise<void>((resolve,reject)=>{
+    return new Promise<WorkspaceSummary|undefined>((resolve,reject)=>{
       const previous=document.activeElement as HTMLElement|null,element=document.createElement('div');element.setAttribute('role','alertdialog');element.setAttribute('aria-label','保留复盘记录');element.tabIndex=-1
       const message=document.createElement('span');message.textContent=`${reason}。可保存旧工作台、放弃当前记录或取消；已有存储原件不会删除。`;element.append(message)
       let closed=false
       const abort=()=>finish(true)
-      const finish=(cancel=false)=>{if(closed)return;closed=true;signal?.removeEventListener('abort',abort);element.remove();this.replayDialog=undefined;previous?.focus();cancel?reject(new DOMException('已取消替换复盘记录','AbortError')):resolve()}
+      const finish=(cancel=false,saved?:WorkspaceSummary)=>{if(closed)return;closed=true;signal?.removeEventListener('abort',abort);element.remove();this.replayDialog=undefined;previous?.focus();cancel?reject(new DOMException('已取消替换复盘记录','AbortError')):resolve(saved)}
       const save=document.createElement('button');save.type='button';save.textContent='保存旧工作台并继续';save.disabled=!this.options.store
-      save.onclick=()=>{save.disabled=true;void (this.selected?this.save():this.saveAs(this.nameInput.value)).then(()=>finish()).catch(error=>{this.error(error);save.disabled=false})}
+      save.onclick=()=>{save.disabled=true;void (this.selected?this.save():this.saveAs(this.nameInput.value)).then(saved=>finish(false,saved)).catch(error=>{this.error(error);save.disabled=false})}
       const discard=document.createElement('button');discard.type='button';discard.textContent='放弃当前记录并继续';discard.onclick=()=>finish()
       const cancel=document.createElement('button');cancel.type='button';cancel.textContent='取消';cancel.onclick=()=>finish(true)
       element.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();finish(true)}}
@@ -426,6 +426,12 @@ export class ChartWorkspace {
   }
   async saveAs(name:string):Promise<WorkspaceSummary> {if(this.initialization)await this.initialization;return this.writeInput({kind:'create',id:createOpaqueId(),name:this.name(name),document:this.capture()})}
   async save():Promise<WorkspaceSummary> {if(!this.selected)throw this.failure('workspace_choose_saved');const selected=this.copy(this.selected);return this.writeInput({kind:'update',id:selected.id,expectedRevision:selected.revision,name:selected.name,document:this.capture()})}
+  private readStored(id:string,parentSignal?:AbortSignal):Promise<StoredWorkspace> {
+    return this.runStorage('read',async(store,storageSignal)=>{
+      const signal=parentSignal?AbortSignal.any([parentSignal,storageSignal]):storageSignal;signal.throwIfAborted()
+      const raw=await this.abortable(store.read(this.options.context,id,signal),signal);if(!raw)throw this.storageFailure('WORKSPACE_NOT_FOUND',this.t('workspace_no_saved'));await yieldTask();signal.throwIfAborted();return this.stored(raw,id)
+    })
+  }
   async load(id:string):Promise<void> {
     if(!id)throw this.failure('workspace_choose_saved')
     this.deleteDialog?.remove()
@@ -433,10 +439,10 @@ export class ChartWorkspace {
     if(this.io?.kind==='write')throw this.failure('workspace_busy')
     const sequence=++this.loadSequence
     if(this.restoreTask){this.restoreController?.abort();try{await this.restoreTask}catch{} }
-    const stored=await this.runStorage('read',async(store,signal)=>{const raw=await this.abortable(store.read(this.options.context,id,signal),signal);if(!raw)throw this.storageFailure('WORKSPACE_NOT_FOUND',this.t('workspace_no_saved'));await yieldTask();signal.throwIfAborted();return this.stored(raw,id)})
+    const stored=await this.readStored(id)
     const current=()=>sequence===this.loadSequence&&!this.disposed
     if(!current())throw new DOMException('Workspace load cancelled','AbortError')
-    await this.restoreDocument(stored.document,current,undefined,true)
+    await this.restoreDocument(stored.document,current,undefined,stored)
     if(!current())throw new DOMException('Workspace load cancelled','AbortError')
     this.selected=this.summary(stored);this.nameInput.value=stored.name;this.renderSaved();this.message(this.notice,'workspace_restored')
   }
@@ -483,13 +489,13 @@ export class ChartWorkspace {
   async restore(doc:WorkspaceDocument,isCurrent:()=>boolean=()=>true,signal?:AbortSignal){
     return this.restoreDocument(doc,isCurrent,signal)
   }
-  private async restoreDocument(doc:WorkspaceDocument,isCurrent:()=>boolean,signal?:AbortSignal,ownsDocument=false){
+  private async restoreDocument(doc:WorkspaceDocument,isCurrent:()=>boolean,signal?:AbortSignal,loaded?:StoredWorkspace){
     if(this.restoreTask)throw this.failure('workspace_busy')
     const controller=new AbortController();this.restoreController=controller
-    const task=this.performRestore(doc,isCurrent,signal?AbortSignal.any([signal,controller.signal]):controller.signal,ownsDocument).finally(()=>{if(this.restoreTask===task){this.restoreTask=undefined;this.restoreController=undefined;this.updateStoreControls();this.replayProjection='';if(this.options.replay?.enabled)this.replayChanged(this.getReplayState())}})
+    const task=this.performRestore(doc,isCurrent,signal?AbortSignal.any([signal,controller.signal]):controller.signal,loaded).finally(()=>{if(this.restoreTask===task){this.restoreTask=undefined;this.restoreController=undefined;this.updateStoreControls();this.replayProjection='';if(this.options.replay?.enabled)this.replayChanged(this.getReplayState())}})
     this.restoreTask=task;this.updateStoreControls();if(this.options.replay?.enabled)this.replayChanged(this.getReplayState());return task
   }
-  private async performRestore(doc:WorkspaceDocument,isCurrent:()=>boolean,signal?:AbortSignal,ownsDocument=false){
+  private async performRestore(doc:WorkspaceDocument,isCurrent:()=>boolean,signal?:AbortSignal,loaded?:StoredWorkspace){
     if(this.initialization)await this.initialization
     if(this.disposed)throw this.failure('workspace_closed')
     if(this.busy)throw this.failure('workspace_busy')
@@ -498,16 +504,21 @@ export class ChartWorkspace {
     if(this.cells.some(c=>c.pro&&(c.pro.getDrawingHistoryState().pending||c.pro.getDrawingHistoryState().uncertainLogicalIds.length)))throw this.failure('workspace_drawing_load')
     // Only load() can transfer the private copy already migrated and checked by stored().
     // Independent public restore() calls still validate and detach their complete input.
-    if(!ownsDocument)try{doc=migrateWorkspaceDocument(doc)}catch{throw this.failure('workspace_invalid_document')}
+    if(!loaded)try{doc=migrateWorkspaceDocument(doc)}catch{throw this.failure('workspace_invalid_document')}
     if(doc.cells.reduce((n,c)=>n+c.chart.drawings.length,0)>=128){
       await yieldTask()
       if(this.disposed||!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
       if(this.busy)throw this.failure('workspace_busy')
       this.assertDrawingIdle(this.cells)
     }
-    for(const cell of doc.cells){if(!this.options.symbols.some(s=>s.ticker===cell.symbol.ticker))throw this.failure('workspace_symbol_missing',{ticker:cell.symbol.ticker});const context=cell.cellId==='primary'?this.options.context:`${this.options.context}:${cell.cellId}`;if(cell.context!==context)throw this.failure('workspace_context_mismatch')}
-    await this.allowReplayReplacement('打开工作台将替换当前复盘记录',signal,doc.replaySession)
+    const saved=await this.allowReplayReplacement('打开工作台将替换当前复盘记录',signal,doc.replaySession)
     signal?.throwIfAborted();if(this.disposed||!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
+    if(loaded&&saved?.id===loaded.id){
+      // Saving the target replaces both its document and revision; never restore the pre-dialog snapshot.
+      Object.assign(loaded,await this.readStored(loaded.id,signal));doc=loaded.document
+    }
+    signal?.throwIfAborted();if(this.disposed||!isCurrent())throw new DOMException('Workspace load cancelled','AbortError')
+    for(const cell of doc.cells){if(!this.options.symbols.some(s=>s.ticker===cell.symbol.ticker))throw this.failure('workspace_symbol_missing',{ticker:cell.symbol.ticker});const context=cell.cellId==='primary'?this.options.context:`${this.options.context}:${cell.cellId}`;if(cell.context!==context)throw this.failure('workspace_context_mismatch')}
     if(doc.replaySession?.mode==='paused'&&!this.options.replay?.enabled)throw new WorkspaceReplayError('UNSUPPORTED','当前宿主未启用工作台复盘，原工作台保留')
     const stagedSessions=new DrawingSessionRegistry({scope:'workspace',documents:doc.sharedDrawings})
     this.busy=true;for(const c of this.cells){c.body.inert=true;c.pro?.getShortcutManager()?.setEnabled(false)}++this.alignment;const staged:Runtime[]=[];const stage=document.createElement('div');stage.style.cssText='position:absolute;visibility:hidden;pointer-events:none;width:'+this.grid.clientWidth+'px';this.root.append(stage)

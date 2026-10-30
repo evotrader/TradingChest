@@ -9,16 +9,19 @@ try{
  // A second animation frame runs after a real rendering opportunity. Start at
  // the input event, before the product handler, and observe visible busy state.
  await page.evaluate(()=>{
-  window.feedback=[];document.addEventListener('click',event=>{
-   const action=event.target.closest('[data-replay-action]')?.dataset.replayAction;if(!['start','resume','stop'].includes(action))return
+  window.feedback=[];const observe=event=>{
+   const action=event.type==='keydown'&&event.key===' '&&event.target.matches('.tc-replay-controls')?`key-${replayBench.workspace.getReplayState().phase==='playing'?'pause':'play'}`:event.target.closest('[data-replay-action]')?.dataset.replayAction;if(!['start','resume','stop','seek','forward','back','key-play','key-pause'].includes(action))return
    const started=event.timeStamp,dispatchedAt=performance.now();requestAnimationFrame(()=>requestAnimationFrame(()=>{const root=document.querySelector('.tc-workspace'),overlay=document.querySelector('.tc-workspace-replay-busy');feedback.push({action,latency:performance.now()-started,dispatchDelay:dispatchedAt-started,phase:root.dataset.replayPhase,visible:!!overlay&&overlay.getBoundingClientRect().height>0||['idle','paused'].includes(root.dataset.replayPhase)})}))
-  },true)
+  };document.addEventListener('click',observe,true);document.addEventListener('keydown',observe,true)
  })
  for(let round=0;round<9;round++){
   await page.locator(`[data-replay-action=${round?'resume':'start'}]`).click();await page.waitForFunction(()=>replayBench.workspace.getReplayState().phase==='paused')
+  const target=await page.evaluate(()=>replayBench.bars[5000].timestamp);await page.getByLabel('定位时刻',{exact:true}).fill(new Date(target).toISOString().replace(/:00\.000Z$/,'').replace(/\.000Z$/,'').replace(/Z$/,''));
+  for(const action of ['seek','forward','back']){await page.locator(`[data-replay-action=${action}]`).click();await page.waitForFunction(()=>replayBench.workspace.getReplayState().phase==='paused')}
+  const controls=page.locator('.tc-replay-controls');await controls.focus();await controls.press('Space');await page.waitForFunction(()=>replayBench.workspace.getReplayState().phase==='playing');await controls.press('Space');await page.waitForFunction(()=>replayBench.workspace.getReplayState().phase==='paused');
   await page.locator('[data-replay-action=stop]').click();await page.waitForFunction(()=>replayBench.workspace.getReplayState().phase==='idle')
  }
- await page.waitForFunction(()=>feedback.length===18);result.samples=await page.evaluate(()=>feedback)
+ await page.waitForFunction(()=>feedback.length===63);result.samples=await page.evaluate(()=>feedback)
  assert.ok(result.samples.every(sample=>sample.visible));assert.deepEqual(result.errors,[])
  result.p95=Math.max(...result.samples.map(sample=>sample.latency));assert.ok(result.p95<=result.limit,JSON.stringify(result));result.cleanup=await page.evaluate(()=>replayBench.dispose());assert.deepEqual(result.cleanup,{subscriptions:0,dom:0});result.passed=true
 }catch(error){result.failure=String(error);throw error}finally{writeFileSync(output,JSON.stringify(result,null,2));await browser.close()}

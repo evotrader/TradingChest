@@ -1,4 +1,5 @@
-import {ChartWorkspace,KLineChartPro,createIndexedDBWorkspaceStore} from 'trading-chest/chart'
+import {KLineChartPro} from 'trading-chest'
+import {ChartWorkspace,createIndexedDBWorkspaceStore} from 'trading-chest/chart'
 import 'trading-chest/dist/trading-chest.css'
 const symbols=['A','B','COMPARE'].map(ticker=>({ticker:`SYNTHETIC.${ticker}`,name:`隔离合成 ${ticker}`,market:'synthetic',exchange:'EXAMPLE',priceCurrency:'USD',pricePrecision:2,volumePrecision:0}))
 const periods=[{multiplier:1,timespan:'minute',text:'1m'},{multiplier:5,timespan:'minute',text:'5m'}]

@@ -28,6 +28,19 @@ try{
     const second=await page.evaluate(async name=>storageTest.create('a',name).read('scope','id',storageTest.signal()),name)
     assert.deepEqual(second,first.value)
   })
+  await run('legacy-read-migrates-without-rewriting-native-row',async name=>{
+    const value=await page.evaluate(async name=>{
+      const t=storageTest,store=t.create('a',name),saved=await store.write('scope',{kind:'create',id:'id',name:'旧工作台',document:t.document()},t.signal())
+      const original={scope:'scope',...saved,document:{...saved.document,version:2}}
+      await t.rawWrite(name,original)
+      const migrated=await store.read('scope','id',t.signal()),db=await t.rawOpen(name)
+      let raw
+      try{raw=await new Promise((resolve,reject)=>{const tx=db.transaction('workspaces','readonly'),request=tx.objectStore('workspaces').get(['scope','id']);tx.oncomplete=()=>resolve(request.result);tx.onabort=()=>reject(tx.error)})}finally{db.close()}
+      return {saved,original,migrated,raw}
+    },name)
+    assert.equal(value.migrated.document.version,3);assert.deepEqual(value.migrated,value.saved)
+    assert.deepEqual(value.raw,value.original);assert.equal(value.raw.document.version,2)
+  })
   await run('stable-create-id-duplicate-names-and-scope-isolation',async name=>{
     const value=await page.evaluate(async name=>{
       const t=storageTest,store=t.create('a',name),write=id=>store.write('scope',{kind:'create',id,name:'同名',document:t.document()},t.signal())

@@ -104,6 +104,17 @@ window.replayBench={
   const half=Math.floor(bars.length/2),result=[]
   const check=async(name,action,position,replay)=>{await action();const projection=await settle(position,replay,true);result.push({name,projection:projection.projection,state:workspace.getReplayState()})}
   primary().createTradeVisualization([{entryTs:bars[10].timestamp,exitTs:bars.at(-1).timestamp,entryPrice:bars[10].close,exitPrice:bars.at(-1).close,pnl:1,direction:'long'}])
+  const chartHeights=()=>cells().map(({chart:pro})=>pro.getChart().getSize().height)
+  await wait(()=>cells().every(({chart:pro})=>pro.getChart().getSize().height===Math.round(pro.getChart().getDom().getBoundingClientRect().height)),'Initial chart canvases must match their layout')
+  const initialHeights=chartHeights(),beforeClaimReads=replayReads
+  assert(initialHeights.every(height=>Number.isFinite(height)&&height>0),'Native chart heights must be measurable')
+  failures.add('hang:primary');const preparing=enter(half).then(()=>null,error=>error)
+  try{
+   await wait(()=>replayReads>beforeClaimReads,'Ownership must reach the actual history request');await frame()
+   assert(JSON.stringify(chartHeights())===JSON.stringify(initialHeights),`Claiming replay ownership must not resize chart canvases: ${JSON.stringify({before:initialHeights,after:chartHeights()})}`)
+  }finally{await workspace.stopReplay();failures.clear()}
+  assert((await preparing)?.name==='AbortError','The canceled source request must settle');await frame()
+  assert(JSON.stringify(chartHeights())===JSON.stringify(initialHeights),`Releasing replay ownership must not resize chart canvases: ${JSON.stringify({before:initialHeights,after:chartHeights()})}`)
   await check('enter',()=>enter(half),half,true)
   assert(primary().getChart().getIndicators({name:'TradeVis'})[0]?.visible===false,'没有可用时刻的成交覆盖物必须隐藏')
   const before={historyReads,replayReads}

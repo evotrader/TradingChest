@@ -1751,11 +1751,11 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
         </div>}</Show>
         <For each={Object.entries(drawingState().projectionErrors??{})}>{([id,message])=><div role="alert" class="klinecharts-pro-data-error">{id}: {message} <button onClick={()=>{drawingHistory.reproject();drawingCoordinator.project()}}>{i18n('retry',locale())}</button></div>}</For>
         <Show when={workbenchState()?.lastResult?.message}><div role="alert" class="klinecharts-pro-data-error">{workbenchState()?.lastResult?.message}</div></Show>
-        <Show when={workspaceOwned()}><div class="klinecharts-pro-workspace-replay" role="status">此图由工作台复盘控制；请使用工作台播放、定位与退出</div></Show>
         <Show when={loadError()}><div role="alert" class="klinecharts-pro-data-error">{loadError()} <button onClick={() => {!engineReady() ? retryInitialization?.() : replayEngine ? void stopReplay().catch(()=>{}) : void loader?.retryError().catch(()=>{})}}>{i18n('retry',locale())}</button></div></Show>
       </div>
       <div
         class="klinecharts-pro-content" onKeyDown={handleKeyDown}>
+        <Show when={workspaceOwned()}><div class="klinecharts-pro-replay-bar klinecharts-pro-workspace-replay" role="status">此图由工作台复盘控制；请使用工作台播放、定位与退出</div></Show>
         <Show when={loadingVisible()}>
           <Loading/>
         </Show>

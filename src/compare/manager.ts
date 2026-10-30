@@ -169,7 +169,7 @@ export class ComparisonManager {
   }catch(reason){this.fail(reason,m.handle.id)}
  }
  mainChanged(){
-  if(this.disposed||!this.members.size)return
+  if(this.disposed||this.workspaceAtomic||!this.members.size)return
   try{
    if(!this.replay){const next=this.chart().getDataList();validateBars(next);const old=this.mainPrices.get(this.base!),current=next.find(b=>b.timestamp===this.base)?.close;this.checkBase(next,this.base!);this.mainPrices=priceMap(next);this.errorsByOwner.delete('main');if(old!==undefined&&old!==current)this.notice=()=>`${this.text('comparison_main_revised')}${new Date(this.base!).toISOString()}`}
    this.render();this.emit()

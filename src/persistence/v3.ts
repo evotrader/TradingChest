@@ -1,5 +1,5 @@
 import {createOpaqueId} from '../ids'
-import {configureIndicatorTooltip} from '../indicator/instances'
+import {configureIndicatorInstance} from '../indicator/instances'
 import {runtimeBindings} from '../analysis/bindings'
 import i18n from '../i18n'
 import {resolveDrawingPane} from '../drawing/pane'
@@ -139,7 +139,7 @@ export async function restoreLayout(chartPro:ChartPro,layout:ChartLayoutV3,trans
     const paneId=i.placement==='main'?'candle_pane':i.paneId,yAxisId=i.yAxisId?axisIds.get(i.yAxisId)??i.yAxisId:undefined
     const id=chart.createIndicator({name:i.name,id:i.id,paneId,yAxisId,calcParams:i.calcParams,visible:i.visible},true)
     const actual=id?chart.getIndicators({id}):[]
-    if(actual.length===1){const descriptor=catalog.find(d=>d.name===i.name)!;validateIndicatorParams(descriptor,actual[0].calcParams);configureIndicatorTooltip(chart,actual[0],descriptor)}
+    if(actual.length===1){const descriptor=catalog.find(d=>d.name===i.name)!;validateIndicatorParams(descriptor,actual[0].calcParams);configureIndicatorInstance(chart,actual[0],descriptor)}
     if(!id||actual.length!==1||actual[0].name!==i.name||(i.id&&actual[0].id!==i.id)||(paneId&&actual[0].paneId!==paneId)||(yAxisId&&actual[0].yAxisId!==yAxisId))throw Error(`无法恢复指标 ${i.name}：创建结果或窗格／价格轴绑定不匹配`)
   }
   for(const pane of layout.panes)chart.setPaneOptions(pane)

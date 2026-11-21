@@ -1,9 +1,12 @@
 import type {Chart,IndicatorCreateTooltipDataSourceCallback,Indicator} from 'klinecharts'
 import type {IndicatorDescriptor} from './catalog'
+import {calculateAcrossCoverage} from './coverage'
+
+export const indicatorCoverageByChart = new WeakMap<Chart, () => readonly number[]>()
 const originalTooltip=Symbol('trading-chest-original-tooltip')
 type OwnedTooltip=IndicatorCreateTooltipDataSourceCallback<unknown>&{[originalTooltip]?:IndicatorCreateTooltipDataSourceCallback<unknown>|null}
-/** Preserve template legends/units and install the same instance controls after add or restore. */
-export function configureIndicatorTooltip(chart:Chart,indicator:Indicator,descriptor:IndicatorDescriptor):void {
+/** Preserve template legends and apply the same coverage rules on add and restore. */
+export function configureIndicatorInstance(chart:Chart,indicator:Indicator,descriptor:IndicatorDescriptor):void {
   const existing=indicator.createTooltipDataSource as OwnedTooltip|null
   const original=existing&&originalTooltip in existing?existing[originalTooltip]??null:existing
   const allowSettings=!!descriptor.parameters
@@ -13,5 +16,10 @@ export function configureIndicatorTooltip(chart:Chart,indicator:Indicator,descri
     return {...content,features:[...(content?.features??[]).filter(f=>!['visible','invisible','setting','close'].includes(f.id)),...features]}
   }) as OwnedTooltip
   wrapped[originalTooltip]=original
-  chart.overrideIndicator({id:indicator.id,name:indicator.name,createTooltipDataSource:wrapped})
+  const originalCalc = indicator.calc
+  const breakTimes = indicatorCoverageByChart.get(chart)
+  chart.overrideIndicator({id:indicator.id,name:indicator.name,createTooltipDataSource:wrapped,
+    calc: breakTimes ? (bars, current) => calculateAcrossCoverage(bars, breakTimes(), section =>
+      originalCalc.call(current, section, current)) : undefined,
+  })
 }

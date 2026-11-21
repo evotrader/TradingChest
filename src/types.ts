@@ -142,6 +142,7 @@ export interface ChartProOptions extends AnalysisOptions {
   drawingPreferencesScope?:string
   onDrawingStateChange?:(state:import('./drawing/types').DrawingState)=>void
   indicatorCatalog?:import('./indicator/catalog').IndicatorDescriptor[]
+  indicatorBreakTimes?: (symbol: SymbolInfo, period: Period) => readonly number[]
   comparisonSymbols?:SymbolInfo[]
   createComparisonDatafeed?:(symbol:SymbolInfo,period:Period)=>import('./compare/types').ComparisonDatafeed
   onComparisonChange?:(state:import('./compare/types').ComparisonState)=>void

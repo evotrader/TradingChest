@@ -41,7 +41,7 @@ import { translateTimezone } from './widget/timezone-modal/data'
 
 import { SymbolInfo, Period, ChartProOptions, ChartPro } from './types'
 import { indicatorRegistry } from './indicator'
-import {configureIndicatorTooltip} from './indicator/instances'
+import {configureIndicatorInstance, indicatorCoverageByChart} from './indicator/instances'
 import {builtinIndicatorCatalog,copyIndicatorCatalog,validateIndicatorParams,indicatorInstance,type AddIndicatorOptions,type IndicatorHandle} from './indicator/catalog'
 import AnalysisEventList from './analysis/EventList'
 import { EngineDataLoader } from './core/engineDataLoader'
@@ -99,7 +99,7 @@ export interface ChartComponentApi extends ChartPro {
   refreshDrawingAlertAxis: () => void
 }
 
-export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'analysisLayerListVisible'|'onAnalysisLayerChange'|'onAnalysisEventClick'|'onAnalysisPointSelect'|'indicatorCatalog' | 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'|'comparisonSymbols'|'createComparisonDatafeed'|'onComparisonChange'|'onDrawingSelect'|'drawingOwner'|'isDrawingEditable'|'commitDrawing'|'onDrawingHistoryChange'|'drawingCatalog'|'onDrawingStateChange'|'drawingPreferences'|'drawingPreferencesStore'|'drawingPreferencesScope'|'resolveDrawingShareKey'|'drawingWorkspaceSessions'|'drawingHostSessions'|'createDrawingDocumentId'|'drawingAlertScope'|'onDrawingAlertStateChange'|'onDrawingAlertTrigger'|'onReplayDrawingAlertTrigger'|'drawingAlertLevelResolvers'>> {
+export interface ChartProComponentProps extends Required<Omit<ChartProOptions, 'analysisLayerListVisible'|'onAnalysisLayerChange'|'onAnalysisEventClick'|'onAnalysisPointSelect'|'indicatorCatalog'|'indicatorBreakTimes' | 'container' | 'onAlertTrigger' | 'onReplayAlertTrigger' | 'onError' | 'onDataReady' | 'onDataState'|'comparisonSymbols'|'createComparisonDatafeed'|'onComparisonChange'|'onDrawingSelect'|'drawingOwner'|'isDrawingEditable'|'commitDrawing'|'onDrawingHistoryChange'|'drawingCatalog'|'onDrawingStateChange'|'drawingPreferences'|'drawingPreferencesStore'|'drawingPreferencesScope'|'resolveDrawingShareKey'|'drawingWorkspaceSessions'|'drawingHostSessions'|'createDrawingDocumentId'|'drawingAlertScope'|'onDrawingAlertStateChange'|'onDrawingAlertTrigger'|'onReplayDrawingAlertTrigger'|'drawingAlertLevelResolvers'>> {
   analysisLayerListVisible?:ChartProOptions['analysisLayerListVisible']
   onAnalysisLayerChange?:ChartProOptions['onAnalysisLayerChange']
   onAnalysisEventClick?:ChartProOptions['onAnalysisEventClick']
@@ -115,6 +115,7 @@ export interface ChartProComponentProps extends Required<Omit<ChartProOptions, '
   drawingHostSessions?:DrawingSessionRegistry
   onDrawingStateChange?:ChartProOptions['onDrawingStateChange']
   indicatorCatalog?:ChartProOptions['indicatorCatalog']
+  indicatorBreakTimes?:ChartProOptions['indicatorBreakTimes']
   comparisonSymbols?:ChartProOptions['comparisonSymbols']
   createComparisonDatafeed?:ChartProOptions['createComparisonDatafeed']
   onComparisonChange?:ChartProOptions['onComparisonChange']
@@ -202,7 +203,7 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     const i=id?widget.getIndicators({id})[0]:undefined
     if(!i||i.name!==options.name||!i.paneId||!i.yAxisId||!widget.getYAxes({id:i.yAxisId,paneId:i.paneId}).length||(options.placement==='main')!==(i.paneId==='candle_pane')){if(id)widget.removeIndicator({id});throw Error(i18n('indicator_binding_failed',locale()))}
     try{validateIndicatorParams(d,i.calcParams,locale())}catch(e){widget.removeIndicator({id:i.id});throw e}
-    configureIndicatorTooltip(widget,i,d)
+    configureIndicatorInstance(widget,i,d)
     if(i.name==='VOL')widget.overrideYAxis({id:i.yAxisId,paneId:i.paneId,gap:{bottom:2}})
     refreshIndicators();return {id:i.id,name:i.name,paneId:i.paneId,yAxisId:i.yAxisId}
   }
@@ -1318,6 +1319,8 @@ const ChartProComponent: Component<ChartProComponentProps> = props => {
     })
 
     if (widget) {
+      const breakTimes = props.indicatorBreakTimes
+      if (breakTimes) indicatorCoverageByChart.set(widget, () => breakTimes(symbol(), period()))
       drawingSnapResults=new DrawingSnapResults(widget,()=>confirmedAlertSeries?.confirmed?`${confirmedAlertSeries.epoch}:${confirmedAlertSeries.contentRevision}`:undefined)
       const watermarkContainer = widget.getDom('candle_pane', 'main')
       if (watermarkContainer) {

@@ -57,6 +57,7 @@ export default class KLineChartPro implements ChartPro {
         <ChartProComponent
           ref={(chart: ChartComponentApi) => { this._chartApi = chart;this._releaseReplayParticipant=registerReplayParticipant(this,chart.replayParticipant) }}
           indicatorCatalog={options.indicatorCatalog}
+          indicatorBreakTimes={options.indicatorBreakTimes}
           resolveDrawingShareKey={options.resolveDrawingShareKey}
           drawingWorkspaceSessions={options.drawingWorkspaceSessions}
           drawingHostSessions={options.drawingHostSessions}
